@@ -41,18 +41,49 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 		button.title = ""
 		if HookSetup.shared.hasProblem {
-			button.image = Self.symbol("bell.slash")
+			button.image = Self.crossedOutSparkle
 		} else if waiting > 0 {
-			button.image = Self.symbol("bell.badge.fill")
+			button.image = Self.sparkle
 			button.title = " \(waiting)"
 		} else if working > 0 {
 			let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 			button.image = Spinner.shared.image(workingCount: working, isDark: isDark)
 		} else {
-			button.image = Self.symbol("bell")
+			button.image = Self.sparkle
 		}
 		button.imagePosition = .imageLeading
 	}
+
+	private static let sparkle: NSImage? = {
+		let image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude Code Notifier")?
+			.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
+		image?.isTemplate = true
+		return image
+	}()
+
+	/// The sparkle with a diagonal line, for a setup problem. macOS has no crossed-out sparkle symbol. Like the system's
+	/// crossed-out symbols, the line has a small gap on each side.
+	private static let crossedOutSparkle: NSImage? = {
+		guard let sparkle else { return nil }
+		let image = NSImage(size: sparkle.size, flipped: false) { rect in
+			sparkle.draw(in: rect)
+			let inset = rect.width * 0.12
+			let line = NSBezierPath()
+			line.move(to: NSPoint(x: rect.minX + inset, y: rect.maxY - inset))
+			line.line(to: NSPoint(x: rect.maxX - inset, y: rect.minY + inset))
+			line.lineCapStyle = .round
+			NSGraphicsContext.current?.compositingOperation = .clear
+			line.lineWidth = 3.2
+			line.stroke()
+			NSGraphicsContext.current?.compositingOperation = .sourceOver
+			line.lineWidth = 1.2
+			NSColor.black.setStroke()
+			line.stroke()
+			return true
+		}
+		image.isTemplate = true
+		return image
+	}()
 
 	// MARK: - Menu
 

@@ -8,9 +8,10 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
 | The session was closed (`/clear` and archiving do not count) | »Session ended« | Pop |
 
-- **Menu bar icon:** a bell while nothing happens. While sessions work, a spinner: an orange arc that turns around an orange ring,
-  with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
-  ask you something, because that needs you first. A crossed-out bell means that the setup has a problem.
+- **Menu bar icon:** a sparkle while nothing happens. While sessions work, a spinner: an orange arc that turns
+  around an orange ring, with a sparkle in the middle for one session, or the number of working sessions. The sparkle
+  with a count while sessions ask you something, because that needs you first. A crossed-out sparkle means that the
+  setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time
   since the start on the right (»4:07«, »1:04:07«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
@@ -61,7 +62,7 @@ answer quickly gives no notification.
 3. Start at login: System Settings › General › Login Items › »+« › choose the app. Or use »Launch at Login« in the menu
    (only after step 1, because the entry points to the current location of the app).
 
-The window opens at every start until the setup is complete. Later, a crossed-out bell in the menu bar shows that the
+The window opens at every start until the setup is complete. Later, a crossed-out sparkle in the menu bar shows that the
 hooks stopped working, and »Hook Setup …« in the menu opens the window again. The app honors `CLAUDE_CONFIG_DIR` like
 Claude Code does.
 
