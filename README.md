@@ -17,8 +17,9 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
   transcript. The time updates every second while the menu is open. A row is highlighted under the mouse pointer, but
   the card only shows information, it cannot be clicked. Archived sessions are not in the card.
 - **Notifications:** one per session, with the session title. A newer one replaces the older one. A click brings VS Code to the front.
-- **Settings in the menu:** notify when it is your turn, notify when a session ends, play sound, mute all,
-  launch at login, and test notifications for each situation.
+- **Menu:** three groups. First the card, with the app status on the right of its header (»Listening on
+  127.0.0.1:47823«, or a problem in orange). Then »Notifications«: when it is your turn, when a session ends, play
+  sound, mute all, and test notifications for each situation. Last »Launch at Login«, »Hook Setup …« and »Quit«.
 
 ## How it works
 

@@ -83,8 +83,14 @@ func activateVSCode() {
 
 extension HookSetup {
 	/// Something keeps the notifications from working. A missing first event from Claude Code does not count.
-	var hasProblem: Bool {
-		if case .failed = commandTest { return true }
-		return !isListening || !hooksConfigured || notificationsAllowed == false
+	var hasProblem: Bool { problem != nil }
+
+	/// The problem that keeps the notifications from working, for the menu, or `nil` if there is none.
+	var problem: String? {
+		if !isListening { return "Not Listening" }
+		if notificationsAllowed == false { return "Notifications Blocked" }
+		if case .failed = commandTest { return "Hooks Not Working" }
+		if !hooksConfigured { return "Hooks Not Working" }
+		return nil
 	}
 }

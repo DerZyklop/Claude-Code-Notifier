@@ -56,23 +56,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	// MARK: - Menu
 
+	/// Three groups: the sessions with the status of the app, the notification settings, and the app itself.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
 		let setup = HookSetup.shared
 		let store = SessionStore.shared
 
-		if !setup.isListening {
-			menu.addItem(action("⚠︎ Not Listening – Open Setup …", #selector(showSetup)))
-		} else if setup.notificationsAllowed == false {
-			menu.addItem(action("⚠︎ Notifications Blocked – Open Setup …", #selector(showSetup)))
-		} else if setup.hasProblem {
-			menu.addItem(action("⚠︎ Hooks Not Working – Open Setup …", #selector(showSetup)))
-		} else {
-			menu.addItem(NSMenuItem(title: "Listening on 127.0.0.1:\(eventPort)", action: nil, keyEquivalent: ""))
+		// A problem gets a clickable item above the card. The card header names the problem too.
+		if setup.hasProblem {
+			menu.addItem(action("⚠︎ \(setup.problem ?? "Setup Incomplete") – Open Setup …", #selector(showSetup)))
 		}
-
 		clock.tick()
-		let card = NSHostingView(rootView: SessionCard(store: store, clock: clock))
+		let card = NSHostingView(rootView: sessionCard())
 		// The menu sets the width, and ``fitCard()`` sets the height.
 		card.sizingOptions = []
 		card.autoresizingMask = [.width]
@@ -85,26 +80,27 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
 
-		menu.addItem(toggle("Notify When It Is Your Turn", SettingsKey.notifyOnDone))
-		menu.addItem(toggle("Notify When a Session Ends", SettingsKey.notifyOnSessionEnd))
+		menu.addItem(.separator())
+		menu.addItem(sectionHeader("Notifications"))
+		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
+		menu.addItem(toggle("When a Session Ends", SettingsKey.notifyOnSessionEnd))
 		menu.addItem(toggle("Play Sound", SettingsKey.playsSound))
-		menu.addItem(toggle("Mute All Notifications", SettingsKey.muted, default: false))
-
+		menu.addItem(toggle("Mute All", SettingsKey.muted, default: false))
 		let tests = NSMenu()
 		for kind in NotificationKind.allCases {
 			let item = action(kind.subtitle, #selector(sendTestNotification(_:)))
 			item.representedObject = kind
 			tests.addItem(item)
 		}
-		let testsItem = NSMenuItem(title: "Send Test Notification", action: nil, keyEquivalent: "")
+		let testsItem = NSMenuItem(title: "Send Test", action: nil, keyEquivalent: "")
 		testsItem.submenu = tests
 		menu.addItem(testsItem)
 
+		menu.addItem(.separator())
 		let launchAtLogin = action("Launch at Login", #selector(toggleLaunchAtLogin))
 		launchAtLogin.state = SMAppService.mainApp.status == .enabled ? .on : .off
 		menu.addItem(launchAtLogin)
 		menu.addItem(action("Hook Setup …", #selector(showSetup)))
-		menu.addItem(.separator())
 		let quit = action("Quit Claude Code Notifier", #selector(quit))
 		quit.keyEquivalent = "q"
 		menu.addItem(quit)
@@ -127,7 +123,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
 	/// so a second view with the same content measures it.
 	private func cardSize() -> NSSize {
-		NSHostingView(rootView: SessionCard(store: SessionStore.shared, clock: clock)).fittingSize
+		NSHostingView(rootView: sessionCard()).fittingSize
+	}
+
+	private func sessionCard() -> SessionCard {
+		SessionCard(store: SessionStore.shared, setup: HookSetup.shared, clock: clock)
 	}
 
 	/// Gives the card the height of its rows, e.g. when a session starts while the menu is open.
@@ -143,6 +143,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
 		item.target = self
 		return item
+	}
+
+	private func sectionHeader(_ title: String) -> NSMenuItem {
+		if #available(macOS 14, *) { return .sectionHeader(title: title) }
+		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
 	}
 
 	private func toggle(_ title: String, _ key: String, default defaultValue: Bool = true) -> NSMenuItem {

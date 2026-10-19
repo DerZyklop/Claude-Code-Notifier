@@ -10,15 +10,18 @@ final class MenuClock: ObservableObject {
 	}
 }
 
-/// The sessions in the menu: a bordered card with one row per session. It only shows information.
+/// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
+/// the app on the right. The card only shows information.
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
+	@ObservedObject var setup: HookSetup
 	@ObservedObject var clock: MenuClock
 	@State private var hoveredID: String?
 
 	var body: some View {
 		let sessions = store.sortedSessions
 		VStack(spacing: 0) {
+			header
 			if sessions.isEmpty {
 				Text("No Claude Code sessions yet")
 					.foregroundStyle(.secondary)
@@ -38,6 +41,29 @@ struct SessionCard: View {
 		.padding(.vertical, 4)
 		.font(.system(size: NSFont.systemFontSize))
 		.frame(minWidth: 300)
+	}
+
+	private var header: some View {
+		HStack(spacing: 4) {
+			Text("Sessions")
+				.fontWeight(.semibold)
+				.foregroundStyle(.secondary)
+			Spacer(minLength: 16)
+			if let problem = setup.problem {
+				Image(systemName: "exclamationmark.triangle.fill")
+					.foregroundStyle(.orange)
+				Text(problem)
+					.foregroundStyle(.orange)
+			} else {
+				Circle().fill(.green).frame(width: 6, height: 6)
+				Text("Listening on 127.0.0.1:\(String(eventPort))")
+					.foregroundStyle(.secondary)
+			}
+		}
+		.font(.system(size: NSFont.smallSystemFontSize))
+		.padding(.horizontal, 6)
+		.padding(.top, 3)
+		.padding(.bottom, 5)
 	}
 
 	private func row(_ session: Session) -> some View {
