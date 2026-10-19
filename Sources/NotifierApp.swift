@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 	private var statusMenu: StatusMenu?
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
+		migrateSettings()
 		statusMenu = MainActor.assumeIsolated { StatusMenu() }
 		let center = UNUserNotificationCenter.current()
 		center.delegate = self
@@ -32,6 +33,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		settingsTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
 			Task { @MainActor in HookSetup.shared.refresh() }
 		}
+	}
+
+	/// Copies the settings from the first bundle ID, `local.claude-code-notifier`, once. The app got a new ID because
+	/// Notification Center kept showing a placeholder icon for the old one.
+	private func migrateSettings() {
+		let current = UserDefaults.standard
+		guard current.object(forKey: "migratedSettings") == nil, let old = UserDefaults(suiteName: "local.claude-code-notifier") else { return }
+		for key in [SettingsKey.notifyOnDone, SettingsKey.notifyOnSessionEnd, SettingsKey.playsSound, SettingsKey.muted, "lastClaudeEvent"] {
+			if let value = old.object(forKey: key) { current.set(value, forKey: key) }
+		}
+		current.set(true, forKey: "migratedSettings")
 	}
 
 	/// Checks the setup once the server knows whether it listens, and shows the setup window if anything is missing.

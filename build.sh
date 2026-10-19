@@ -17,19 +17,22 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleIdentifier</key><string>local.claude-code-notifier</string>
+	<key>CFBundleIdentifier</key><string>local.claude-code-notifier.app</string>
 	<key>CFBundleName</key><string>Claude Code Notifier</string>
 	<key>CFBundleDisplayName</key><string>Claude Code Notifier</string>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundleExecutable</key><string>ClaudeCodeNotifier</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
-	<key>CFBundleVersion</key><string>1</string>
+	<key>CFBundleVersion</key><string>BUILD_NUMBER</string>
 	<key>LSMinimumSystemVersion</key><string>13.0</string>
 	<key>LSUIElement</key><true/>
 </dict>
 </plist>
 PLIST
+
+# A new build number for each build. Notification Center reloads the icon and name of an app when it changes.
+sed -i '' "s/BUILD_NUMBER/$(date +%Y%m%d%H%M%S)/" "$APP/Contents/Info.plist"
 
 # The app icon, in all sizes that macOS asks for.
 ICON_WORK=$(mktemp -d)
