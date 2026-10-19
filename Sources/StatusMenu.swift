@@ -70,7 +70,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		} else {
 			menu.addItem(NSMenuItem(title: "Listening on 127.0.0.1:\(eventPort)", action: nil, keyEquivalent: ""))
 		}
-		menu.addItem(.separator())
 
 		clock.tick()
 		let card = NSHostingView(rootView: SessionCard(store: store, clock: clock))
@@ -85,7 +84,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		if store.sessions.values.contains(where: { $0.state == .ended }) {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
-		menu.addItem(.separator())
 
 		menu.addItem(toggle("Notify When It Is Your Turn", SettingsKey.notifyOnDone))
 		menu.addItem(toggle("Notify When a Session Ends", SettingsKey.notifyOnSessionEnd))
