@@ -47,6 +47,13 @@ this list from the SQLite database of VS Code, read-only. When a session ends, t
 the list. An archived session leaves the menu without a notification, because you archived it yourself. The 3 s check
 also removes a session that you archive later, while it runs or after it ended.
 
+Claude Code writes one file per running session process into `~/.claude/sessions`, with the session ID, the folder,
+the start time and a status (`busy`, `waiting` or `idle`). Every 3 s, and when it starts, the app reads these files.
+It adds running sessions that it does not know yet, so the card also shows sessions that started before the app. The
+clocks count from the real start. When a file has a newer status than the last hook event, the app follows it, which
+keeps sessions without hooks up to date. A session whose process ended without a `SessionEnd` hook becomes »ended«.
+None of this sends a notification.
+
 Claude Code sends the `Notification` for a permission prompt only 6 s after the prompt appears. So a permission you
 answer quickly gives no notification.
 
@@ -78,10 +85,7 @@ Tools can be newer than their compiler. Set `SDK=<path>` to use another one.
 
 ## Limits
 
-- The app keeps the sessions only in memory. After a restart of the app, a session appears again with its next event.
 - A click on a notification brings VS Code to the front, but not the window of the session. Opening the session's
   folder in VS Code would focus its window only if the window shows exactly this folder. For a folder inside a
   `.code-workspace`, VS Code opens a new window instead. Raising one window from outside needs the Accessibility
   permission.
-- The running time counts from the first event the app saw. For a session that ran before the app started,
-  that is later than the real start.

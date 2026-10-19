@@ -33,11 +33,7 @@ func hookSettingsJSON(for events: [String], asFile: Bool) -> String {
 }
 
 /// The user settings of Claude Code. Like Claude Code, it honors `CLAUDE_CONFIG_DIR`.
-let claudeSettingsURL: URL = {
-	let configDirectory = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
-		?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
-	return configDirectory.appendingPathComponent("settings.json")
-}()
+let claudeSettingsURL = claudeConfigDirectory.appendingPathComponent("settings.json")
 
 enum SettingsCheck: Equatable {
 	case fileMissing

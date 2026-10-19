@@ -65,18 +65,20 @@ enum NotificationKind: CaseIterable {
 	}
 }
 
-struct Session: Identifiable {
+struct Session: Identifiable, Equatable {
 	let id: String
 	/// The working directory of the first event, for the project name. Claude can `cd` later.
 	let cwd: String?
-	/// When the app saw the session first: its start, unless the app started later.
-	let started: Date
+	/// When the session started, from its file in `~/.claude/sessions`. Without the file, when the app saw it first.
+	var started: Date
 	var state: SessionState
 	var updated: Date
 	/// The transcript of the session, see ``SessionStore/checkSessions()``.
 	var transcriptPath: String?
 	/// The title that the Claude Code extension shows, see ``SessionTitle``.
 	var title: String?
+	/// The Claude Code process, once the app found the session file, see ``ClaudeSessionFiles``.
+	var pid: Int32?
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
@@ -118,6 +120,8 @@ final class SessionStore: ObservableObject {
 		interruptTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
 			Task { @MainActor in self?.checkSessions() }
 		}
+		// Shows the sessions that run already when the app starts.
+		checkSessions()
 	}
 
 	var sortedSessions: [Session] {
@@ -211,18 +215,23 @@ final class SessionStore: ObservableObject {
 		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title)
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
 		sessions[session.id] = session
 		return session
 	}
 
 	/// Finds the changes that Claude Code reports with no hook.
 	///
+	/// - Session files: the sessions that run already, and the status of sessions without hooks, see
+	///   ``syncWithSessionFiles(archived:)``.
 	/// - Interrupt: Claude Code only writes a marker into the transcript, so the sessions that still work or ask are
 	///   checked for it.
 	/// - Archive: the user can archive a session in VS Code while it runs or after it ended, see ``VSCodeArchive``.
 	///   It leaves the menu.
 	func checkSessions() {
+		let archived = VSCodeArchive.sessionIDs()
+		syncWithSessionFiles(archived: archived ?? [])
+
 		for session in sessions.values where session.state == .working || session.state == .asksYou {
 			guard let path = session.transcriptPath, Self.endsWithInterrupt(transcript: path) else { continue }
 			sessions[session.id]?.state = .yourTurn
@@ -230,10 +239,40 @@ final class SessionStore: ObservableObject {
 			removeNotification(of: session.id)
 		}
 
-		guard !sessions.isEmpty, let archived = VSCodeArchive.sessionIDs() else { return }
+		guard let archived else { return }
 		for id in sessions.keys where archived.contains(id) {
 			sessions[id] = nil
 			removeNotification(of: id)
+		}
+	}
+
+	/// Adds the running sessions that the app does not know yet, e.g. the ones that started before the app. Follows the
+	/// status that Claude Code writes for each process, which matters for sessions without hooks. Sends no
+	/// notification: those come from the hooks.
+	private func syncWithSessionFiles(archived: Set<String>) {
+		let running = ClaudeSessionFiles.running().filter { !archived.contains($0.sessionID) }
+		for process in running {
+			let previous = sessions[process.sessionID]
+			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: process.started,
+				state: process.state ?? .yourTurn, updated: process.stateChanged, transcriptPath: process.transcriptPath,
+				title: SessionTitle.read(transcript: process.transcriptPath))
+			session.started = process.started
+			session.pid = process.pid
+			// The file wins only when it is newer than the last hook event, because a hook comes faster.
+			if let state = process.state, state != session.state, session.state != .ended, process.stateChanged > session.updated.addingTimeInterval(1) {
+				session.state = state
+				session.updated = process.stateChanged
+				session.title = session.transcriptPath.flatMap(SessionTitle.read) ?? session.title
+				if state == .working { removeNotification(of: session.id) }
+			}
+			if session != previous { sessions[session.id] = session }
+		}
+
+		// A process that ended without a `SessionEnd` hook, e.g. in a session that started before the hooks.
+		let runningIDs = Set(running.map(\.sessionID))
+		for (id, session) in sessions where session.pid != nil && session.state != .ended && !runningIDs.contains(id) {
+			sessions[id]?.state = .ended
+			sessions[id]?.updated = Date()
 		}
 	}
 
