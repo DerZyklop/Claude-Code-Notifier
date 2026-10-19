@@ -76,7 +76,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		// The menu sets the width, and ``fitCard()`` sets the height.
 		card.sizingOptions = []
 		card.autoresizingMask = [.width]
-		card.frame.size = card.fittingSize
+		card.frame.size = cardSize()
 		self.card = card
 		let cardItem = NSMenuItem()
 		cardItem.view = card
@@ -125,10 +125,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		timer = nil
 	}
 
+	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
+	/// so a second view with the same content measures it.
+	private func cardSize() -> NSSize {
+		NSHostingView(rootView: SessionCard(store: SessionStore.shared, clock: clock)).fittingSize
+	}
+
 	/// Gives the card the height of its rows, e.g. when a session starts while the menu is open.
 	private func fitCard() {
 		guard let card else { return }
-		let height = card.fittingSize.height
+		let height = cardSize().height
 		if card.frame.height != height { card.frame.size.height = height }
 	}
 
