@@ -6,7 +6,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 |---|---|---|
 | Claude asks you: a permission, a question (`AskUserQuestion`) or a plan approval (`ExitPlanMode`) | »Claude asks you« | Purr |
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
-| The session was closed (`/clear` does not count) | »Session ended« | Pop |
+| The session was closed (`/clear` and archiving do not count) | »Session ended« | Pop |
 
 - **Menu bar icon:** a bell while nothing happens. While sessions work, a spinner: an arc that turns around a ring,
   with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
@@ -32,11 +32,16 @@ silently after at most 1 s, and Claude Code is not affected.
 | `Notification` | asks you → notification, unless a question or plan reported it already. The idle reminder only notifies if no notification came before. |
 | `Stop` | your turn → notification |
 | `StopFailure` (an API error ended the turn) | your turn → notification with the error |
-| `SessionEnd` | ended → notification. With the reason `clear`, the session just disappears. |
+| `SessionEnd` | ended → notification after 2 s, or archived without a notification (see below). With the reason `clear`, the session just disappears. |
 
 Claude Code runs no hook when you interrupt Claude. It only writes the marker `[Request interrupted by user]` into the
 transcript. So every 3 s, the app reads the end of the transcript of each working session, and sets the session to
 »your turn« when the last message is this marker.
+
+The VS Code extension keeps the IDs of archived sessions in its global state, under `hiddenSessionIds`. The app reads
+this list from the SQLite database of VS Code, read-only. When a session ends, the app waits 2 s for VS Code to write
+the list. An archived session gets the state »archived« and no notification, because you archived it yourself. The
+3 s check also marks a running session as archived when you archive it.
 
 Claude Code sends the `Notification` for a permission prompt only 6 s after the prompt appears. So a permission you
 answer quickly gives no notification.

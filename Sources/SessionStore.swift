@@ -9,7 +9,7 @@ enum SettingsKey {
 }
 
 enum SessionState: Int {
-	case asksYou, yourTurn, working, ended
+	case asksYou, yourTurn, working, ended, archived
 
 	var title: String {
 		switch self {
@@ -17,6 +17,7 @@ enum SessionState: Int {
 		case .yourTurn: "your turn"
 		case .working: "working"
 		case .ended: "ended"
+		case .archived: "archived"
 		}
 	}
 
@@ -26,6 +27,7 @@ enum SessionState: Int {
 		case .yourTurn: "text.cursor"
 		case .working: "hourglass"
 		case .ended: "stop.circle"
+		case .archived: "archivebox"
 		}
 	}
 }
@@ -73,7 +75,7 @@ struct Session: Identifiable {
 	let started: Date
 	var state: SessionState
 	var updated: Date
-	/// The transcript of the session, see ``SessionStore/checkForInterrupts()``.
+	/// The transcript of the session, see ``SessionStore/checkSessions()``.
 	var transcriptPath: String?
 
 	var project: String {
@@ -111,7 +113,7 @@ final class SessionStore: ObservableObject {
 
 	private init() {
 		interruptTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-			Task { @MainActor in self?.checkForInterrupts() }
+			Task { @MainActor in self?.checkSessions() }
 		}
 	}
 
@@ -171,19 +173,27 @@ final class SessionStore: ObservableObject {
 				removeNotification(of: id)
 				return
 			}
-			let session = set(.ended, for: event, previous: previous)
-			if UserDefaults.standard.object(forKey: SettingsKey.notifyOnSessionEnd) as? Bool ?? true {
-				notify(.sessionEnded, session: session, body: "The session was closed.")
-			} else {
-				removeNotification(of: id)
+			set(.ended, for: event, previous: previous)
+			removeNotification(of: id)
+			// An archived session gets no notification: the user archived it. VS Code writes the archive list with a
+			// short delay, so the check waits for it.
+			Task {
+				try? await Task.sleep(nanoseconds: 2_000_000_000)
+				guard let session = sessions[id], session.state == .ended else { return }
+				if VSCodeArchive.sessionIDs()?.contains(id) == true {
+					sessions[id]?.state = .archived
+				} else if UserDefaults.standard.object(forKey: SettingsKey.notifyOnSessionEnd) as? Bool ?? true {
+					notify(.sessionEnded, session: session, body: "The session was closed.")
+				}
 			}
 		default:
 			return
 		}
 	}
 
+	/// Removes the ended and the archived sessions.
 	func removeEnded() {
-		sessions = sessions.filter { $0.value.state != .ended }
+		sessions = sessions.filter { $0.value.state != .ended && $0.value.state != .archived }
 	}
 
 	/// Sends a notification of the given kind, also while the notifications are muted.
@@ -198,12 +208,23 @@ final class SessionStore: ObservableObject {
 		return session
 	}
 
-	/// Claude Code runs no hook when the user interrupts Claude. It only writes a marker into the transcript, so the
-	/// sessions that still work or ask are checked for it.
-	func checkForInterrupts() {
+	/// Finds the changes that Claude Code reports with no hook.
+	///
+	/// - Interrupt: Claude Code only writes a marker into the transcript, so the sessions that still work or ask are
+	///   checked for it.
+	/// - Archive: a session that the user archives in VS Code can keep running, see ``VSCodeArchive``.
+	func checkSessions() {
 		for session in sessions.values where session.state == .working || session.state == .asksYou {
 			guard let path = session.transcriptPath, Self.endsWithInterrupt(transcript: path) else { continue }
 			sessions[session.id]?.state = .yourTurn
+			sessions[session.id]?.updated = Date()
+			removeNotification(of: session.id)
+		}
+
+		let open = sessions.values.filter { $0.state != .ended && $0.state != .archived }
+		guard !open.isEmpty, let archived = VSCodeArchive.sessionIDs() else { return }
+		for session in open where archived.contains(session.id) {
+			sessions[session.id]?.state = .archived
 			sessions[session.id]?.updated = Date()
 			removeNotification(of: session.id)
 		}

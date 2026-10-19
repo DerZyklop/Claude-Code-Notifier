@@ -78,8 +78,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			return (item, session)
 		}
 		updateSessionTitles()
-		if sessions.contains(where: { $0.state == .ended }) {
-			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
+		if sessions.contains(where: { $0.state == .ended || $0.state == .archived }) {
+			menu.addItem(action("Remove Ended and Archived Sessions", #selector(removeEnded)))
 		}
 		menu.addItem(.separator())
 
