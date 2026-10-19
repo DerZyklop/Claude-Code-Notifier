@@ -12,7 +12,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
   with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
   ask you something, because that needs you first. A crossed-out bell means that the setup has a problem.
 - **Menu:** one line per session: project and state on the left, its running time since the start on the right (»4:07«, »1:04:07«),
-  updated every second while the menu is open. An archived session shows no time. The lines
+  updated every second while the menu is open. The lines
   only show information, they cannot be clicked.
 - **Notifications:** one per session. A newer one replaces the older one. A click brings VS Code to the front.
 - **Settings in the menu:** notify when it is your turn, notify when a session ends, play sound, mute all,
@@ -32,7 +32,7 @@ silently after at most 1 s, and Claude Code is not affected.
 | `Notification` | asks you → notification, unless a question or plan reported it already. The idle reminder only notifies if no notification came before. |
 | `Stop` | your turn → notification |
 | `StopFailure` (an API error ended the turn) | your turn → notification with the error |
-| `SessionEnd` | ended → notification after 2 s, or archived without a notification (see below). With the reason `clear`, the session just disappears. |
+| `SessionEnd` | ended → notification after 2 s. An archived session leaves the menu without a notification (see below). With the reason `clear`, the session just disappears. |
 
 Claude Code runs no hook when you interrupt Claude. It only writes the marker `[Request interrupted by user]` into the
 transcript. So every 3 s, the app reads the end of the transcript of each working session, and sets the session to
@@ -40,8 +40,8 @@ transcript. So every 3 s, the app reads the end of the transcript of each workin
 
 The VS Code extension keeps the IDs of archived sessions in its global state, under `hiddenSessionIds`. The app reads
 this list from the SQLite database of VS Code, read-only. When a session ends, the app waits 2 s for VS Code to write
-the list. An archived session gets the state »archived« and no notification, because you archived it yourself. The
-3 s check also marks a running session as archived when you archive it.
+the list. An archived session leaves the menu without a notification, because you archived it yourself. The 3 s check
+also removes a session that you archive later, while it runs or after it ended.
 
 Claude Code sends the `Notification` for a permission prompt only 6 s after the prompt appears. So a permission you
 answer quickly gives no notification.

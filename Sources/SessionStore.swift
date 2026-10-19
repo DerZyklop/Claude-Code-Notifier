@@ -9,7 +9,7 @@ enum SettingsKey {
 }
 
 enum SessionState: Int {
-	case asksYou, yourTurn, working, ended, archived
+	case asksYou, yourTurn, working, ended
 
 	var title: String {
 		switch self {
@@ -17,7 +17,6 @@ enum SessionState: Int {
 		case .yourTurn: "your turn"
 		case .working: "working"
 		case .ended: "ended"
-		case .archived: "archived"
 		}
 	}
 
@@ -27,7 +26,6 @@ enum SessionState: Int {
 		case .yourTurn: "text.cursor"
 		case .working: "hourglass"
 		case .ended: "stop.circle"
-		case .archived: "archivebox"
 		}
 	}
 }
@@ -175,13 +173,13 @@ final class SessionStore: ObservableObject {
 			}
 			set(.ended, for: event, previous: previous)
 			removeNotification(of: id)
-			// An archived session gets no notification: the user archived it. VS Code writes the archive list with a
-			// short delay, so the check waits for it.
+			// An archived session leaves the menu without a notification: the user archived it. VS Code writes the
+			// archive list with a short delay, so the check waits for it.
 			Task {
 				try? await Task.sleep(nanoseconds: 2_000_000_000)
 				guard let session = sessions[id], session.state == .ended else { return }
 				if VSCodeArchive.sessionIDs()?.contains(id) == true {
-					sessions[id]?.state = .archived
+					sessions[id] = nil
 				} else if UserDefaults.standard.object(forKey: SettingsKey.notifyOnSessionEnd) as? Bool ?? true {
 					notify(.sessionEnded, session: session, body: "The session was closed.")
 				}
@@ -191,9 +189,8 @@ final class SessionStore: ObservableObject {
 		}
 	}
 
-	/// Removes the ended and the archived sessions.
 	func removeEnded() {
-		sessions = sessions.filter { $0.value.state != .ended && $0.value.state != .archived }
+		sessions = sessions.filter { $0.value.state != .ended }
 	}
 
 	/// Sends a notification of the given kind, also while the notifications are muted.
@@ -212,7 +209,8 @@ final class SessionStore: ObservableObject {
 	///
 	/// - Interrupt: Claude Code only writes a marker into the transcript, so the sessions that still work or ask are
 	///   checked for it.
-	/// - Archive: a session that the user archives in VS Code can keep running, see ``VSCodeArchive``.
+	/// - Archive: the user can archive a session in VS Code while it runs or after it ended, see ``VSCodeArchive``.
+	///   It leaves the menu.
 	func checkSessions() {
 		for session in sessions.values where session.state == .working || session.state == .asksYou {
 			guard let path = session.transcriptPath, Self.endsWithInterrupt(transcript: path) else { continue }
@@ -221,12 +219,10 @@ final class SessionStore: ObservableObject {
 			removeNotification(of: session.id)
 		}
 
-		let open = sessions.values.filter { $0.state != .ended && $0.state != .archived }
-		guard !open.isEmpty, let archived = VSCodeArchive.sessionIDs() else { return }
-		for session in open where archived.contains(session.id) {
-			sessions[session.id]?.state = .archived
-			sessions[session.id]?.updated = Date()
-			removeNotification(of: session.id)
+		guard !sessions.isEmpty, let archived = VSCodeArchive.sessionIDs() else { return }
+		for id in sessions.keys where archived.contains(id) {
+			sessions[id] = nil
+			removeNotification(of: id)
 		}
 	}
 

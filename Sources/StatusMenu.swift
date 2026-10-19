@@ -78,8 +78,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			return (item, session)
 		}
 		updateSessionTitles()
-		if sessions.contains(where: { $0.state == .ended || $0.state == .archived }) {
-			menu.addItem(action("Remove Ended and Archived Sessions", #selector(removeEnded)))
+		if sessions.contains(where: { $0.state == .ended }) {
+			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
 		menu.addItem(.separator())
 
@@ -126,8 +126,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private func updateSessionTitles() {
 		let font = NSFont.menuFont(ofSize: 0)
 		let timeFont = NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .regular)
-		// An archived session is done for good, so it shows no running time.
-		let rows = sessionItems.map { (item: $0.item, left: "\($0.session.project) – \($0.session.state.title)", right: $0.session.state == .archived ? "" : Self.elapsed(since: $0.session.started)) }
+		let rows = sessionItems.map { (item: $0.item, left: "\($0.session.project) – \($0.session.state.title)", right: Self.elapsed(since: $0.session.started)) }
 		let leftWidth = rows.map { ($0.left as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
 		let rightWidth = rows.map { ($0.right as NSString).size(withAttributes: [.font: timeFont]).width }.max() ?? 0
 
