@@ -80,7 +80,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
 
-		menu.addItem(.separator())
 		menu.addItem(sectionHeader("Notifications"))
 		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
 		menu.addItem(toggle("When a Session Ends", SettingsKey.notifyOnSessionEnd))
