@@ -8,7 +8,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
 | The session was closed (`/clear` and archiving do not count) | »Session ended« | Pop |
 
-- **Menu bar icon:** a bell while nothing happens. While sessions work, an orange spinner: an arc that turns around a ring,
+- **Menu bar icon:** a bell while nothing happens. While sessions work, a spinner: an orange arc that turns around an orange ring,
   with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
   ask you something, because that needs you first. A crossed-out bell means that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time

@@ -25,7 +25,7 @@ final class Spinner: ObservableObject {
 			.sink { [weak self] isWorking in self?.run(isWorking) }
 	}
 
-	/// - Parameter isDark: Whether the menu bar is dark. The number in the middle takes the text color of the menu bar.
+	/// - Parameter isDark: Whether the menu bar is dark. The sparkle or number in the middle takes its text color.
 	func image(workingCount: Int, isDark: Bool) -> NSImage {
 		let key = "\(frame)-\(workingCount)-\(isDark)"
 		if let image = cache[key] { return image }
@@ -46,8 +46,8 @@ final class Spinner: ObservableObject {
 		}
 	}
 
-	/// The ring, the arc and the sparkle are orange, so that a working session stands out from the other icons in the
-	/// menu bar. The number has the text color of the menu bar.
+	/// The ring and the arc are orange, so that a working session stands out from the other icons in the menu bar. The
+	/// sparkle and the number have the text color of the menu bar.
 	private static func draw(frame: Int, workingCount: Int, isDark: Bool) -> NSImage {
 		let size = NSSize(width: 18, height: 18)
 		let image = NSImage(size: size, flipped: false) { _ in
@@ -69,18 +69,19 @@ final class Spinner: ObservableObject {
 			color.setStroke()
 			arc.stroke()
 
+			let textColor = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 			if workingCount > 1 {
-				drawCount(workingCount, at: center, color: isDark ? .white : NSColor.black.withAlphaComponent(0.85))
+				drawCount(workingCount, at: center, color: textColor)
 			} else {
 				// The sparkle twinkles: it grows and shrinks a little with each turn.
-				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi))
+				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi), color: textColor)
 			}
 			return true
 		}
 		return image
 	}
 
-	private static func drawSparkle(at center: NSPoint, scale: Double) {
+	private static func drawSparkle(at center: NSPoint, scale: Double, color: NSColor) {
 		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold).applying(NSImage.SymbolConfiguration(paletteColors: [color]))
 		guard let sparkle = NSImage(systemSymbolName: "sparkle", accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
 		let width = sparkle.size.width * scale
