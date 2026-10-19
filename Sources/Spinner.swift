@@ -9,6 +9,7 @@ final class Spinner: ObservableObject {
 
 	private static let frameCount = 12
 	private static let frameInterval = 0.1
+	private static let color = NSColor.systemOrange
 
 	@Published private(set) var frame = 0
 
@@ -44,7 +45,7 @@ final class Spinner: ObservableObject {
 		}
 	}
 
-	/// A template image, so that the menu bar colors it like the other icons.
+	/// Orange, so that a working session stands out from the other icons in the menu bar.
 	private static func draw(frame: Int, workingCount: Int) -> NSImage {
 		let size = NSSize(width: 18, height: 18)
 		let image = NSImage(size: size, flipped: false) { _ in
@@ -55,7 +56,7 @@ final class Spinner: ObservableObject {
 			let track = NSBezierPath()
 			track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
 			track.lineWidth = 1.6
-			NSColor.black.withAlphaComponent(0.25).setStroke()
+			color.withAlphaComponent(0.3).setStroke()
 			track.stroke()
 
 			let start = 90 - progress * 360
@@ -63,7 +64,7 @@ final class Spinner: ObservableObject {
 			arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start - 110, clockwise: true)
 			arc.lineWidth = 1.8
 			arc.lineCapStyle = .round
-			NSColor.black.setStroke()
+			color.setStroke()
 			arc.stroke()
 
 			if workingCount > 1 {
@@ -74,23 +75,26 @@ final class Spinner: ObservableObject {
 			}
 			return true
 		}
-		image.isTemplate = true
 		return image
 	}
 
 	private static func drawSparkle(at center: NSPoint, scale: Double) {
-		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold).applying(NSImage.SymbolConfiguration(paletteColors: [color]))
 		guard let sparkle = NSImage(systemSymbolName: "sparkle", accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
 		let width = sparkle.size.width * scale
 		let height = sparkle.size.height * scale
 		sparkle.draw(in: NSRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height))
 	}
 
+	/// Centers the visible outline of the digits. The line box of the text has room for descenders, so centering it
+	/// would put the digits too high.
 	private static func drawCount(_ count: Int, at center: NSPoint) {
 		let text = count > 9 ? "9+" : "\(count)"
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 6.5 : 9.5, weight: .bold)
-		let string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black])
-		let textSize = string.size()
-		string.draw(at: NSPoint(x: center.x - textSize.width / 2, y: center.y - textSize.height / 2 + 0.5))
+		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
+		let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+		guard let context = NSGraphicsContext.current?.cgContext else { return }
+		context.textPosition = CGPoint(x: center.x - outline.midX, y: center.y - outline.midY)
+		CTLineDraw(line, context)
 	}
 }
