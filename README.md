@@ -11,9 +11,9 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 - **Menu bar icon:** a bell while nothing happens. While sessions work, a spinner: an arc that turns around a ring,
   with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
   ask you something, because that needs you first. A crossed-out bell means that the setup has a problem.
-- **Menu:** one line per session: project and state on the left, its running time since the start on the right (»4:07«, »1:04:07«),
-  updated every second while the menu is open. The lines
-  only show information, they cannot be clicked.
+- **Menu:** a card with one row per session: a colored state icon, the project, the state, and the running time since
+  the start on the right (»4:07«, »1:04:07«). The time updates every second while the menu is open. The card only
+  shows information, it cannot be clicked. Archived sessions are not in the card.
 - **Notifications:** one per session. A newer one replaces the older one. A click brings VS Code to the front.
 - **Settings in the menu:** notify when it is your turn, notify when a session ends, play sound, mute all,
   launch at login, and test notifications for each situation.
