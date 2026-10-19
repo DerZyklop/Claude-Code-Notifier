@@ -75,11 +75,16 @@ struct Session: Identifiable {
 	var updated: Date
 	/// The transcript of the session, see ``SessionStore/checkSessions()``.
 	var transcriptPath: String?
+	/// The title that the Claude Code extension shows, see ``SessionTitle``.
+	var title: String?
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
 		return URL(fileURLWithPath: cwd).lastPathComponent
 	}
+
+	/// The title, or the project before the session has one.
+	var name: String { title ?? project }
 }
 
 /// The fields of the hook input that this app uses.
@@ -200,7 +205,13 @@ final class SessionStore: ObservableObject {
 
 	@discardableResult
 	private func set(_ state: SessionState, for event: HookEvent, previous: Session?) -> Session {
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? Date(), state: state, updated: Date(), transcriptPath: event.transcript_path ?? previous?.transcriptPath)
+		let transcriptPath = event.transcript_path ?? previous?.transcriptPath
+		// The title changes with a new prompt or turn at most, so a tool call does not read the transcript again.
+		var title = previous?.title
+		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
+			title = SessionTitle.read(transcript: transcriptPath) ?? title
+		}
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title)
 		sessions[session.id] = session
 		return session
 	}
@@ -249,7 +260,7 @@ final class SessionStore: ObservableObject {
 	private func notify(_ kind: NotificationKind, session: Session, body: String) {
 		if UserDefaults.standard.bool(forKey: SettingsKey.muted) { return }
 		// One notification per session: a new one replaces the old one.
-		post(kind, title: session.project, body: body, identifier: session.id)
+		post(kind, title: session.name, body: body, identifier: session.id)
 	}
 
 	private func post(_ kind: NotificationKind, title: String, body: String, identifier: String) {

@@ -11,10 +11,12 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 - **Menu bar icon:** a bell while nothing happens. While sessions work, an orange spinner: an arc that turns around a ring,
   with a sparkle in the middle for one session, or the number of working sessions. A bell with a count while sessions
   ask you something, because that needs you first. A crossed-out bell means that the setup has a problem.
-- **Menu:** a card with one row per session: a colored state icon, the project, the state, and the running time since
-  the start on the right (»4:07«, »1:04:07«). The time updates every second while the menu is open. The card only
-  shows information, it cannot be clicked. Archived sessions are not in the card.
-- **Notifications:** one per session. A newer one replaces the older one. A click brings VS Code to the front.
+- **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time
+  since the start on the right (»4:07«, »1:04:07«). The title is the one that the Claude Code extension shows: an agent
+  name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
+  transcript. The time updates every second while the menu is open. A row is highlighted under the mouse pointer, but
+  the card only shows information, it cannot be clicked. Archived sessions are not in the card.
+- **Notifications:** one per session, with the session title. A newer one replaces the older one. A click brings VS Code to the front.
 - **Settings in the menu:** notify when it is your turn, notify when a session ends, play sound, mute all,
   launch at login, and test notifications for each situation.
 

@@ -14,6 +14,7 @@ final class MenuClock: ObservableObject {
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
 	@ObservedObject var clock: MenuClock
+	@State private var hoveredID: String?
 
 	var body: some View {
 		let sessions = store.sortedSessions
@@ -22,15 +23,15 @@ struct SessionCard: View {
 				Text("No Claude Code sessions yet")
 					.foregroundStyle(.secondary)
 					.frame(maxWidth: .infinity, alignment: .leading)
+					.padding(.horizontal, 6)
 					.padding(.vertical, 4)
 			}
 			ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-				if index > 0 { Divider() }
+				if index > 0 { Divider().padding(.horizontal, 6) }
 				row(session)
 			}
 		}
-		.padding(.horizontal, 10)
-		.padding(.vertical, 2)
+		.padding(4)
 		.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.04)))
 		.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
 		.padding(.horizontal, 10)
@@ -44,8 +45,11 @@ struct SessionCard: View {
 			Image(systemName: session.state.symbol)
 				.foregroundStyle(session.state.color)
 				.frame(width: 16)
-			Text(session.project)
+			Text(session.name)
 				.lineLimit(1)
+				.truncationMode(.tail)
+				.frame(maxWidth: 260, alignment: .leading)
+				.help(session.project)
 			Text(session.state.title)
 				.foregroundStyle(.secondary)
 				.lineLimit(1)
@@ -54,7 +58,20 @@ struct SessionCard: View {
 				.monospacedDigit()
 				.foregroundStyle(.secondary)
 		}
+		.padding(.horizontal, 6)
 		.padding(.vertical, 4)
+		.background(
+			RoundedRectangle(cornerRadius: 5, style: .continuous)
+				.fill(Color.primary.opacity(hoveredID == session.id ? 0.07 : 0))
+		)
+		.contentShape(Rectangle())
+		.onHover { isHovered in
+			if isHovered {
+				hoveredID = session.id
+			} else if hoveredID == session.id {
+				hoveredID = nil
+			}
+		}
 	}
 
 	/// A running clock: »4:07«, or »1:04:07« from one hour on.

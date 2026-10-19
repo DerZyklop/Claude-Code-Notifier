@@ -25,10 +25,11 @@ final class Spinner: ObservableObject {
 			.sink { [weak self] isWorking in self?.run(isWorking) }
 	}
 
-	func image(workingCount: Int) -> NSImage {
-		let key = "\(frame)-\(workingCount)"
+	/// - Parameter isDark: Whether the menu bar is dark. The number in the middle takes the text color of the menu bar.
+	func image(workingCount: Int, isDark: Bool) -> NSImage {
+		let key = "\(frame)-\(workingCount)-\(isDark)"
 		if let image = cache[key] { return image }
-		let image = Self.draw(frame: frame, workingCount: workingCount)
+		let image = Self.draw(frame: frame, workingCount: workingCount, isDark: isDark)
 		cache[key] = image
 		return image
 	}
@@ -45,8 +46,9 @@ final class Spinner: ObservableObject {
 		}
 	}
 
-	/// Orange, so that a working session stands out from the other icons in the menu bar.
-	private static func draw(frame: Int, workingCount: Int) -> NSImage {
+	/// The ring, the arc and the sparkle are orange, so that a working session stands out from the other icons in the
+	/// menu bar. The number has the text color of the menu bar.
+	private static func draw(frame: Int, workingCount: Int, isDark: Bool) -> NSImage {
 		let size = NSSize(width: 18, height: 18)
 		let image = NSImage(size: size, flipped: false) { _ in
 			let center = NSPoint(x: size.width / 2, y: size.height / 2)
@@ -68,7 +70,7 @@ final class Spinner: ObservableObject {
 			arc.stroke()
 
 			if workingCount > 1 {
-				drawCount(workingCount, at: center)
+				drawCount(workingCount, at: center, color: isDark ? .white : NSColor.black.withAlphaComponent(0.85))
 			} else {
 				// The sparkle twinkles: it grows and shrinks a little with each turn.
 				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi))
@@ -88,7 +90,7 @@ final class Spinner: ObservableObject {
 
 	/// Centers the visible outline of the digits. The line box of the text has room for descenders, so centering it
 	/// would put the digits too high.
-	private static func drawCount(_ count: Int, at center: NSPoint) {
+	private static func drawCount(_ count: Int, at center: NSPoint, color: NSColor) {
 		let text = count > 9 ? "9+" : "\(count)"
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 6.5 : 9.5, weight: .bold)
 		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))

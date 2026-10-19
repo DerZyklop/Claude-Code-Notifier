@@ -46,7 +46,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			button.image = Self.symbol("bell.badge.fill")
 			button.title = " \(waiting)"
 		} else if working > 0 {
-			button.image = Spinner.shared.image(workingCount: working)
+			let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+			button.image = Spinner.shared.image(workingCount: working, isDark: isDark)
 		} else {
 			button.image = Self.symbol("bell")
 		}
