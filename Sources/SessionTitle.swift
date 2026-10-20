@@ -29,6 +29,26 @@ enum SessionTitle {
 		return firstPrompt(handle)
 	}
 
+	/// When the session started: the time of the first entry in the transcript. `nil` while there is none.
+	static func start(transcript path: String) -> Date? {
+		guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+		defer { try? handle.close() }
+		guard let data = try? handle.read(upToCount: 65_536) else { return nil }
+		for line in data.split(separator: UInt8(ascii: "\n")) {
+			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+				let timestamp = json["timestamp"] as? String,
+				let date = timestampFormat.date(from: timestamp) else { continue }
+			return date
+		}
+		return nil
+	}
+
+	private static let timestampFormat: ISO8601DateFormatter = {
+		let format = ISO8601DateFormatter()
+		format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+		return format
+	}()
+
 	/// The first line of the first prompt, like the extension shows a new session before Claude names it.
 	private static func firstPrompt(_ handle: FileHandle) -> String? {
 		try? handle.seek(toOffset: 0)

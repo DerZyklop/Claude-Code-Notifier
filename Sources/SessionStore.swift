@@ -63,7 +63,8 @@ struct Session: Identifiable, Equatable {
 	let id: String
 	/// The working directory of the first event, for the project name. Claude can `cd` later.
 	let cwd: String?
-	/// When the session started, from its file in `~/.claude/sessions`. Without the file, when the app saw it first.
+	/// When the session started: the first entry of its transcript, see ``SessionTitle/start(transcript:)``. Without
+	/// a transcript, the start of its Claude Code process, or when the app saw it first.
 	var started: Date
 	var state: SessionState
 	var updated: Date
@@ -213,7 +214,7 @@ final class SessionStore: ObservableObject {
 		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
 		sessions[session.id] = session
 		return session
 	}
@@ -251,10 +252,11 @@ final class SessionStore: ObservableObject {
 		let running = ClaudeSessionFiles.running().filter { !archived.contains($0.sessionID) }
 		for process in running {
 			let previous = sessions[process.sessionID]
-			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: process.started,
+			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: SessionTitle.start(transcript: process.transcriptPath) ?? process.started,
 				state: process.state ?? .yourTurn, updated: process.stateChanged, transcriptPath: process.transcriptPath,
 				title: SessionTitle.read(transcript: process.transcriptPath))
-			session.started = process.started
+			// VS Code restarts the process of a session now and then, so the process can start later than the session.
+			session.started = min(session.started, process.started)
 			session.pid = process.pid
 			// The file wins only when it is newer than the last hook event, because a hook comes faster.
 			if let state = process.state, state != session.state, session.state != .ended, process.stateChanged > session.updated.addingTimeInterval(1) {
