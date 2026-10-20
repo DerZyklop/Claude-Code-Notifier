@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 	private func migrateSettings() {
 		let current = UserDefaults.standard
 		guard current.object(forKey: "migratedSettings") == nil, let old = UserDefaults(suiteName: "local.claude-code-notifier") else { return }
-		for key in [SettingsKey.notifyOnDone, SettingsKey.notifyOnSessionEnd, SettingsKey.playsSound, SettingsKey.muted, "lastClaudeEvent"] {
+		for key in [SettingsKey.notifyOnDone, SettingsKey.playsSound, SettingsKey.muted, "lastClaudeEvent"] {
 			if let value = old.object(forKey: key) { current.set(value, forKey: key) }
 		}
 		current.set(true, forKey: "migratedSettings")

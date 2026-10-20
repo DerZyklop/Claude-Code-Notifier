@@ -1,12 +1,11 @@
 # Claude Code Notifier
 
-A macOS menu bar app. It tells you when a Claude Code session needs you, has finished, or has ended.
+A macOS menu bar app. It tells you when a Claude Code session needs you or has finished.
 
 | Situation | Notification | Sound |
 |---|---|---|
 | Claude asks you: a permission, a question (`AskUserQuestion`) or a plan approval (`ExitPlanMode`) | »Claude asks you« | Purr |
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
-| The session was closed (`/clear` and archiving do not count) | »Session ended« | Pop |
 
 - **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner: an orange arc that turns
   around a faint orange ring, with a sparkle in the middle for one session, or the number of working sessions. Core
@@ -20,7 +19,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
   the card only shows information, it cannot be clicked. Archived sessions are not in the card.
 - **Notifications:** one per session, with the session title. A newer one replaces the older one. A click brings VS Code to the front.
 - **Menu:** three groups. First the card, with the app status on the right of its header (»Listening on
-  127.0.0.1:47823«, or a problem in orange). Then »Notifications«: when it is your turn, when a session ends, play
+  127.0.0.1:47823«, or a problem in orange). Then »Notifications«: when it is your turn, play
   sound, mute all, and test notifications for each situation. Last »Launch at Login«, »Hook Setup …« and »Quit«.
 
 ## How it works
@@ -37,16 +36,15 @@ silently after at most 1 s, and Claude Code is not affected.
 | `Notification` | asks you → notification, unless a question or plan reported it already. The idle reminder only notifies if no notification came before. |
 | `Stop` | your turn → notification |
 | `StopFailure` (an API error ended the turn) | your turn → notification with the error |
-| `SessionEnd` | ended → notification after 2 s. An archived session leaves the menu without a notification (see below). With the reason `clear`, the session just disappears. |
+| `SessionEnd` | ended, without a notification, because you close a session yourself. An archived session leaves the menu (see below). With the reason `clear`, the session just disappears. |
 
 Claude Code runs no hook when you interrupt Claude. It only writes the marker `[Request interrupted by user]` into the
 transcript. So every 3 s, the app reads the end of the transcript of each working session, and sets the session to
 »your turn« when the last message is this marker.
 
 The VS Code extension keeps the IDs of archived sessions in its global state, under `hiddenSessionIds`. The app reads
-this list from the SQLite database of VS Code, read-only. When a session ends, the app waits 2 s for VS Code to write
-the list. An archived session leaves the menu without a notification, because you archived it yourself. The 3 s check
-also removes a session that you archive later, while it runs or after it ended.
+this list from the SQLite database of VS Code, read-only. Every 3 s, it removes the archived sessions from the menu,
+while they run or after they ended.
 
 Claude Code writes one file per running session process into `~/.claude/sessions`, with the session ID, the folder,
 the start time and a status (`busy`, `waiting` or `idle`). Every 3 s, and when it starts, the app reads these files.

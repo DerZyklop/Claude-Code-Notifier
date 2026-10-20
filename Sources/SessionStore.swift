@@ -5,7 +5,6 @@ enum SettingsKey {
 	static let notifyOnDone = "notifyOnDone"
 	static let muted = "muted"
 	static let playsSound = "playsSound"
-	static let notifyOnSessionEnd = "notifyOnSessionEnd"
 }
 
 enum SessionState: Int {
@@ -36,14 +35,11 @@ enum NotificationKind: CaseIterable {
 	case asksYou
 	/// Claude has finished its turn, and the prompt is open for the next message.
 	case yourTurn
-	/// The session is closed.
-	case sessionEnded
 
 	var subtitle: String {
 		switch self {
 		case .asksYou: "Claude asks you"
 		case .yourTurn: "Your turn"
-		case .sessionEnded: "Session ended"
 		}
 	}
 
@@ -52,7 +48,6 @@ enum NotificationKind: CaseIterable {
 		switch self {
 		case .asksYou: UNNotificationSoundName("Purr.aiff")
 		case .yourTurn: UNNotificationSoundName("Bottle.aiff")
-		case .sessionEnded: UNNotificationSoundName("Pop.aiff")
 		}
 	}
 
@@ -60,7 +55,6 @@ enum NotificationKind: CaseIterable {
 		switch self {
 		case .asksYou: "Claude needs your permission to use Bash."
 		case .yourTurn: "Claude has finished. This is how its last message shows up here."
-		case .sessionEnded: "The session was closed."
 		}
 	}
 }
@@ -180,19 +174,9 @@ final class SessionStore: ObservableObject {
 				removeNotification(of: id)
 				return
 			}
+			// No notification: the user closes a session. An archived one leaves the menu with the next check.
 			set(.ended, for: event, previous: previous)
 			removeNotification(of: id)
-			// An archived session leaves the menu without a notification: the user archived it. VS Code writes the
-			// archive list with a short delay, so the check waits for it.
-			Task {
-				try? await Task.sleep(nanoseconds: 2_000_000_000)
-				guard let session = sessions[id], session.state == .ended else { return }
-				if VSCodeArchive.sessionIDs()?.contains(id) == true {
-					sessions[id] = nil
-				} else if UserDefaults.standard.object(forKey: SettingsKey.notifyOnSessionEnd) as? Bool ?? true {
-					notify(.sessionEnded, session: session, body: "The session was closed.")
-				}
-			}
 		default:
 			return
 		}

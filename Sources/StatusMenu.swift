@@ -173,7 +173,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader("Notifications"))
 		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
-		menu.addItem(toggle("When a Session Ends", SettingsKey.notifyOnSessionEnd))
 		menu.addItem(toggle("Play Sound", SettingsKey.playsSound))
 		menu.addItem(toggle("Mute All", SettingsKey.muted, default: false))
 		let tests = NSMenu()
