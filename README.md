@@ -56,7 +56,7 @@ None of this sends a notification.
 A session can start a shell command in the background and end its turn. Claude Code runs every shell command of a
 session as a child of the session process, with a shell snapshot from `~/.claude/shell-snapshots`. Every 3 s, the app
 counts these commands for each session. A session whose turn is over but that still runs such a command counts as
-working: the card shows a faded hourglass with a blue badge, and the spinner counts it. The »Your turn« notification at the end of the
+working: the card shows a gray hourglass with a blue badge, and the spinner counts it. The »Your turn« notification at the end of the
 turn stays. A command that never ends, for example a dev server, keeps the session »working« until the command stops.
 
 Claude Code sends the `Notification` for a permission prompt only 6 s after the prompt appears. So a permission you
