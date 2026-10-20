@@ -67,7 +67,7 @@ struct SessionCard: View {
 	}
 
 	private func row(_ session: Session) -> some View {
-		HStack(spacing: 7) {
+		HStack(alignment: .center, spacing: 8) {
 			stateIcon(session)
 			Text(session.name)
 				.lineLimit(1)
@@ -80,7 +80,7 @@ struct SessionCard: View {
 				.foregroundStyle(.secondary)
 		}
 		.padding(.horizontal, 6)
-		.padding(.vertical, 4)
+		.padding(.vertical, 3)
 		.background(
 			RoundedRectangle(cornerRadius: 5, style: .continuous)
 				.fill(Color.primary.opacity(hoveredID == session.id ? 0.07 : 0))
@@ -96,21 +96,20 @@ struct SessionCard: View {
 	}
 
 	/// The icon shows the state, its name is in the tooltip. A background task fades the hourglass and adds a blue
-	/// badge with a ring in the background color, so that the badge stands apart from the hourglass.
+	/// badge.
 	private func stateIcon(_ session: Session) -> some View {
 		let state = session.shownState
 		// Filled and a little heavier: a thin outline in color has too little contrast on the card.
 		return Image(systemName: state.symbol)
-			.fontWeight(.semibold)
+			.font(.system(size: 17, weight: .semibold))
 			.foregroundStyle(state.color.opacity(session.hasBackgroundTask ? 0.45 : 1))
-			.frame(width: 16)
+			.frame(width: 22, height: 22)
 			.overlay(alignment: .bottomTrailing) {
 				if session.hasBackgroundTask {
 					Circle()
 						.fill(state.color)
-						.overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
-						.frame(width: 8, height: 8)
-						.offset(x: 3, y: 2)
+						.frame(width: 10, height: 10)
+						.offset(x: 2, y: 1)
 				}
 			}
 			.help(session.stateTitle)
