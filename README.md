@@ -8,10 +8,11 @@ A macOS menu bar app. It tells you when a Claude Code session needs you, has fin
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
 | The session was closed (`/clear` and archiving do not count) | »Session ended« | Pop |
 
-- **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner in the menu bar color: an
-  arc that turns around a faint ring, with a sparkle in the middle for one session, or the number of working sessions. Sessions
-  that ask you add an orange speech bubble with their count inside it, so a forgotten prompt does not hide the
-  work in other sessions. A crossed-out sparkle means that the setup has a problem.
+- **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner: an orange arc that turns
+  around a faint orange ring, with a sparkle in the middle for one session, or the number of working sessions. Core
+  Animation turns the arc, so the app does no work per frame. Sessions that ask you add an orange speech bubble with
+  their count inside it, so a forgotten prompt does not hide the work in other sessions. A crossed-out sparkle means
+  that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time
   since the start on the right (»4:07«, »1:04:07«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the

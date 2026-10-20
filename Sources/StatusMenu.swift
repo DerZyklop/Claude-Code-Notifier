@@ -15,6 +15,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private var timer: Timer?
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
+	private lazy var spinner = Spinner(button: statusItem.button!)
+	/// The waiting count that the button title shows now. The spinner redraws the icon 30 times per second, so the
+	/// title is only built again when the count changes.
+	private var shownWaitingCount: Int?
 
 	override init() {
 		super.init()
@@ -22,12 +26,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		statusItem.menu = menu
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
-		Publishers.Merge3(SessionStore.shared.objectWillChange, HookSetup.shared.objectWillChange, Spinner.shared.objectWillChange)
+		Publishers.Merge(SessionStore.shared.objectWillChange, HookSetup.shared.objectWillChange)
 			.receive(on: DispatchQueue.main)
-			.sink { [weak self] _ in
-				self?.updateIcon()
-				self?.fitCard()
-			}
+			.sink { [weak self] _ in self?.updateIcon() }
+			.store(in: &subscriptions)
+		// Only the sessions change the height of the card. Measuring it builds a view, so the spinner frames skip it.
+		SessionStore.shared.objectWillChange
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] _ in self?.fitCard() }
 			.store(in: &subscriptions)
 		updateIcon()
 	}
@@ -41,42 +47,41 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let working = sessions.filter { $0.state == .working }.count
 
 		button.imagePosition = .imageLeading
-		if HookSetup.shared.hasProblem {
-			button.image = Self.crossedOutSparkle
-			button.title = ""
-			return
+		// Keeps the bubble close to the spinner.
+		button.imageHugsTitle = true
+		let isSpinning = working > 0 && !HookSetup.shared.hasProblem
+		let image = HookSetup.shared.hasProblem ? Self.crossedOutSparkle : isSpinning ? spinner.image(workingCount: working) : Self.sparkle
+		if button.image !== image { button.image = image }
+		let titleCount = HookSetup.shared.hasProblem ? 0 : waiting
+		if titleCount != shownWaitingCount {
+			button.attributedTitle = titleCount > 0 ? Self.waitingBadge(count: titleCount) : NSAttributedString()
+			shownWaitingCount = titleCount
 		}
-		if working > 0 {
-			button.image = Spinner.shared.image(workingCount: working)
-		} else {
-			button.image = Self.sparkle
-		}
-		button.attributedTitle = waiting > 0 ? Self.waitingBadge(count: waiting) : NSAttributedString()
+		button.layoutSubtreeIfNeeded()
+		spinner.show(around: isSpinning ? button.cell?.imageRect(forBounds: button.bounds) : nil)
 	}
 
 	/// An orange speech bubble with the count in white inside it, in the color of »asks you« in the card.
 	private static func waitingBadge(count: Int) -> NSAttributedString {
 		let font = NSFont.menuBarFont(ofSize: 0)
-		let title = NSMutableAttributedString(string: " ", attributes: [.font: font])
-		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize + 2, weight: .regular)
+		let title = NSMutableAttributedString()
+		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize + 4, weight: .regular)
 			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
 		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return title }
+		title.append(NSAttributedString(string: "\u{200A}", attributes: [.font: font]))
 
-		let image = NSImage(size: bubble.size, flipped: false) { rect in
-			bubble.draw(in: rect)
-			// The body of the bubble is above its tail, so the number centers in the upper part.
-			let text = count > 9 ? "9+" : "\(count)"
-			let numberFont = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 7.5 : 10, weight: .bold)
-			let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: numberFont, .foregroundColor: NSColor.white]))
-			let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-			guard let context = NSGraphicsContext.current?.cgContext else { return true }
-			context.textPosition = CGPoint(x: rect.midX - outline.midX, y: rect.minY + rect.height * 0.58 - outline.midY)
-			CTLineDraw(line, context)
+		// The button centers the whole bubble, tail included. Space above the bubble makes the middle of its body the
+		// middle of the image, so the body lines up with the spinner and the tail hangs below.
+		let bodyMiddle = bubble.size.height * 0.58
+		let size = NSSize(width: bubble.size.width, height: (bodyMiddle * 2).rounded(.up))
+		let image = NSImage(size: size, flipped: false) { rect in
+			bubble.draw(in: NSRect(origin: rect.origin, size: bubble.size))
+			Spinner.drawCount(count, at: NSPoint(x: rect.midX, y: rect.minY + bodyMiddle), color: .white)
 			return true
 		}
 		let attachment = NSTextAttachment()
 		attachment.image = image
-		attachment.bounds = NSRect(x: 0, y: font.descender, width: image.size.width, height: image.size.height)
+		attachment.bounds = NSRect(origin: .zero, size: size)
 		title.append(NSAttributedString(attachment: attachment))
 		return title
 	}

@@ -1,99 +1,111 @@
 import AppKit
-import Combine
+import QuartzCore
 
-/// The menu bar spinner while sessions work: an arc that turns around a ring. In the middle, a sparkle for one working
-/// session, or the number of working sessions.
+/// The menu bar spinner while sessions work: an orange arc that turns around a faint orange ring. In the middle, a
+/// sparkle for one working session, or the number of working sessions.
+///
+/// The middle is the template image of the button, so it takes the menu bar color. The ring and the arc are layers
+/// above it, and Core Animation turns the arc. The window server runs that animation, so the app does no work per
+/// frame.
 @MainActor
-final class Spinner: ObservableObject {
-	static let shared = Spinner()
+final class Spinner {
+	static let size = NSSize(width: 18, height: 18)
+	private static let radius = 7.6
+	private static let lineWidth = 2.6
+	/// One turn in 1.2 s.
+	private static let turnDuration = 1.2
+	private static let color = NSColor.systemOrange
 
-	private static let frameCount = 12
-	private static let frameInterval = 0.1
+	private let ring = CAShapeLayer()
+	private let arc = CAShapeLayer()
+	private weak var button: NSStatusBarButton?
+	private var cache: [Int: NSImage] = [:]
 
-	@Published private(set) var frame = 0
+	init(button: NSStatusBarButton) {
+		self.button = button
+		button.wantsLayer = true
+		let center = CGPoint(x: Self.size.width / 2, y: Self.size.height / 2)
 
-	private var timer: Timer?
-	private var subscription: AnyCancellable?
-	private var cache: [String: NSImage] = [:]
+		let circle = CGMutablePath()
+		circle.addArc(center: center, radius: Self.radius, startAngle: 0, endAngle: 2 * .pi, clockwise: false)
+		ring.path = circle
+		ring.strokeColor = Self.color.withAlphaComponent(0.3).cgColor
 
-	private init() {
-		// The timer runs only while a session works.
-		subscription = SessionStore.shared.$sessions
-			.map { sessions in sessions.values.contains { $0.state == .working } }
-			.removeDuplicates()
-			.sink { [weak self] isWorking in self?.run(isWorking) }
-	}
+		// 130° of the ring, starting at the top.
+		let part = CGMutablePath()
+		part.addArc(center: center, radius: Self.radius, startAngle: .pi / 2, endAngle: .pi / 2 - 130 * .pi / 180, clockwise: true)
+		arc.path = part
+		arc.strokeColor = Self.color.cgColor
+		arc.lineCap = .round
 
-	func image(workingCount: Int) -> NSImage {
-		let key = "\(frame)-\(workingCount)"
-		if let image = cache[key] { return image }
-		let image = Self.draw(frame: frame, workingCount: workingCount)
-		cache[key] = image
-		return image
-	}
-
-	private func run(_ isWorking: Bool) {
-		timer?.invalidate()
-		timer = nil
-		guard isWorking else { return }
-		timer = Timer.scheduledTimer(withTimeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
-			Task { @MainActor in
-				guard let self else { return }
-				self.frame = (self.frame + 1) % Self.frameCount
-			}
+		for layer in [ring, arc] {
+			layer.bounds = CGRect(origin: .zero, size: Self.size)
+			layer.fillColor = nil
+			layer.lineWidth = Self.lineWidth
+			layer.isHidden = true
+			button.layer?.addSublayer(layer)
 		}
 	}
 
-	/// A template image, so that the menu bar colors it like the other icons. Only the bubble of the waiting sessions
-	/// has a color, because it needs you.
-	private static func draw(frame: Int, workingCount: Int) -> NSImage {
-		let size = NSSize(width: 18, height: 18)
-		let image = NSImage(size: size, flipped: false) { _ in
-			let center = NSPoint(x: size.width / 2, y: size.height / 2)
-			// The ring fills the 18 pt icon: radius plus half the line width.
-			let radius = 7.6
-			let progress = Double(frame) / Double(frameCount)
-
-			let track = NSBezierPath()
-			track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
-			track.lineWidth = 2.6
-			NSColor.black.withAlphaComponent(0.3).setStroke()
-			track.stroke()
-
-			let start = 90 - progress * 360
-			let arc = NSBezierPath()
-			arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start - 130, clockwise: true)
-			arc.lineWidth = 2.6
-			arc.lineCapStyle = .round
-			NSColor.black.setStroke()
-			arc.stroke()
-
+	/// The sparkle or the number for the middle of the ring, as a template image for the button.
+	func image(workingCount: Int) -> NSImage {
+		let key = min(workingCount, 10)
+		if let image = cache[key] { return image }
+		let image = NSImage(size: Self.size, flipped: false) { rect in
+			let center = NSPoint(x: rect.midX, y: rect.midY)
 			if workingCount > 1 {
-				drawCount(workingCount, at: center)
+				Self.drawCount(workingCount, at: center)
 			} else {
-				// The sparkle twinkles: it grows and shrinks a little with each turn.
-				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi))
+				Self.drawSparkle(at: center)
 			}
 			return true
 		}
 		image.isTemplate = true
+		cache[key] = image
 		return image
 	}
 
-	private static func drawSparkle(at center: NSPoint, scale: Double) {
+	/// Shows the ring and the turning arc around the given image frame of the button, or hides them with `nil`.
+	func show(around imageFrame: NSRect?) {
+		guard let imageFrame else {
+			ring.isHidden = true
+			arc.isHidden = true
+			arc.removeAllAnimations()
+			return
+		}
+		CATransaction.begin()
+		CATransaction.setDisableActions(true)
+		for layer in [ring, arc] {
+			layer.position = CGPoint(x: imageFrame.midX, y: imageFrame.midY)
+			layer.contentsScale = button?.window?.backingScaleFactor ?? 2
+			layer.isHidden = false
+		}
+		CATransaction.commit()
+		guard arc.animation(forKey: "turn") == nil else { return }
+		let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+		// In a flipped view, the y axis points down, so a positive angle turns clockwise.
+		turn.byValue = (button?.isFlipped ?? true) ? 2 * Double.pi : -2 * Double.pi
+		turn.duration = Self.turnDuration
+		turn.repeatCount = .infinity
+		// 30 frames per second look smooth and keep the work of the window server low.
+		if #available(macOS 12, *) {
+			turn.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
+		}
+		arc.add(turn, forKey: "turn")
+	}
+
+	private static func drawSparkle(at center: NSPoint) {
 		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
 		guard let sparkle = NSImage(systemSymbolName: "sparkle", accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
-		let width = sparkle.size.width * scale
-		let height = sparkle.size.height * scale
-		sparkle.draw(in: NSRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height))
+		sparkle.draw(in: NSRect(x: center.x - sparkle.size.width / 2, y: center.y - sparkle.size.height / 2, width: sparkle.size.width, height: sparkle.size.height))
 	}
 
 	/// Centers the visible outline of the digits. The line box of the text has room for descenders, so centering it
-	/// would put the digits too high.
-	private static func drawCount(_ count: Int, at center: NSPoint) {
+	/// would put the digits too high. The bubble of the waiting sessions uses it too, so both numbers have one size.
+	static func drawCount(_ count: Int, at center: NSPoint, color: NSColor = .black) {
 		let text = count > 9 ? "9+" : "\(count)"
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 6.5 : 9.5, weight: .bold)
-		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black]))
+		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
 		let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
 		guard let context = NSGraphicsContext.current?.cgContext else { return }
 		context.textPosition = CGPoint(x: center.x - outline.midX, y: center.y - outline.midY)
