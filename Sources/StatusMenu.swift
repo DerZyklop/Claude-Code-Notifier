@@ -16,9 +16,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
 	private lazy var spinner = Spinner(button: statusItem.button!)
-	/// The waiting count that the button title shows now. The spinner redraws the icon 30 times per second, so the
-	/// title is only built again when the count changes.
-	private var shownWaitingCount: Int?
+	/// The icons with a bubble, by their content and the menu bar appearance.
+	private var iconCache: [String: NSImage] = [:]
+	private var appearanceObservation: NSKeyValueObservation?
 
 	override init() {
 		super.init()
@@ -30,66 +30,93 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.updateIcon() }
 			.store(in: &subscriptions)
-		// Only the sessions change the height of the card. Measuring it builds a view, so the spinner frames skip it.
+		// Only the sessions change the height of the card. Measuring it builds a view, so other changes skip it.
 		SessionStore.shared.objectWillChange
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
 			.store(in: &subscriptions)
+		// An icon with a bubble colors its left part itself, see ``icon(left:key:waiting:isDark:)``.
+		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
+			Task { @MainActor in self?.updateIcon() }
+		}
 		updateIcon()
 	}
 
-	/// The spinner while sessions work, else the sparkle. Sessions that ask you add an orange question bubble with their
-	/// count, so that a forgotten prompt does not hide the work in other sessions.
+	/// The spinner while sessions work, else the sparkle. Sessions that ask you add an orange bubble with their count,
+	/// so that a forgotten prompt does not hide the work in other sessions.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
-		let waiting = sessions.filter { $0.state == .asksYou }.count
+		let waiting = HookSetup.shared.hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
 		let working = sessions.filter { $0.state == .working }.count
-
-		button.imagePosition = .imageLeading
-		// Keeps the bubble close to the spinner.
-		button.imageHugsTitle = true
 		let isSpinning = working > 0 && !HookSetup.shared.hasProblem
-		let image = HookSetup.shared.hasProblem ? Self.crossedOutSparkle : isSpinning ? spinner.image(workingCount: working) : Self.sparkle
+
+		let (left, key) = HookSetup.shared.hasProblem ? (Self.crossedOutSparkle, "problem")
+			: isSpinning ? (spinner.image(workingCount: working), "spinner-\(min(working, 10))")
+			: (Self.sparkle, "sparkle")
+		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+		let image = left.map { icon(left: $0, key: key, waiting: waiting, isDark: isDark) }
 		if button.image !== image { button.image = image }
-		let titleCount = HookSetup.shared.hasProblem ? 0 : waiting
-		if titleCount != shownWaitingCount {
-			button.attributedTitle = titleCount > 0 ? Self.waitingBadge(count: titleCount) : NSAttributedString()
-			shownWaitingCount = titleCount
-		}
+		button.title = ""
+
+		// The left part of the icon is at its left edge, vertically centered.
 		button.layoutSubtreeIfNeeded()
-		spinner.show(around: isSpinning ? button.cell?.imageRect(forBounds: button.bounds) : nil)
+		let frame = button.cell?.imageRect(forBounds: button.bounds)
+		spinner.show(around: isSpinning ? frame.map { NSRect(x: $0.minX, y: $0.midY - Spinner.size.height / 2, width: Spinner.size.width, height: Spinner.size.height) } : nil)
 	}
 
-	/// An orange speech bubble with the count in white inside it, in the color of »asks you« in the card.
-	private static func waitingBadge(count: Int) -> NSAttributedString {
-		let font = NSFont.menuBarFont(ofSize: 0)
-		let title = NSMutableAttributedString()
-		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize + 4, weight: .regular)
-			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
-		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return title }
-		title.append(NSAttributedString(string: "\u{200A}", attributes: [.font: font]))
+	/// The left image alone as a template image, or together with the bubble of the waiting sessions. A combined icon
+	/// cannot be a template image, because the menu bar would color the bubble too. So it colors the left part itself.
+	/// Drawn in one image, the bubble sits 2 pt from the spinner. As the title of the button, it kept a wider gap.
+	private func icon(left: NSImage, key: String, waiting: Int, isDark: Bool) -> NSImage {
+		guard waiting > 0 else { return left }
+		let cacheKey = "\(key)-\(min(waiting, 10))-\(isDark)"
+		if let image = iconCache[cacheKey] { return image }
+		let bubble = Self.bubble(count: waiting)
+		let gap = 2.0
+		let size = NSSize(width: left.size.width + gap + bubble.size.width, height: max(left.size.height, bubble.size.height))
+		let color = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
+		let image = NSImage(size: size, flipped: false) { rect in
+			let leftRect = NSRect(x: 0, y: (rect.height - left.size.height) / 2, width: left.size.width, height: left.size.height)
+			let tinted = NSImage(size: left.size, flipped: false) { tintRect in
+				left.draw(in: tintRect)
+				color.set()
+				tintRect.fill(using: .sourceAtop)
+				return true
+			}
+			tinted.draw(in: leftRect)
+			bubble.draw(in: NSRect(x: left.size.width + gap, y: (rect.height - bubble.size.height) / 2, width: bubble.size.width, height: bubble.size.height))
+			return true
+		}
+		iconCache[cacheKey] = image
+		return image
+	}
 
-		// The button centers the whole bubble, tail included. Space above the bubble makes the middle of its body the
-		// middle of the image, so the body lines up with the spinner and the tail hangs below.
+	/// An orange speech bubble with the count in white inside it, in the color of »asks you« in the card. Space above
+	/// the bubble makes the middle of its body the middle of the image, so the body lines up with the spinner and the
+	/// tail hangs below.
+	private static func bubble(count: Int) -> NSImage {
+		let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuBarFont(ofSize: 0).pointSize + 4, weight: .regular)
+			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
+		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return NSImage() }
 		let bodyMiddle = bubble.size.height * 0.58
 		let size = NSSize(width: bubble.size.width, height: (bodyMiddle * 2).rounded(.up))
-		let image = NSImage(size: size, flipped: false) { rect in
+		return NSImage(size: size, flipped: false) { rect in
 			bubble.draw(in: NSRect(origin: rect.origin, size: bubble.size))
 			Spinner.drawCount(count, at: NSPoint(x: rect.midX, y: rect.minY + bodyMiddle), color: .white)
 			return true
 		}
-		let attachment = NSTextAttachment()
-		attachment.image = image
-		attachment.bounds = NSRect(origin: .zero, size: size)
-		title.append(NSAttributedString(attachment: attachment))
-		return title
 	}
 
+	/// On the canvas of the spinner, so that the icon keeps its width when the spinner starts or stops.
 	private static let sparkle: NSImage? = {
-		let image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude Code Notifier")?
-			.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
-		image?.isTemplate = true
+		guard let symbol = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude Code Notifier")?
+			.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)) else { return nil }
+		let image = NSImage(size: Spinner.size, flipped: false) { rect in
+			symbol.draw(in: NSRect(x: rect.midX - symbol.size.width / 2, y: rect.midY - symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height))
+			return true
+		}
+		image.isTemplate = true
 		return image
 	}()
 
@@ -99,7 +126,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		guard let sparkle else { return nil }
 		let image = NSImage(size: sparkle.size, flipped: false) { rect in
 			sparkle.draw(in: rect)
-			let inset = rect.width * 0.12
+			let inset = rect.width * 0.2
 			let line = NSBezierPath()
 			line.move(to: NSPoint(x: rect.minX + inset, y: rect.maxY - inset))
 			line.line(to: NSPoint(x: rect.maxX - inset, y: rect.minY + inset))
