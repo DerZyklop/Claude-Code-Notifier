@@ -50,19 +50,20 @@ final class Spinner: ObservableObject {
 		let size = NSSize(width: 18, height: 18)
 		let image = NSImage(size: size, flipped: false) { _ in
 			let center = NSPoint(x: size.width / 2, y: size.height / 2)
-			let radius = 7.4
+			// The ring fills the 18 pt icon: radius plus half the line width.
+			let radius = 7.6
 			let progress = Double(frame) / Double(frameCount)
 
 			let track = NSBezierPath()
 			track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
-			track.lineWidth = 1.6
-			NSColor.black.withAlphaComponent(0.25).setStroke()
+			track.lineWidth = 2.6
+			NSColor.black.withAlphaComponent(0.3).setStroke()
 			track.stroke()
 
 			let start = 90 - progress * 360
 			let arc = NSBezierPath()
-			arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start - 110, clockwise: true)
-			arc.lineWidth = 1.8
+			arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start - 130, clockwise: true)
+			arc.lineWidth = 2.6
 			arc.lineCapStyle = .round
 			NSColor.black.setStroke()
 			arc.stroke()
