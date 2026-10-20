@@ -47,8 +47,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			return
 		}
 		if working > 0 {
-			let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-			button.image = Spinner.shared.image(workingCount: working, isDark: isDark)
+			button.image = Spinner.shared.image(workingCount: working)
 		} else {
 			button.image = Self.sparkle
 		}

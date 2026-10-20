@@ -9,7 +9,6 @@ final class Spinner: ObservableObject {
 
 	private static let frameCount = 12
 	private static let frameInterval = 0.1
-	private static let color = NSColor.systemOrange
 
 	@Published private(set) var frame = 0
 
@@ -25,11 +24,10 @@ final class Spinner: ObservableObject {
 			.sink { [weak self] isWorking in self?.run(isWorking) }
 	}
 
-	/// - Parameter isDark: Whether the menu bar is dark. The sparkle or number in the middle takes its text color.
-	func image(workingCount: Int, isDark: Bool) -> NSImage {
-		let key = "\(frame)-\(workingCount)-\(isDark)"
+	func image(workingCount: Int) -> NSImage {
+		let key = "\(frame)-\(workingCount)"
 		if let image = cache[key] { return image }
-		let image = Self.draw(frame: frame, workingCount: workingCount, isDark: isDark)
+		let image = Self.draw(frame: frame, workingCount: workingCount)
 		cache[key] = image
 		return image
 	}
@@ -46,9 +44,9 @@ final class Spinner: ObservableObject {
 		}
 	}
 
-	/// The ring and the arc are orange, so that a working session stands out from the other icons in the menu bar. The
-	/// sparkle and the number have the text color of the menu bar.
-	private static func draw(frame: Int, workingCount: Int, isDark: Bool) -> NSImage {
+	/// A template image, so that the menu bar colors it like the other icons. Only the bubble of the waiting sessions
+	/// has a color, because it needs you.
+	private static func draw(frame: Int, workingCount: Int) -> NSImage {
 		let size = NSSize(width: 18, height: 18)
 		let image = NSImage(size: size, flipped: false) { _ in
 			let center = NSPoint(x: size.width / 2, y: size.height / 2)
@@ -58,7 +56,7 @@ final class Spinner: ObservableObject {
 			let track = NSBezierPath()
 			track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
 			track.lineWidth = 1.6
-			color.withAlphaComponent(0.3).setStroke()
+			NSColor.black.withAlphaComponent(0.25).setStroke()
 			track.stroke()
 
 			let start = 90 - progress * 360
@@ -66,23 +64,23 @@ final class Spinner: ObservableObject {
 			arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start - 110, clockwise: true)
 			arc.lineWidth = 1.8
 			arc.lineCapStyle = .round
-			color.setStroke()
+			NSColor.black.setStroke()
 			arc.stroke()
 
-			let textColor = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 			if workingCount > 1 {
-				drawCount(workingCount, at: center, color: textColor)
+				drawCount(workingCount, at: center)
 			} else {
 				// The sparkle twinkles: it grows and shrinks a little with each turn.
-				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi), color: textColor)
+				drawSparkle(at: center, scale: 1 + 0.14 * sin(progress * 2 * .pi))
 			}
 			return true
 		}
+		image.isTemplate = true
 		return image
 	}
 
-	private static func drawSparkle(at center: NSPoint, scale: Double, color: NSColor) {
-		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold).applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+	private static func drawSparkle(at center: NSPoint, scale: Double) {
+		let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
 		guard let sparkle = NSImage(systemSymbolName: "sparkle", accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
 		let width = sparkle.size.width * scale
 		let height = sparkle.size.height * scale
@@ -91,10 +89,10 @@ final class Spinner: ObservableObject {
 
 	/// Centers the visible outline of the digits. The line box of the text has room for descenders, so centering it
 	/// would put the digits too high.
-	private static func drawCount(_ count: Int, at center: NSPoint, color: NSColor) {
+	private static func drawCount(_ count: Int, at center: NSPoint) {
 		let text = count > 9 ? "9+" : "\(count)"
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 6.5 : 9.5, weight: .bold)
-		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
+		let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black]))
 		let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
 		guard let context = NSGraphicsContext.current?.cgContext else { return }
 		context.textPosition = CGPoint(x: center.x - outline.midX, y: center.y - outline.midY)
