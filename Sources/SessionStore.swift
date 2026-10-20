@@ -73,6 +73,14 @@ struct Session: Identifiable, Equatable {
 	var title: String?
 	/// The Claude Code process, once the app found the session file, see ``ClaudeSessionFiles``.
 	var pid: Int32?
+	/// The shell commands of the session that run now. After the turn, these are commands in the background.
+	var shellCommands = 0
+
+	/// The state to show. A session whose turn is over but that still runs a command in the background is working.
+	var shownState: SessionState { state == .yourTurn && shellCommands > 0 ? .working : state }
+
+	/// The title of ``shownState``.
+	var stateTitle: String { state == .yourTurn && shellCommands > 0 ? "background task" : state.title }
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
@@ -119,7 +127,7 @@ final class SessionStore: ObservableObject {
 	}
 
 	var sortedSessions: [Session] {
-		sessions.values.sorted { ($0.state.rawValue, $1.updated) < ($1.state.rawValue, $0.updated) }
+		sessions.values.sorted { ($0.shownState.rawValue, $1.updated) < ($1.shownState.rawValue, $0.updated) }
 	}
 
 	func handle(_ data: Data) {
@@ -252,11 +260,25 @@ final class SessionStore: ObservableObject {
 			if session != previous { sessions[session.id] = session }
 		}
 
+		// The process scan takes some milliseconds, so it runs off the main thread.
+		let pids = Set(running.map(\.pid))
+		Task.detached(priority: .utility) {
+			let commands = ClaudeSessionFiles.shellCommandCounts(of: pids)
+			await MainActor.run { self.apply(shellCommands: commands) }
+		}
+
 		// A process that ended without a `SessionEnd` hook, e.g. in a session that started before the hooks.
 		let runningIDs = Set(running.map(\.sessionID))
 		for (id, session) in sessions where session.pid != nil && session.state != .ended && !runningIDs.contains(id) {
 			sessions[id]?.state = .ended
 			sessions[id]?.updated = Date()
+		}
+	}
+
+	private func apply(shellCommands commands: [Int32: Int]) {
+		for (id, session) in sessions {
+			let count = session.pid.flatMap { commands[$0] } ?? 0
+			if session.shellCommands != count { sessions[id]?.shellCommands = count }
 		}
 	}
 

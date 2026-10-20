@@ -48,7 +48,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
 		let waiting = HookSetup.shared.hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
-		let working = sessions.filter { $0.state == .working }.count
+		let working = sessions.filter { $0.shownState == .working }.count
 		let isSpinning = working > 0 && !HookSetup.shared.hasProblem
 
 		let (left, key) = HookSetup.shared.hasProblem ? (Self.crossedOutSparkle, "problem")

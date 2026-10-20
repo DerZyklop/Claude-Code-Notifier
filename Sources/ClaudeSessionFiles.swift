@@ -51,6 +51,35 @@ enum ClaudeSessionFiles {
 		}
 	}
 
+	/// The number of shell commands that run now, for each of the given Claude Code processes. Claude Code starts every
+	/// shell command of a session as a direct child, with a shell snapshot from `~/.claude/shell-snapshots`. Its MCP
+	/// servers are children too, but without a snapshot.
+	static func shellCommandCounts(of claudePIDs: Set<Int32>) -> [Int32: Int] {
+		guard !claudePIDs.isEmpty else { return [:] }
+		var pids = [Int32](repeating: 0, count: Int(proc_listallpids(nil, 0)) + 64)
+		let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size)))
+		var result: [Int32: Int] = [:]
+		for pid in pids.prefix(count) where pid > 0 {
+			var info = proc_bsdinfo()
+			let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+			guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { continue }
+			let parent = Int32(info.pbi_ppid)
+			guard claudePIDs.contains(parent), arguments(of: pid).contains("/.claude/shell-snapshots/") else { continue }
+			result[parent, default: 0] += 1
+		}
+		return result
+	}
+
+	/// The command line of a process, with spaces between the arguments.
+	private static func arguments(of pid: Int32) -> String {
+		var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+		var size = 0
+		guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return "" }
+		var buffer = [UInt8](repeating: 0, count: size)
+		guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return "" }
+		return String(decoding: buffer.prefix(size).map { $0 == 0 ? UInt8(ascii: " ") : $0 }, as: UTF8.self)
+	}
+
 	/// Whether the process runs and is Claude Code. The system can give the ID of an ended process to a new one.
 	static func isClaudeProcess(_ pid: Int32) -> Bool {
 		var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
