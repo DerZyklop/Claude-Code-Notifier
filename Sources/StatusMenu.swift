@@ -32,26 +32,44 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		updateIcon()
 	}
 
-	/// A session that asks you wins over a working one: it needs you now.
+	/// The spinner while sessions work, else the sparkle. Sessions that ask you add an orange question bubble with their
+	/// count, so that a forgotten prompt does not hide the work in other sessions.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
 		let waiting = sessions.filter { $0.state == .asksYou }.count
 		let working = sessions.filter { $0.state == .working }.count
 
-		button.title = ""
+		button.imagePosition = .imageLeading
 		if HookSetup.shared.hasProblem {
 			button.image = Self.crossedOutSparkle
-		} else if waiting > 0 {
-			button.image = Self.sparkle
-			button.title = " \(waiting)"
-		} else if working > 0 {
+			button.title = ""
+			return
+		}
+		if working > 0 {
 			let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 			button.image = Spinner.shared.image(workingCount: working, isDark: isDark)
 		} else {
 			button.image = Self.sparkle
 		}
-		button.imagePosition = .imageLeading
+		button.attributedTitle = waiting > 0 ? Self.waitingBadge(count: waiting) : NSAttributedString()
+	}
+
+	/// » ❓1« with the orange question bubble of »asks you« in the card.
+	private static func waitingBadge(count: Int) -> NSAttributedString {
+		let font = NSFont.menuBarFont(ofSize: 0)
+		let title = NSMutableAttributedString(string: " ", attributes: [.font: font])
+		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize - 1, weight: .regular)
+			.applying(NSImage.SymbolConfiguration(paletteColors: [.white, .systemOrange]))
+		if let bubble = NSImage(systemSymbolName: SessionState.asksYou.symbol, accessibilityDescription: "asks you")?.withSymbolConfiguration(configuration) {
+			let attachment = NSTextAttachment()
+			attachment.image = bubble
+			attachment.bounds = NSRect(x: 0, y: font.descender + 1, width: bubble.size.width, height: bubble.size.height)
+			title.append(NSAttributedString(attachment: attachment))
+		}
+		// The dynamic text color follows the light or dark menu bar.
+		title.append(NSAttributedString(string: "\u{2009}\(count)", attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+		return title
 	}
 
 	private static let sparkle: NSImage? = {
