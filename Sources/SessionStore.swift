@@ -294,7 +294,7 @@ final class SessionStore: ObservableObject {
 		if UserDefaults.standard.object(forKey: SettingsKey.playsSound) as? Bool ?? true {
 			content.sound = UNNotificationSound(named: kind.sound)
 		}
-		content.threadIdentifier = identifier
+		// No thread identifier: macOS then stacks all notifications of the app in one group.
 		UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
 	}
 
