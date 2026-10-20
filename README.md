@@ -13,7 +13,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
   their count inside it, so a forgotten prompt does not hide the work in other sessions. A crossed-out sparkle means
   that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time
-  since the start on the right (»4:07«, »1:04:07«). The title is the one that the Claude Code extension shows: an agent
+  since the start on the right (a clock for the first hour like »4:07«, then »1 h 09 min«, then »1 d 3 h«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
   transcript. The time updates every second while the menu is open. A row is highlighted under the mouse pointer, but
   the card only shows information, it cannot be clicked. Archived sessions are not in the card.
