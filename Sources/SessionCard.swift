@@ -95,20 +95,22 @@ struct SessionCard: View {
 		}
 	}
 
-	/// The icon shows the state, its name is in the tooltip. A background task adds a small dot to the hourglass.
+	/// The icon shows the state, its name is in the tooltip. A background task fades the hourglass and adds a blue
+	/// badge with a ring in the background color, so that the badge stands apart from the hourglass.
 	private func stateIcon(_ session: Session) -> some View {
 		let state = session.shownState
 		// Filled and a little heavier: a thin outline in color has too little contrast on the card.
 		return Image(systemName: state.symbol)
 			.fontWeight(.semibold)
-			.foregroundStyle(state.color)
+			.foregroundStyle(state.color.opacity(session.hasBackgroundTask ? 0.45 : 1))
 			.frame(width: 16)
 			.overlay(alignment: .bottomTrailing) {
 				if session.hasBackgroundTask {
 					Circle()
 						.fill(state.color)
-						.frame(width: 5, height: 5)
-						.offset(x: 1, y: 1)
+						.overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+						.frame(width: 8, height: 8)
+						.offset(x: 3, y: 2)
 				}
 			}
 			.help(session.stateTitle)
