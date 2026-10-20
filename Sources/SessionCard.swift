@@ -68,7 +68,9 @@ struct SessionCard: View {
 
 	private func row(_ session: Session) -> some View {
 		HStack(spacing: 7) {
+			// Filled and a little heavier: a thin outline in color has too little contrast on the card.
 			Image(systemName: session.stateSymbol)
+				.fontWeight(.semibold)
 				.foregroundStyle(session.shownState.color)
 				.frame(width: 16)
 			Text(session.name)

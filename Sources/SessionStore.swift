@@ -22,9 +22,9 @@ enum SessionState: Int {
 	var symbol: String {
 		switch self {
 		case .asksYou: "questionmark.bubble.fill"
-		case .yourTurn: "checkmark.circle"
-		case .working: "hourglass"
-		case .ended: "stop.circle"
+		case .yourTurn: "checkmark.circle.fill"
+		case .working: "hourglass.circle.fill"
+		case .ended: "stop.circle.fill"
 		}
 	}
 }
@@ -86,7 +86,7 @@ struct Session: Identifiable, Equatable {
 	var stateTitle: String { hasBackgroundTask ? "background task" : state.title }
 
 	/// The icon of ``shownState``. A background task has its own icon, a terminal for the shell command.
-	var stateSymbol: String { hasBackgroundTask ? "apple.terminal" : state.symbol }
+	var stateSymbol: String { hasBackgroundTask ? "apple.terminal.fill" : state.symbol }
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
