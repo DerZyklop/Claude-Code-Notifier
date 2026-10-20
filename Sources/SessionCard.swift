@@ -68,7 +68,7 @@ struct SessionCard: View {
 
 	private func row(_ session: Session) -> some View {
 		HStack(spacing: 7) {
-			Image(systemName: session.shownState.symbol)
+			Image(systemName: session.stateSymbol)
 				.foregroundStyle(session.shownState.color)
 				.frame(width: 16)
 			Text(session.name)

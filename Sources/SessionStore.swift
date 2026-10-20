@@ -76,11 +76,17 @@ struct Session: Identifiable, Equatable {
 	/// The shell commands of the session that run now. After the turn, these are commands in the background.
 	var shellCommands = 0
 
-	/// The state to show. A session whose turn is over but that still runs a command in the background is working.
-	var shownState: SessionState { state == .yourTurn && shellCommands > 0 ? .working : state }
+	/// Whether the turn is over, but a shell command still runs in the background.
+	var hasBackgroundTask: Bool { state == .yourTurn && shellCommands > 0 }
+
+	/// The state to show. A session with a background task is working.
+	var shownState: SessionState { hasBackgroundTask ? .working : state }
 
 	/// The title of ``shownState``.
-	var stateTitle: String { state == .yourTurn && shellCommands > 0 ? "background task" : state.title }
+	var stateTitle: String { hasBackgroundTask ? "background task" : state.title }
+
+	/// The icon of ``shownState``. A background task has its own icon, a terminal for the shell command.
+	var stateSymbol: String { hasBackgroundTask ? "apple.terminal" : state.symbol }
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
