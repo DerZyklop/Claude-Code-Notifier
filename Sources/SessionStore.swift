@@ -83,11 +83,8 @@ struct Session: Identifiable, Equatable {
 	/// The state to show. A session with a background task is working.
 	var shownState: SessionState { hasBackgroundTask ? .working : state }
 
-	/// The title of ``shownState``.
-	var stateTitle: String { hasBackgroundTask ? "background task" : state.title }
-
-	/// The icon of ``shownState``. A background task has its own icon, a terminal for the shell command.
-	var stateSymbol: String { hasBackgroundTask ? "apple.terminal.fill" : state.symbol }
+	/// The title of ``shownState``, for the tooltip of its icon.
+	var stateTitle: String { hasBackgroundTask ? "working in the background" : state.title }
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }

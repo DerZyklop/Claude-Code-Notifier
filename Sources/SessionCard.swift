@@ -68,19 +68,12 @@ struct SessionCard: View {
 
 	private func row(_ session: Session) -> some View {
 		HStack(spacing: 7) {
-			// Filled and a little heavier: a thin outline in color has too little contrast on the card.
-			Image(systemName: session.stateSymbol)
-				.fontWeight(.semibold)
-				.foregroundStyle(session.shownState.color)
-				.frame(width: 16)
+			stateIcon(session)
 			Text(session.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
-				.frame(maxWidth: 260, alignment: .leading)
+				.frame(maxWidth: 300, alignment: .leading)
 				.help(session.project)
-			Text(session.stateTitle)
-				.foregroundStyle(.secondary)
-				.lineLimit(1)
 			Spacer(minLength: 16)
 			Text(Self.elapsed(from: session.started, to: clock.now))
 				.monospacedDigit()
@@ -100,6 +93,25 @@ struct SessionCard: View {
 				hoveredID = nil
 			}
 		}
+	}
+
+	/// The icon shows the state, its name is in the tooltip. A background task adds a small dot to the hourglass.
+	private func stateIcon(_ session: Session) -> some View {
+		let state = session.shownState
+		// Filled and a little heavier: a thin outline in color has too little contrast on the card.
+		return Image(systemName: state.symbol)
+			.fontWeight(.semibold)
+			.foregroundStyle(state.color)
+			.frame(width: 16)
+			.overlay(alignment: .bottomTrailing) {
+				if session.hasBackgroundTask {
+					Circle()
+						.fill(state.color)
+						.frame(width: 5, height: 5)
+						.offset(x: 1, y: 1)
+				}
+			}
+			.help(session.stateTitle)
 	}
 
 	/// Seconds for the first minute (»58s«), a ticking clock for the first hour (»4:07«), then hours and minutes

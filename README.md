@@ -12,7 +12,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
   Animation turns the arc, so the app does no work per frame. Sessions that ask you add an orange speech bubble with
   their count inside it, so a forgotten prompt does not hide the work in other sessions. A crossed-out sparkle means
   that the setup has a problem.
-- **Menu:** a card with one row per session: a colored state icon, the session title, the state, and the running time
+- **Menu:** a card with one row per session: a colored state icon, the session title, and the running time
   since the start on the right (»58s« in the first minute, a clock for the first hour like »4:07«, then »1h 09m«, then »2d 4h 03m«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
   transcript. The time updates every second while the menu is open. A row is highlighted under the mouse pointer, but
@@ -56,7 +56,7 @@ None of this sends a notification.
 A session can start a shell command in the background and end its turn. Claude Code runs every shell command of a
 session as a child of the session process, with a shell snapshot from `~/.claude/shell-snapshots`. Every 3 s, the app
 counts these commands for each session. A session whose turn is over but that still runs such a command counts as
-working: the card shows »background task« with a terminal icon, and the spinner counts it. The »Your turn« notification at the end of the
+working: the card shows the hourglass with a small dot, and the spinner counts it. The »Your turn« notification at the end of the
 turn stays. A command that never ends, for example a dev server, keeps the session »working« until the command stops.
 
 Claude Code sends the `Notification` for a permission prompt only 6 s after the prompt appears. So a permission you
