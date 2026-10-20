@@ -55,20 +55,30 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		button.attributedTitle = waiting > 0 ? Self.waitingBadge(count: waiting) : NSAttributedString()
 	}
 
-	/// » ❓1« with the orange question bubble of »asks you« in the card.
+	/// An orange speech bubble with the count in white inside it, in the color of »asks you« in the card.
 	private static func waitingBadge(count: Int) -> NSAttributedString {
 		let font = NSFont.menuBarFont(ofSize: 0)
 		let title = NSMutableAttributedString(string: " ", attributes: [.font: font])
-		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize - 1, weight: .regular)
-			.applying(NSImage.SymbolConfiguration(paletteColors: [.white, .systemOrange]))
-		if let bubble = NSImage(systemSymbolName: SessionState.asksYou.symbol, accessibilityDescription: "asks you")?.withSymbolConfiguration(configuration) {
-			let attachment = NSTextAttachment()
-			attachment.image = bubble
-			attachment.bounds = NSRect(x: 0, y: font.descender + 1, width: bubble.size.width, height: bubble.size.height)
-			title.append(NSAttributedString(attachment: attachment))
+		let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize + 2, weight: .regular)
+			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
+		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return title }
+
+		let image = NSImage(size: bubble.size, flipped: false) { rect in
+			bubble.draw(in: rect)
+			// The body of the bubble is above its tail, so the number centers in the upper part.
+			let text = count > 9 ? "9+" : "\(count)"
+			let numberFont = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 7.5 : 10, weight: .bold)
+			let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: numberFont, .foregroundColor: NSColor.white]))
+			let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+			guard let context = NSGraphicsContext.current?.cgContext else { return true }
+			context.textPosition = CGPoint(x: rect.midX - outline.midX, y: rect.minY + rect.height * 0.58 - outline.midY)
+			CTLineDraw(line, context)
+			return true
 		}
-		// The dynamic text color follows the light or dark menu bar.
-		title.append(NSAttributedString(string: "\u{2009}\(count)", attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+		let attachment = NSTextAttachment()
+		attachment.image = image
+		attachment.bounds = NSRect(x: 0, y: font.descender, width: image.size.width, height: image.size.height)
+		title.append(NSAttributedString(attachment: attachment))
 		return title
 	}
 
