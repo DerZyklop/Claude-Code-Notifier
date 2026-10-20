@@ -23,7 +23,7 @@ enum SessionState: Int {
 		switch self {
 		case .asksYou: "questionmark.bubble.fill"
 		case .yourTurn: "checkmark.circle.fill"
-		case .working: "hourglass.circle.fill"
+		case .working: "hourglass"
 		case .ended: "stop.circle.fill"
 		}
 	}
