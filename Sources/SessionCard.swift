@@ -102,13 +102,15 @@ struct SessionCard: View {
 		}
 	}
 
-	/// A ticking clock for the first hour (»4:07«), then hours and minutes (»1h 09m«), then also days (»2d 4h 03m«).
+	/// Seconds for the first minute (»58s«), a ticking clock for the first hour (»4:07«), then hours and minutes
+	/// (»1h 09m«), then also days (»2d 4h 03m«).
 	private static func elapsed(from start: Date, to now: Date) -> String {
 		let seconds = max(0, Int(now.timeIntervalSince(start)))
 		let (days, hours, minutes) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60)
 		if days > 0 { return String(format: "%dd %dh %02dm", days, hours, minutes) }
 		if hours > 0 { return String(format: "%dh %02dm", hours, minutes) }
-		return String(format: "%d:%02d", minutes, seconds % 60)
+		if minutes > 0 { return String(format: "%d:%02d", minutes, seconds % 60) }
+		return "\(seconds)s"
 	}
 }
 
