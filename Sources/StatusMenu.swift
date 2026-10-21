@@ -42,57 +42,90 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		updateIcon()
 	}
 
-	/// The spinner while sessions work, else the sparkle. Sessions that ask you add an orange bubble with their count,
-	/// so that a forgotten prompt does not hide the work in other sessions.
+	/// The icon always has the same width, so that the menu bar never shifts. From the right: the bubble of the waiting
+	/// sessions, the number of working sessions, and the wave in the space that is left. Without work, a sparkle at the
+	/// left end. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
-		let waiting = HookSetup.shared.hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
-		let working = sessions.filter { $0.shownState == .working }.count
-		let isSpinning = working > 0 && !HookSetup.shared.hasProblem
-
-		let (left, key) = HookSetup.shared.hasProblem ? (Self.crossedOutSparkle, "problem")
-			: isSpinning ? (spinner.image(workingCount: working), "spinner-\(min(working, 10))")
-			: (Self.sparkle, "sparkle")
+		let hasProblem = HookSetup.shared.hasProblem
+		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
+		let working = hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-		let image = left.map { icon(left: $0, key: key, waiting: waiting, isDark: isDark) }
+		let layout = Self.layout(working: working, waiting: waiting)
+
+		let image = icon(layout: layout, hasProblem: hasProblem, isDark: isDark)
 		if button.image !== image { button.image = image }
 		button.title = ""
-
-		// The left part of the icon is at its left edge, vertically centered.
+		button.imagePosition = .imageOnly
 		button.layoutSubtreeIfNeeded()
-		let frame = button.cell?.imageRect(forBounds: button.bounds)
-		spinner.show(around: isSpinning ? frame.map { NSRect(x: $0.minX, y: $0.midY - Spinner.size.height / 2, width: Spinner.size.width, height: Spinner.size.height) } : nil)
+		spinner.show(waveEnd: layout.waveEnd, over: working > 0 ? button.cell?.imageRect(forBounds: button.bounds) : nil)
 	}
 
-	/// The left image alone as a template image, or together with the bubble of the waiting sessions. A combined icon
-	/// cannot be a template image, because the menu bar would color the bubble too. So it colors the left part itself.
-	/// Drawn in one image, the bubble sits 2 pt from the spinner. As the title of the button, it kept a wider gap.
-	private func icon(left: NSImage, key: String, waiting: Int, isDark: Bool) -> NSImage {
-		guard waiting > 0 else { return left }
-		let cacheKey = "\(key)-\(min(waiting, 10))-\(isDark)"
+	private static let iconWidth = 58.0
+	private static let gap = 2.0
+
+	/// Where the parts of the icon go.
+	private struct IconLayout: Hashable {
+		var working = 0
+		var waiting = 0
+		/// The wave runs from the left end to here.
+		var waveEnd = 0.0
+		var numberCenterX: Double?
+		var bubbleX: Double?
+	}
+
+	private static func layout(working: Int, waiting: Int) -> IconLayout {
+		var layout = IconLayout(working: min(working, 10), waiting: min(waiting, 10))
+		var right = iconWidth
+		if waiting > 0 {
+			right -= bubbleWidth
+			layout.bubbleX = right
+			right -= gap
+		}
+		if working > 1 {
+			let width = Spinner.countWidth(working)
+			layout.numberCenterX = right - width / 2
+			right -= width + 2 * gap
+		}
+		layout.waveEnd = right
+		return layout
+	}
+
+	private static let bubbleWidth = bubble(count: 1).size.width
+
+	/// One image for all parts. It cannot be a template image, because the menu bar would color the bubble too, so it
+	/// colors the sparkle and the number itself.
+	private func icon(layout: IconLayout, hasProblem: Bool, isDark: Bool) -> NSImage {
+		let cacheKey = "\(layout)-\(hasProblem)-\(isDark)"
 		if let image = iconCache[cacheKey] { return image }
-		let bubble = Self.bubble(count: waiting)
-		let gap = 2.0
-		let size = NSSize(width: left.size.width + gap + bubble.size.width, height: max(left.size.height, bubble.size.height))
+		let bubble = layout.bubbleX.map { _ in Self.bubble(count: layout.waiting) }
+		let height = max(18, bubble?.size.height ?? 0)
 		let color = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
-		let image = NSImage(size: size, flipped: false) { rect in
-			let leftRect = NSRect(x: 0, y: (rect.height - left.size.height) / 2, width: left.size.width, height: left.size.height)
-			let tinted = NSImage(size: left.size, flipped: false) { tintRect in
-				left.draw(in: tintRect)
-				color.set()
-				tintRect.fill(using: .sourceAtop)
-				return true
+		let sparkle = layout.working > 0 ? nil : hasProblem ? Self.crossedOutSparkle : Self.sparkle
+		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
+			if let sparkle {
+				let tinted = NSImage(size: sparkle.size, flipped: false) { tintRect in
+					sparkle.draw(in: tintRect)
+					color.set()
+					tintRect.fill(using: .sourceAtop)
+					return true
+				}
+				tinted.draw(in: NSRect(x: 0, y: (rect.height - sparkle.size.height) / 2, width: sparkle.size.width, height: sparkle.size.height))
 			}
-			tinted.draw(in: leftRect)
-			bubble.draw(in: NSRect(x: left.size.width + gap, y: (rect.height - bubble.size.height) / 2, width: bubble.size.width, height: bubble.size.height))
+			if let x = layout.numberCenterX {
+				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color)
+			}
+			if let bubble, let x = layout.bubbleX {
+				bubble.draw(in: NSRect(x: x, y: (rect.height - bubble.size.height) / 2, width: bubble.size.width, height: bubble.size.height))
+			}
 			return true
 		}
 		iconCache[cacheKey] = image
 		return image
 	}
 
-	/// An orange speech bubble with the count in white inside it, in the color of »asks you« in the card. Space above
+	/// An orange speech bubble with the count in white inside it from two sessions on, in the color of »asks you« in the card. Space above
 	/// the bubble makes the middle of its body the middle of the image, so the body lines up with the spinner and the
 	/// tail hangs below.
 	private static func bubble(count: Int) -> NSImage {
@@ -103,16 +136,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let size = NSSize(width: bubble.size.width, height: (bodyMiddle * 2).rounded(.up))
 		return NSImage(size: size, flipped: false) { rect in
 			bubble.draw(in: NSRect(origin: rect.origin, size: bubble.size))
-			Spinner.drawCount(count, at: NSPoint(x: rect.midX, y: rect.minY + bodyMiddle), color: .white)
+			// One waiting session needs no number: the bubble alone says it.
+			if count > 1 { Spinner.drawCount(count, at: NSPoint(x: rect.midX, y: rect.minY + bodyMiddle), color: .white) }
 			return true
 		}
 	}
 
-	/// On the canvas of the spinner, so that the icon keeps its width when the spinner starts or stops.
 	private static let sparkle: NSImage? = {
 		guard let symbol = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude Code Notifier")?
 			.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)) else { return nil }
-		let image = NSImage(size: Spinner.size, flipped: false) { rect in
+		let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
 			symbol.draw(in: NSRect(x: rect.midX - symbol.size.width / 2, y: rect.midY - symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height))
 			return true
 		}
@@ -126,10 +159,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		guard let sparkle else { return nil }
 		let image = NSImage(size: sparkle.size, flipped: false) { rect in
 			sparkle.draw(in: rect)
-			let inset = rect.width * 0.2
+			// The line crosses the square around the sparkle, not the whole canvas.
+			let square = NSRect(x: rect.midX - rect.height / 2, y: rect.minY, width: rect.height, height: rect.height)
+			let inset = square.width * 0.2
 			let line = NSBezierPath()
-			line.move(to: NSPoint(x: rect.minX + inset, y: rect.maxY - inset))
-			line.line(to: NSPoint(x: rect.maxX - inset, y: rect.minY + inset))
+			line.move(to: NSPoint(x: square.minX + inset, y: square.maxY - inset))
+			line.line(to: NSPoint(x: square.maxX - inset, y: square.minY + inset))
 			line.lineCapStyle = .round
 			NSGraphicsContext.current?.compositingOperation = .clear
 			line.lineWidth = 3.2

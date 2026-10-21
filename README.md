@@ -7,11 +7,12 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
 | Claude asks you: a permission, a question (`AskUserQuestion`) or a plan approval (`ExitPlanMode`) | »Claude asks you« | Purr |
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
 
-- **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner: a green arc that turns
-  around a faint green ring, with a sparkle in the middle for one session, or the number of working sessions. Core
-  Animation turns the arc, so the app does no work per frame. Sessions that ask you add an orange speech bubble with
-  their count inside it, so a forgotten prompt does not hide the work in other sessions. A crossed-out sparkle means
-  that the setup has a problem.
+- **Menu bar icon:** always 58 pt wide, so the menu bar never shifts. While sessions work, a pale green wave with a
+  dark green segment that runs along it from left to right. Core Animation moves the segment, so the app does no work
+  per frame. From two working sessions on, their number stands right of the wave. Sessions that ask you add an orange
+  speech bubble at the right end, with their number from two sessions on. The wave keeps its wavelength and gets
+  shorter to make room. Without work, a sparkle at the left end. A crossed-out sparkle means that the setup has a
+  problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, and the running time
   since the start on the right (»58s« in the first minute, a clock for the first hour like »4:07«, then »1h 09m«, then »2d 4h 03m«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
