@@ -3,11 +3,20 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+SDK="${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | tail -1)}"
+
+# A new version only when all unit tests in Tests/ pass. SwiftPM and the tests keep their caches and temporary files
+# in .build, not in ~/Library or the system temp folder.
+mkdir -p .build/tmp
+TMPDIR="$PWD/.build/tmp" SDKROOT="$SDK" swift test --cache-path .build/cache --config-path .build/config \
+	--security-path .build/security --manifest-cache local
+rm -rf .build/tmp
+
 APP="build/Claude Code Notifier.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -sdk "${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | tail -1)}" -O -parse-as-library -swift-version 5 \
+swiftc -sdk "$SDK" -module-cache-path .build/module-cache -O -parse-as-library -swift-version 5 \
 	-target "$(uname -m)-apple-macos13.0" \
 	Sources/*.swift \
 	-o "$APP/Contents/MacOS/ClaudeCodeNotifier"
@@ -36,7 +45,7 @@ sed -i '' "s/BUILD_NUMBER/$(date +%Y%m%d%H%M%S)/" "$APP/Contents/Info.plist"
 
 # The app icon, in all sizes that macOS asks for.
 ICON_WORK=$(mktemp -d)
-swiftc -sdk "${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | tail -1)}" make-icon.swift -o "$ICON_WORK/make-icon"
+swiftc -sdk "$SDK" -module-cache-path .build/module-cache make-icon.swift -o "$ICON_WORK/make-icon"
 "$ICON_WORK/make-icon" "$ICON_WORK/icon.png"
 mkdir "$ICON_WORK/AppIcon.iconset"
 for points in 16 32 128 256 512; do

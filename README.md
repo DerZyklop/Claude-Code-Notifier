@@ -86,7 +86,8 @@ Claude Code does.
 ./build.sh
 ```
 
-Needs only the Xcode Command Line Tools. `make-icon.swift` draws the app icon, and the sounds are copied from
+Needs only the Xcode Command Line Tools. The script first runs the unit tests in `Tests/` with `swift test`, and it
+stops if a test fails. `make-icon.swift` draws the app icon, and the sounds are copied from
 `/System/Library/Sounds`. The script uses the macOS 26 SDK, because the newest SDK of the Command Line
 Tools can be newer than their compiler. Set `SDK=<path>` to use another one.
 
