@@ -52,8 +52,10 @@ enum SessionTitle {
 	/// The first line of the first prompt, like the extension shows a new session before Claude names it.
 	private static func firstPrompt(_ handle: FileHandle) -> String? {
 		try? handle.seek(toOffset: 0)
-		guard let data = try? handle.read(upToCount: 262_144) else { return nil }
-		for line in data.split(separator: UInt8(ascii: "\n")) {
+		// The first lines can be large, e.g. attachments. Only user lines need parsing.
+		guard let data = try? handle.read(upToCount: 4_194_304) else { return nil }
+		let userLine = Data(#""type":"user""#.utf8)
+		for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: userLine) != nil {
 			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], json["type"] as? String == "user",
 				json["isMeta"] as? Bool != true, let message = json["message"] as? [String: Any] else { continue }
 			let text: String? = if let content = message["content"] as? String {
@@ -61,11 +63,28 @@ enum SessionTitle {
 			} else {
 				(message["content"] as? [[String: Any]])?.first { $0["type"] as? String == "text" }?["text"] as? String
 			}
-			// Commands and tool results also come as user messages, wrapped in tags.
-			guard let text, !text.hasPrefix("<"), let first = text.split(whereSeparator: \.isNewline).first else { continue }
-			let line = first.trimmingCharacters(in: .whitespaces)
-			if !line.isEmpty { return line.count > 80 ? line.prefix(80) + "…" : line }
+			guard let text, let prompt = promptLine(text) else { continue }
+			return prompt.count > 80 ? prompt.prefix(80) + "…" : prompt
 		}
 		return nil
 	}
+
+	/// The first line of a prompt. A slash command comes wrapped in tags and becomes »/name args«, like the extension
+	/// shows it. Other tagged text, e.g. a tool result, is no prompt.
+	private static func promptLine(_ text: String) -> String? {
+		if let name = tagContent("command-name", in: text) {
+			let arguments = tagContent("command-args", in: text) ?? ""
+			let command = "\(name) \(arguments)".trimmingCharacters(in: .whitespacesAndNewlines)
+			return command.split(whereSeparator: \.isNewline).first.map(String.init)
+		}
+		guard !text.hasPrefix("<"), let first = text.split(whereSeparator: \.isNewline).first else { return nil }
+		let line = first.trimmingCharacters(in: .whitespaces)
+		return line.isEmpty ? nil : line
+	}
+
+	private static func tagContent(_ tag: String, in text: String) -> String? {
+		guard let open = text.range(of: "<\(tag)>"), let close = text.range(of: "</\(tag)>", range: open.upperBound..<text.endIndex) else { return nil }
+		return String(text[open.upperBound..<close.lowerBound])
+	}
+
 }
