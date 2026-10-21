@@ -255,8 +255,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	@objc private func toggleSetting(_ sender: NSMenuItem) {
 		guard let (key, defaultValue) = sender.representedObject as? (String, Bool) else { return }
-		let current = UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
-		UserDefaults.standard.set(!current, forKey: key)
+		let defaults = UserDefaults.standard
+		let value = !(defaults.object(forKey: key) as? Bool ?? defaultValue)
+		// Only a changed setting is stored, so that the app has no settings file while the user changes nothing.
+		if value == defaultValue { defaults.removeObject(forKey: key) } else { defaults.set(value, forKey: key) }
 	}
 
 	@objc private func sendTestNotification(_ sender: NSMenuItem) {

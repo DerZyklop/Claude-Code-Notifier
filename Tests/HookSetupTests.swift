@@ -115,12 +115,10 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 /// A settings folder, defaults and a fake notification permission for one test. The test calls ``remove()`` at the end.
 @MainActor private final class Sandbox {
 	let folder: URL
-	let defaults: UserDefaults
 	/// What the fake permission reader reports.
 	var notificationsAllowed: Bool? = true
 
 	init() throws {
-		defaults = MemoryDefaults()
 		folder = try makeFolder()
 	}
 
@@ -131,7 +129,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 	var command: String { "cat > '\(payloadURL.path)' # :\(eventPort)/event" }
 
 	func makeSetup() -> HookSetup {
-		HookSetup(settingsURL: settingsURL, defaults: defaults) { [weak self] completion in
+		HookSetup(settingsURL: settingsURL) { [weak self] completion in
 			completion(self?.notificationsAllowed ?? nil)
 		}
 	}
@@ -406,9 +404,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		#expect(setup.lastClaudeEvent == nil)
 	}
 
-	@Test func keysMatchTheOtherParts() {
-		// AppDelegate.migrateSettings copies this key.
-		#expect(HookSetup.lastClaudeEventKey == "lastClaudeEvent")
+	@Test func selfTestEventHasAFixedName() {
 		#expect(HookSetup.selfTestEventName == "NotifierSelfTest")
 	}
 
@@ -477,7 +473,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 	@Test func permissionFromAnotherQueueArrives() async throws {
 		let sandbox = try Sandbox()
 		defer { sandbox.remove() }
-		let setup = HookSetup(settingsURL: sandbox.settingsURL, defaults: sandbox.defaults) { completion in
+		let setup = HookSetup(settingsURL: sandbox.settingsURL) { completion in
 			DispatchQueue.global().async { completion(true) }
 		}
 		setup.refresh()
@@ -758,7 +754,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		try sandbox.writeHooks([sandbox.command])
 		// The user answers the permission dialog later.
 		var answerPermission: ((Bool?) -> Void)?
-		let setup = HookSetup(settingsURL: sandbox.settingsURL, defaults: sandbox.defaults) { answerPermission = $0 }
+		let setup = HookSetup(settingsURL: sandbox.settingsURL) { answerPermission = $0 }
 		setup.listenerError = .some(nil)
 		let start = Date()
 		setup.refresh()
@@ -787,7 +783,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		#expect(setup.commandTest == .passed)
 	}
 
-	@Test func claudeEventIsKeptInTheDefaults() throws {
+	@Test func claudeEventIsKeptInMemoryOnly() throws {
 		let sandbox = try Sandbox()
 		defer { sandbox.remove() }
 		let setup = sandbox.makeSetup()
@@ -796,11 +792,8 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		let after = Date()
 		let date = try #require(setup.lastClaudeEvent)
 		#expect(before <= date && date <= after)
-		#expect(sandbox.defaults.object(forKey: HookSetup.lastClaudeEventKey) as? Date == date)
 
-		// A new setup reads the date, and only a date.
-		#expect(sandbox.makeSetup().lastClaudeEvent == date)
-		sandbox.defaults.set("yesterday", forKey: HookSetup.lastClaudeEventKey)
+		// A new setup, as after a restart, knows no event.
 		#expect(sandbox.makeSetup().lastClaudeEvent == nil)
 	}
 

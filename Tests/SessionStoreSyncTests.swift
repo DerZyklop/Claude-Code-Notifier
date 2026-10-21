@@ -83,7 +83,7 @@ private final class Fixture {
 	}
 
 	func makeStore(checksSessions: Bool) -> SessionStore {
-		let setup = HookSetup(settingsURL: folder.appendingPathComponent("settings.json"), defaults: defaults, readNotificationsAllowed: { $0(nil) })
+		let setup = HookSetup(settingsURL: folder.appendingPathComponent("settings.json"), readNotificationsAllowed: { $0(nil) })
 		return SessionStore(system: fake.system(defaults: defaults), setup: setup, checksSessions: checksSessions)
 	}
 

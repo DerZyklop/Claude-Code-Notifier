@@ -57,31 +57,26 @@ final class HookSetup: ObservableObject {
 	/// The `hook_event_name` of the test event that ``runCommandTest()`` sends through the configured command.
 	static let selfTestEventName = "NotifierSelfTest"
 
-	static let lastClaudeEventKey = "lastClaudeEvent"
-
 	/// `nil` until the server reports its state.
 	@Published var listenerError: String??
 	@Published private(set) var settings: SettingsCheck = .fileMissing
 	@Published private(set) var commandTest: CommandTest = .notRun
+	/// The last event from Claude Code since the app started. It stays in memory, so that events do not write to disk.
 	@Published private(set) var lastClaudeEvent: Date?
 	/// Whether macOS shows the notifications of this app. `nil` while the user has not decided yet.
 	@Published private(set) var notificationsAllowed: Bool?
 
 	private var testToken: String?
 	private let settingsURL: URL
-	private let defaults: UserDefaults
 	private let readNotificationsAllowed: (@escaping (Bool?) -> Void) -> Void
 
 	/// - Parameters:
 	///   - settingsURL: The Claude Code settings file to check.
-	///   - defaults: Keeps ``lastClaudeEvent``.
 	///   - readNotificationsAllowed: Reports ``notificationsAllowed``.
-	init(settingsURL: URL = claudeSettingsURL, defaults: UserDefaults = .standard,
+	init(settingsURL: URL = claudeSettingsURL,
 		readNotificationsAllowed: @escaping (@escaping (Bool?) -> Void) -> Void = HookSetup.readSystemNotificationsAllowed) {
 		self.settingsURL = settingsURL
-		self.defaults = defaults
 		self.readNotificationsAllowed = readNotificationsAllowed
-		lastClaudeEvent = defaults.object(forKey: Self.lastClaudeEventKey) as? Date
 	}
 
 	var isListening: Bool { listenerError == .some(nil) }
@@ -147,9 +142,7 @@ final class HookSetup: ObservableObject {
 	}
 
 	func claudeEventReceived() {
-		let now = Date()
-		lastClaudeEvent = now
-		defaults.set(now, forKey: Self.lastClaudeEventKey)
+		lastClaudeEvent = Date()
 	}
 
 	/// Whether macOS shows the notifications of this app, `nil` while the user has not decided yet.
@@ -207,6 +200,7 @@ enum SetupWindow {
 			newWindow.title = "Claude Code Notifier Setup"
 			newWindow.styleMask = [.titled, .closable]
 			newWindow.isReleasedWhenClosed = false
+			newWindow.isRestorable = false
 			newWindow.center()
 			window = newWindow
 		}

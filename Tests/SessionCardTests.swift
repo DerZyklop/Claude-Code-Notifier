@@ -30,7 +30,7 @@ private func cardSize(states: [SessionState], project: String = "project") throw
 		addNotification: { _ in }, removeNotifications: { _ in }, defaults: defaults)
 	// The setup never reads this file. It does not exist.
 	let settingsURL = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodeNotifierTests-\(UUID().uuidString)/settings.json")
-	let setup = HookSetup(settingsURL: settingsURL, defaults: defaults, readNotificationsAllowed: { $0(true) })
+	let setup = HookSetup(settingsURL: settingsURL, readNotificationsAllowed: { $0(true) })
 	let store = SessionStore(system: system, setup: setup, checksSessions: false)
 	for (index, state) in states.enumerated() {
 		let json = #"{"hook_event_name":"SessionStart","session_id":"session-\#(index)","cwd":"/tmp/\#(project)-\#(index)"}"#

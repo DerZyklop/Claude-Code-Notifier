@@ -72,13 +72,26 @@ answer quickly gives no notification.
    2. `~/.claude/settings.json` has a hook for each of the eight events. The window shows the block to add, or the whole
       file if there is none yet, with a button to copy it. The app only reads the file, it never changes it.
    3. The hook command reaches the app: the app runs the configured command with a test event and waits for it.
-   4. An event from Claude Code arrived. Claude Code reads the hooks when a session starts, so restart open sessions.
+   4. An event from Claude Code arrived since the app started. Claude Code reads the hooks when a session starts, so
+      restart open sessions.
 3. Start at login: System Settings › General › Login Items › »+« › choose the app. Or use »Launch at Login« in the menu
    (only after step 1, because the entry points to the current location of the app).
 
-The window opens at every start until the setup is complete. Later, a gap in the wave in the menu bar shows that the
+The window opens at every start until the first three checks pass and notifications are allowed. Later, a gap in the wave in the menu bar shows that the
 hooks stopped working, and »Hook Setup …« in the menu opens the window again. The app honors `CLAUDE_CONFIG_DIR` like
 Claude Code does.
+
+## Files on your Mac
+
+The app leaves as few files as possible outside its bundle:
+
+- `~/Library/Preferences/local.claude-code-notifier.app.plist` exists only after you change a setting in the menu or
+  move the icon in the menu bar. The app stores only the settings that differ from the default.
+- macOS keeps the notification permission, the login item and an empty Metal cache folder for the app.
+- The app only reads `~/.claude` and the VS Code database. It writes no logs and no caches.
+
+To remove the app, delete it, then delete the settings file with `rm`. Do not use `defaults delete`, because it leaves
+an empty file.
 
 ## Build
 
@@ -87,7 +100,8 @@ Claude Code does.
 ```
 
 Needs only the Xcode Command Line Tools. The script first runs the unit tests in `Tests/` with `swift test`, and it
-stops if a test fails. `make-icon.swift` draws the app icon, and the sounds are copied from
+stops if a test fails. The build files, caches and temporary files stay in `build/` and `.build/`. Only the shared
+caches of the Xcode tools change outside the project. `make-icon.swift` draws the app icon, and the sounds are copied from
 `/System/Library/Sounds`. The script uses the macOS 26 SDK, because the newest SDK of the Command Line
 Tools can be newer than their compiler. Set `SDK=<path>` to use another one.
 

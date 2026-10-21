@@ -8,7 +8,9 @@ struct NotifierApp: App {
 
 	/// The menu bar item is ``StatusMenu``, and the setup window is ``SetupWindow``. A SwiftUI app needs a scene anyway.
 	var body: some Scene {
+		// No »Settings…« item: its window would be empty and would store its frame in the settings file.
 		Settings { EmptyView() }
+			.commands { CommandGroup(replacing: .appSettings) {} }
 	}
 }
 
@@ -35,14 +37,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		}
 	}
 
-	/// Copies the settings from the first bundle ID, `local.claude-code-notifier`, once. The app got a new ID because
-	/// Notification Center kept showing a placeholder icon for the old one.
-	static func migrateSettings(from old: UserDefaults? = UserDefaults(suiteName: "local.claude-code-notifier"), to current: UserDefaults = .standard) {
-		guard current.object(forKey: "migratedSettings") == nil, let old else { return }
-		for key in [SettingsKey.notifyOnDone, SettingsKey.playsSound, SettingsKey.muted, "lastClaudeEvent"] {
-			if let value = old.object(forKey: key) { current.set(value, forKey: key) }
+	/// The settings file of the first bundle ID, `local.claude-code-notifier`. The app got a new ID because Notification
+	/// Center kept showing a placeholder icon for the old one.
+	static let oldSettingsFile = FileManager.default.homeDirectoryForCurrentUser
+		.appendingPathComponent("Library/Preferences/local.claude-code-notifier.plist")
+
+	/// Copies the changed settings from the old settings file and deletes that file. Also removes the values that older
+	/// versions stored but the app does not need.
+	static func migrateSettings(from oldFile: URL = oldSettingsFile, to current: UserDefaults = .standard) {
+		// Only existing keys: removing a missing key creates an empty settings file.
+		for key in ["lastClaudeEvent", "migratedSettings"] where current.object(forKey: key) != nil {
+			current.removeObject(forKey: key)
 		}
-		current.set(true, forKey: "migratedSettings")
+		for (key, value) in SettingsKey.defaultValues where current.object(forKey: key) as? Bool == value {
+			current.removeObject(forKey: key)
+		}
+
+		guard let data = try? Data(contentsOf: oldFile) else { return }
+		let old = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] ?? [:]
+		for (key, defaultValue) in SettingsKey.defaultValues where current.object(forKey: key) == nil {
+			if let value = old[key] as? Bool, value != defaultValue { current.set(value, forKey: key) }
+		}
+		// Only the file: `removePersistentDomain(forName:)` leaves an empty file.
+		try? FileManager.default.removeItem(at: oldFile)
 	}
 
 	/// Checks the setup once the server knows whether it listens, and shows the setup window if anything is missing.
@@ -57,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		// Waits for the command test and the notification permission.
 		Task {
 			try? await Task.sleep(nanoseconds: 3_500_000_000)
-			if !setup.isComplete || setup.lastClaudeEvent == nil { SetupWindow.show() }
+			if !setup.isComplete { SetupWindow.show() }
 		}
 	}
 

@@ -5,6 +5,8 @@ enum SettingsKey {
 	static let notifyOnDone = "notifyOnDone"
 	static let muted = "muted"
 	static let playsSound = "playsSound"
+	/// The value of each setting while the user has not changed it. Only other values are stored.
+	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true]
 }
 
 enum SessionState: Int {

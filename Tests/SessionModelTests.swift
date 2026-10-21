@@ -45,6 +45,10 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(SettingsKey.muted == "muted")
 		#expect(SettingsKey.playsSound == "playsSound")
 	}
+
+	@Test func onlyMuteIsOffByDefault() {
+		#expect(SettingsKey.defaultValues == [SettingsKey.notifyOnDone: true, SettingsKey.muted: false, SettingsKey.playsSound: true])
+	}
 }
 
 @Suite struct SessionStateTests {

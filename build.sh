@@ -3,14 +3,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# The temporary files of all tools go into .build, not into the system temp folder.
+export TMPDIR="$PWD/.build/tmp"
+mkdir -p "$TMPDIR"
+trap 'rm -rf "$TMPDIR"' EXIT
+
 SDK="${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | tail -1)}"
 
-# A new version only when all unit tests in Tests/ pass. SwiftPM and the tests keep their caches and temporary files
-# in .build, not in ~/Library or the system temp folder.
-mkdir -p .build/tmp
-TMPDIR="$PWD/.build/tmp" SDKROOT="$SDK" swift test --cache-path .build/cache --config-path .build/config \
-	--security-path .build/security --manifest-cache local
-rm -rf .build/tmp
+# A new version only when all unit tests in Tests/ pass. SwiftPM gets a home folder in .build for its caches and
+# settings. Only the native build system passes TMPDIR on to the compiler.
+CFFIXED_USER_HOME="$PWD/.build/home" CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" SDKROOT="$SDK" \
+	swift test --build-system native
 
 APP="build/Claude Code Notifier.app"
 rm -rf "$APP"
@@ -44,7 +47,7 @@ PLIST
 sed -i '' "s/BUILD_NUMBER/$(date +%Y%m%d%H%M%S)/" "$APP/Contents/Info.plist"
 
 # The app icon, in all sizes that macOS asks for.
-ICON_WORK=$(mktemp -d)
+ICON_WORK=$(mktemp -d "$TMPDIR/icon.XXXXXX")
 swiftc -sdk "$SDK" -module-cache-path .build/module-cache make-icon.swift -o "$ICON_WORK/make-icon"
 "$ICON_WORK/make-icon" "$ICON_WORK/icon.png"
 mkdir "$ICON_WORK/AppIcon.iconset"
@@ -53,7 +56,6 @@ for points in 16 32 128 256 512; do
 	sips -z $((points * 2)) $((points * 2)) "$ICON_WORK/icon.png" --out "$ICON_WORK/AppIcon.iconset/icon_${points}x${points}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-rm -rf "$ICON_WORK"
 
 # The notification chimes. Notifications only find sounds in the app bundle or in ~/Library/Sounds.
 cp /System/Library/Sounds/{Purr,Bottle}.aiff "$APP/Contents/Resources/"

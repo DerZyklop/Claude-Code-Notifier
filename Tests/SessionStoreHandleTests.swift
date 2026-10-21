@@ -79,7 +79,7 @@ private struct Fixture {
 	init() throws {
 		let defaults = MemoryDefaults()
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-		let setup = HookSetup(settingsURL: folder.appendingPathComponent("settings.json"), defaults: defaults, readNotificationsAllowed: { $0(nil) })
+		let setup = HookSetup(settingsURL: folder.appendingPathComponent("settings.json"), readNotificationsAllowed: { $0(nil) })
 		let log = NotificationLog()
 		store = SessionStore(system: SessionStore.System(
 			runningSessions: { [] },
@@ -173,7 +173,7 @@ private struct Fixture {
 		fixture.handle(name)
 		let last = try #require(fixture.setup.lastClaudeEvent)
 		#expect(last >= before && last <= Date())
-		#expect(fixture.defaults.object(forKey: HookSetup.lastClaudeEventKey) as? Date == last)
+		#expect(fixture.defaults.dictionaryRepresentation().isEmpty)
 	}
 
 	@Test func sessionStartIsYourTurn() throws {

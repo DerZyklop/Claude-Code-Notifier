@@ -12,4 +12,5 @@ final class MemoryDefaults: UserDefaults {
 	override func object(forKey defaultName: String) -> Any? { values[defaultName] }
 	override func set(_ value: Any?, forKey defaultName: String) { values[defaultName] = value }
 	override func removeObject(forKey defaultName: String) { values[defaultName] = nil }
+	override func dictionaryRepresentation() -> [String: Any] { values }
 }
