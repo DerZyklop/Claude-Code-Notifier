@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 
@@ -56,17 +57,32 @@ final class HookSetup: ObservableObject {
 	/// The `hook_event_name` of the test event that ``runCommandTest()`` sends through the configured command.
 	static let selfTestEventName = "NotifierSelfTest"
 
-	private static let lastClaudeEventKey = "lastClaudeEvent"
+	static let lastClaudeEventKey = "lastClaudeEvent"
 
 	/// `nil` until the server reports its state.
 	@Published var listenerError: String??
 	@Published private(set) var settings: SettingsCheck = .fileMissing
 	@Published private(set) var commandTest: CommandTest = .notRun
-	@Published private(set) var lastClaudeEvent = UserDefaults.standard.object(forKey: lastClaudeEventKey) as? Date
+	@Published private(set) var lastClaudeEvent: Date?
 	/// Whether macOS shows the notifications of this app. `nil` while the user has not decided yet.
 	@Published private(set) var notificationsAllowed: Bool?
 
 	private var testToken: String?
+	private let settingsURL: URL
+	private let defaults: UserDefaults
+	private let readNotificationsAllowed: (@escaping (Bool?) -> Void) -> Void
+
+	/// - Parameters:
+	///   - settingsURL: The Claude Code settings file to check.
+	///   - defaults: Keeps ``lastClaudeEvent``.
+	///   - readNotificationsAllowed: Reports ``notificationsAllowed``.
+	init(settingsURL: URL = claudeSettingsURL, defaults: UserDefaults = .standard,
+		readNotificationsAllowed: @escaping (@escaping (Bool?) -> Void) -> Void = HookSetup.readSystemNotificationsAllowed) {
+		self.settingsURL = settingsURL
+		self.defaults = defaults
+		self.readNotificationsAllowed = readNotificationsAllowed
+		lastClaudeEvent = defaults.object(forKey: Self.lastClaudeEventKey) as? Date
+	}
 
 	var isListening: Bool { listenerError == .some(nil) }
 
@@ -79,18 +95,12 @@ final class HookSetup: ObservableObject {
 
 	/// Reads the settings again. Tests the hook command once it is configured and has not passed yet.
 	func refresh() {
-		UNUserNotificationCenter.current().getNotificationSettings { settings in
-			let allowed: Bool? = switch settings.authorizationStatus {
-			case .authorized, .provisional, .ephemeral: true
-			case .denied: false
-			case .notDetermined: nil
-			@unknown default: nil
-			}
+		readNotificationsAllowed { allowed in
 			Task { @MainActor in self.notificationsAllowed = allowed }
 		}
 
 		let previous = settings
-		settings = Self.checkSettings()
+		settings = Self.checkSettings(at: settingsURL)
 		guard isListening, case .found(_, let commands) = settings, !commands.isEmpty else {
 			if !hooksConfigured { commandTest = .notRun }
 			return
@@ -139,14 +149,27 @@ final class HookSetup: ObservableObject {
 	func claudeEventReceived() {
 		let now = Date()
 		lastClaudeEvent = now
-		UserDefaults.standard.set(now, forKey: Self.lastClaudeEventKey)
+		defaults.set(now, forKey: Self.lastClaudeEventKey)
 	}
 
-	private static func checkSettings() -> SettingsCheck {
-		guard FileManager.default.fileExists(atPath: claudeSettingsURL.path) else { return .fileMissing }
+	/// Whether macOS shows the notifications of this app, `nil` while the user has not decided yet.
+	nonisolated static func readSystemNotificationsAllowed(_ completion: @escaping (Bool?) -> Void) {
+		UNUserNotificationCenter.current().getNotificationSettings { settings in
+			let allowed: Bool? = switch settings.authorizationStatus {
+			case .authorized, .provisional, .ephemeral: true
+			case .denied: false
+			case .notDetermined: nil
+			@unknown default: nil
+			}
+			completion(allowed)
+		}
+	}
+
+	static func checkSettings(at url: URL) -> SettingsCheck {
+		guard FileManager.default.fileExists(atPath: url.path) else { return .fileMissing }
 		let root: [String: Any]
 		do {
-			let data = try Data(contentsOf: claudeSettingsURL)
+			let data = try Data(contentsOf: url)
 			guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
 				return .unreadable("The file holds no JSON object.")
 			}
@@ -197,7 +220,7 @@ enum SetupWindow {
 	}
 }
 
-private enum CheckStatus {
+enum CheckStatus {
 	case ok, waiting, failed, inactive
 
 	var symbol: String {
@@ -219,7 +242,7 @@ private enum CheckStatus {
 	}
 }
 
-private struct CheckRow: View {
+struct CheckRow: View {
 	let status: CheckStatus
 	let title: String
 	let detail: String

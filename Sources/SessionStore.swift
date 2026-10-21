@@ -96,7 +96,7 @@ struct Session: Identifiable, Equatable {
 }
 
 /// The fields of the hook input that this app uses.
-private struct HookEvent: Decodable {
+struct HookEvent: Decodable {
 	let hook_event_name: String
 	let session_id: String
 	let cwd: String?
@@ -116,13 +116,38 @@ private struct HookEvent: Decodable {
 
 @MainActor
 final class SessionStore: ObservableObject {
-	static let shared = SessionStore()
+	/// The parts of the system that the store reads and changes. Tests replace them.
+	struct System {
+		var runningSessions: () -> [RunningSession]
+		var archivedSessionIDs: () -> Set<String>?
+		var shellCommandCounts: (Set<Int32>) -> [Int32: Int]
+		var addNotification: (UNNotificationRequest) -> Void
+		var removeNotifications: ([String]) -> Void
+		var defaults: UserDefaults
+
+		static let live = System(
+			runningSessions: { ClaudeSessionFiles.running() },
+			archivedSessionIDs: { VSCodeArchive.sessionIDs() },
+			shellCommandCounts: { ClaudeSessionFiles.shellCommandCounts(of: $0) },
+			addNotification: { UNUserNotificationCenter.current().add($0) },
+			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
+			defaults: .standard
+		)
+	}
+
+	static let shared = SessionStore(system: .live, setup: .shared, checksSessions: true)
 
 	@Published private(set) var sessions: [String: Session] = [:]
 
+	private let system: System
+	private let setup: HookSetup
 	private var interruptTimer: Timer?
 
-	private init() {
+	/// - Parameter checksSessions: Calls ``checkSessions()`` now and every 3 s.
+	init(system: System, setup: HookSetup, checksSessions: Bool) {
+		self.system = system
+		self.setup = setup
+		guard checksSessions else { return }
 		interruptTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
 			Task { @MainActor in self?.checkSessions() }
 		}
@@ -137,10 +162,10 @@ final class SessionStore: ObservableObject {
 	func handle(_ data: Data) {
 		guard let event = try? JSONDecoder().decode(HookEvent.self, from: data) else { return }
 		if event.hook_event_name == HookSetup.selfTestEventName {
-			HookSetup.shared.selfTestReceived(token: event.session_id)
+			setup.selfTestReceived(token: event.session_id)
 			return
 		}
-		HookSetup.shared.claudeEventReceived()
+		setup.claudeEventReceived()
 		let id = event.session_id
 		let previous = sessions[id]
 
@@ -173,7 +198,7 @@ final class SessionStore: ObservableObject {
 			notify(.asksYou, session: session, body: event.message ?? "Claude needs your input.")
 		case "Stop":
 			let session = set(.yourTurn, for: event, previous: previous)
-			if UserDefaults.standard.object(forKey: SettingsKey.notifyOnDone) as? Bool ?? true {
+			if system.defaults.object(forKey: SettingsKey.notifyOnDone) as? Bool ?? true {
 				notify(.yourTurn, session: session, body: Self.preview(of: event.last_assistant_message) ?? "Claude has finished.")
 			}
 		case "StopFailure":
@@ -204,7 +229,7 @@ final class SessionStore: ObservableObject {
 	}
 
 	@discardableResult
-	private func set(_ state: SessionState, for event: HookEvent, previous: Session?) -> Session {
+	func set(_ state: SessionState, for event: HookEvent, previous: Session?) -> Session {
 		let transcriptPath = event.transcript_path ?? previous?.transcriptPath
 		// The title changes with a new prompt or turn at most, so a tool call does not read the transcript again.
 		var title = previous?.title
@@ -225,7 +250,7 @@ final class SessionStore: ObservableObject {
 	/// - Archive: the user can archive a session in VS Code while it runs or after it ended, see ``VSCodeArchive``.
 	///   It leaves the menu.
 	func checkSessions() {
-		let archived = VSCodeArchive.sessionIDs()
+		let archived = system.archivedSessionIDs()
 		syncWithSessionFiles(archived: archived ?? [])
 
 		for session in sessions.values where session.state == .working || session.state == .asksYou {
@@ -245,8 +270,8 @@ final class SessionStore: ObservableObject {
 	/// Adds the running sessions that the app does not know yet, e.g. the ones that started before the app. Follows the
 	/// status that Claude Code writes for each process, which matters for sessions without hooks. Sends no
 	/// notification: those come from the hooks.
-	private func syncWithSessionFiles(archived: Set<String>) {
-		let running = ClaudeSessionFiles.running().filter { !archived.contains($0.sessionID) }
+	func syncWithSessionFiles(archived: Set<String>) {
+		let running = system.runningSessions().filter { !archived.contains($0.sessionID) }
 		for process in running {
 			let previous = sessions[process.sessionID]
 			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: SessionTitle.start(transcript: process.transcriptPath) ?? process.started,
@@ -267,8 +292,9 @@ final class SessionStore: ObservableObject {
 
 		// The process scan takes some milliseconds, so it runs off the main thread.
 		let pids = Set(running.map(\.pid))
+		let shellCommandCounts = system.shellCommandCounts
 		Task.detached(priority: .utility) {
-			let commands = ClaudeSessionFiles.shellCommandCounts(of: pids)
+			let commands = shellCommandCounts(pids)
 			await MainActor.run { self.apply(shellCommands: commands) }
 		}
 
@@ -280,7 +306,7 @@ final class SessionStore: ObservableObject {
 		}
 	}
 
-	private func apply(shellCommands commands: [Int32: Int]) {
+	func apply(shellCommands commands: [Int32: Int]) {
 		for (id, session) in sessions {
 			let count = session.pid.flatMap { commands[$0] } ?? 0
 			if session.shellCommands != count { sessions[id]?.shellCommands = count }
@@ -289,7 +315,7 @@ final class SessionStore: ObservableObject {
 
 	/// Whether the last message in the transcript is the interrupt marker. Reads only the end of the file, and skips
 	/// the metadata lines that Claude Code writes after a message.
-	private static func endsWithInterrupt(transcript path: String) -> Bool {
+	static func endsWithInterrupt(transcript path: String) -> Bool {
 		guard let handle = FileHandle(forReadingAtPath: path) else { return false }
 		defer { try? handle.close() }
 		guard let end = try? handle.seekToEnd() else { return false }
@@ -307,30 +333,30 @@ final class SessionStore: ObservableObject {
 		return false
 	}
 
-	private func notify(_ kind: NotificationKind, session: Session, body: String) {
-		if UserDefaults.standard.bool(forKey: SettingsKey.muted) { return }
+	func notify(_ kind: NotificationKind, session: Session, body: String) {
+		if system.defaults.bool(forKey: SettingsKey.muted) { return }
 		// One notification per session: a new one replaces the old one.
 		post(kind, title: session.name, body: body, identifier: session.id)
 	}
 
-	private func post(_ kind: NotificationKind, title: String, body: String, identifier: String) {
+	func post(_ kind: NotificationKind, title: String, body: String, identifier: String) {
 		let content = UNMutableNotificationContent()
 		content.title = title
 		content.subtitle = kind.subtitle
 		content.body = body
-		if UserDefaults.standard.object(forKey: SettingsKey.playsSound) as? Bool ?? true {
+		if system.defaults.object(forKey: SettingsKey.playsSound) as? Bool ?? true {
 			content.sound = UNNotificationSound(named: kind.sound)
 		}
 		// No thread identifier: macOS then stacks all notifications of the app in one group.
-		UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+		system.addNotification(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
 	}
 
-	private func removeNotification(of sessionID: String) {
-		UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [sessionID])
+	func removeNotification(of sessionID: String) {
+		system.removeNotifications([sessionID])
 	}
 
 	/// The start of Claude's last message, in one line, or `nil` if there is none.
-	private static func preview(of message: String?) -> String? {
+	static func preview(of message: String?) -> String? {
 		guard let message else { return nil }
 		let line = message.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
 		if line.isEmpty { return nil }

@@ -13,26 +13,26 @@ import QuartzCore
 /// so the app does no work per frame.
 @MainActor
 final class Spinner {
-	private static let wavelength = 20.0
-	private static let amplitude = 2.5
+	static let wavelength = 20.0
+	static let amplitude = 2.5
 	static let lineWidth = 2.6
 	/// The ends of the wave keep this distance from the edges of the space it has.
-	private static let inset = 2.0
+	static let inset = 2.0
 	/// The gap in the middle of the still wave for a setup problem.
-	private static let gapWidth = 6.0
+	static let gapWidth = 6.0
 	/// One run of the segment from left to right.
-	private static let runDuration = 1.4
+	static let runDuration = 1.4
 	/// The change between the still and the green wave.
-	private static let swapDuration = 0.6
-	private static let color = NSColor.systemGreen
+	static let swapDuration = 0.6
+	static let color = NSColor.systemGreen
 
-	private let still = CAShapeLayer()
-	private let track = CAShapeLayer()
-	private let segment = CAShapeLayer()
+	let still = CAShapeLayer()
+	let track = CAShapeLayer()
+	let segment = CAShapeLayer()
 	private weak var button: NSStatusBarButton?
 	/// The shape of the shown waves, to build their paths only when it changes.
-	private var shownShape: (size: CGSize, end: Double, hasGap: Bool)?
-	private var isWorking = false
+	private(set) var shownShape: (size: CGSize, end: Double, hasGap: Bool)?
+	private(set) var isWorking = false
 
 	init(button: NSStatusBarButton) {
 		self.button = button
@@ -85,7 +85,7 @@ final class Spinner {
 	}
 
 	/// The green wave grows in from the left while the still wave shrinks back, then the segment starts to run.
-	private func startWork() {
+	func startWork() {
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
 		still.strokeStart = 1
@@ -113,7 +113,7 @@ final class Spinner {
 	}
 
 	/// The segment stops, the green wave leaves to the right while the still wave grows back from the left.
-	private func endWork() {
+	func endWork() {
 		segment.removeAnimation(forKey: "run")
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
@@ -125,7 +125,7 @@ final class Spinner {
 		Self.animate(track, "strokeStart", from: 0, to: 1)
 	}
 
-	private static func animate(_ layer: CAShapeLayer, _ keyPath: String, from: Double, to: Double) {
+	static func animate(_ layer: CAShapeLayer, _ keyPath: String, from: Double, to: Double) {
 		let animation = CABasicAnimation(keyPath: keyPath)
 		animation.fromValue = from
 		animation.toValue = to
@@ -136,7 +136,7 @@ final class Spinner {
 	}
 
 	/// 30 frames per second look smooth and keep the work of the window server low.
-	private static func limitFrameRate(_ animation: CAAnimation) {
+	static func limitFrameRate(_ animation: CAAnimation) {
 		if #available(macOS 12, *) {
 			animation.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
 		}
@@ -166,7 +166,7 @@ final class Spinner {
 		return path
 	}
 
-	private static func countLine(_ count: Int, color: NSColor) -> CTLine {
+	static func countLine(_ count: Int, color: NSColor) -> CTLine {
 		let text = count > 9 ? "9+" : "\(count)"
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 9 : 12, weight: .bold)
 		return CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))

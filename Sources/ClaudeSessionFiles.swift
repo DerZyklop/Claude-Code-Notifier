@@ -26,8 +26,11 @@ let claudeConfigDirectory: URL = ProcessInfo.processInfo.environment["CLAUDE_CON
 
 enum ClaudeSessionFiles {
 	/// The sessions whose Claude Code process runs. A file stays behind when a process crashes, so each one is checked.
-	static func running() -> [RunningSession] {
-		let folder = claudeConfigDirectory.appendingPathComponent("sessions")
+	/// - Parameters:
+	///   - folder: The folder of the session files.
+	///   - isClaude: Whether the process with the ID runs and is Claude Code.
+	static func running(in folder: URL = claudeConfigDirectory.appendingPathComponent("sessions"),
+		isClaude: (Int32) -> Bool = ClaudeSessionFiles.isClaudeProcess) -> [RunningSession] {
 		guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return [] }
 		return files.filter { $0.pathExtension == "json" }.compactMap { file in
 			guard let data = try? Data(contentsOf: file),
@@ -38,7 +41,7 @@ enum ClaudeSessionFiles {
 				let startedAt = (json["startedAt"] as? NSNumber)?.doubleValue,
 				// A spare process waits for a session that does not exist yet.
 				json["spare"] as? Bool != true,
-				isClaudeProcess(pid) else { return nil }
+				isClaude(pid) else { return nil }
 			let state: SessionState? = switch json["status"] as? String {
 			case "busy": .working
 			case "waiting": .asksYou
@@ -71,7 +74,7 @@ enum ClaudeSessionFiles {
 	}
 
 	/// The command line of a process, with spaces between the arguments.
-	private static func arguments(of pid: Int32) -> String {
+	static func arguments(of pid: Int32) -> String {
 		var mib = [CTL_KERN, KERN_PROCARGS2, pid]
 		var size = 0
 		guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return "" }

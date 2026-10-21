@@ -64,7 +64,7 @@ final class EventServer {
 	}
 
 	/// The head and body of the request, or `nil` while it is not complete yet.
-	private static func parse(_ buffer: Data) -> (head: String, body: Data)? {
+	static func parse(_ buffer: Data) -> (head: String, body: Data)? {
 		guard let separator = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
 		let head = String(decoding: buffer[..<separator.lowerBound], as: UTF8.self)
 		let contentLength = head

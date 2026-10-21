@@ -63,11 +63,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark))
 	}
 
-	private static let iconWidth = 58.0
-	private static let gap = 2.0
+	static let iconWidth = 58.0
+	static let gap = 2.0
 
 	/// Where the parts of the icon go.
-	private struct IconLayout: Hashable {
+	struct IconLayout: Hashable {
 		var working = 0
 		var waiting = 0
 		/// The wave runs from the left end to here.
@@ -76,7 +76,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		var bubbleX: Double?
 	}
 
-	private static func layout(working: Int, waiting: Int) -> IconLayout {
+	static func layout(working: Int, waiting: Int) -> IconLayout {
 		var layout = IconLayout(working: min(working, 10), waiting: min(waiting, 10))
 		var right = iconWidth
 		if waiting > 0 {
@@ -93,10 +93,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return layout
 	}
 
-	private static let bubbleWidth = bubble(count: 1).size.width
+	static let bubbleWidth = bubble(count: 1).size.width
 
 	/// The menu bar color, for the still wave and the number.
-	private static func textColor(isDark: Bool) -> NSColor {
+	static func textColor(isDark: Bool) -> NSColor {
 		isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 	}
 
@@ -124,7 +124,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// An orange speech bubble with the count in white inside it from two sessions on, in the color of »asks you« in the card. Space above
 	/// the bubble makes the middle of its body the middle of the image, so the body lines up with the spinner and the
 	/// tail hangs below.
-	private static func bubble(count: Int) -> NSImage {
+	static func bubble(count: Int) -> NSImage {
 		let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuBarFont(ofSize: 0).pointSize + 4, weight: .regular)
 			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
 		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return NSImage() }
@@ -241,7 +241,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return item
 	}
 
-	private static func symbol(_ name: String) -> NSImage? {
+	static func symbol(_ name: String) -> NSImage? {
 		let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
 		image?.isTemplate = true
 		return image

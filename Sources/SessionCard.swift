@@ -117,7 +117,7 @@ struct SessionCard: View {
 
 	/// Seconds for the first minute (»58s«), a ticking clock for the first hour (»4:07«), then hours and minutes
 	/// (»1h 09m«), then also days (»2d 4h 03m«).
-	private static func elapsed(from start: Date, to now: Date) -> String {
+	static func elapsed(from start: Date, to now: Date) -> String {
 		let seconds = max(0, Int(now.timeIntervalSince(start)))
 		let (days, hours, minutes) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60)
 		if days > 0 { return String(format: "%dd %dh %02dm", days, hours, minutes) }
@@ -127,10 +127,10 @@ struct SessionCard: View {
 	}
 }
 
-private extension SessionState {
+extension SessionState {
 	/// The system green is too light on the light card and weak on the dark one. This green is darker in light mode
 	/// and brighter in dark mode.
-	private var yourTurnGreen: NSColor {
+	var yourTurnGreen: NSColor {
 		NSColor(name: nil) { appearance in
 			appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 				? NSColor(srgbRed: 0.30, green: 0.87, blue: 0.45, alpha: 1)

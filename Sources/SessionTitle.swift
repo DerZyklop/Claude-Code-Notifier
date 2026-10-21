@@ -50,7 +50,7 @@ enum SessionTitle {
 	}()
 
 	/// The first line of the first prompt, like the extension shows a new session before Claude names it.
-	private static func firstPrompt(_ handle: FileHandle) -> String? {
+	static func firstPrompt(_ handle: FileHandle) -> String? {
 		try? handle.seek(toOffset: 0)
 		// The first lines can be large, e.g. attachments. Only user lines need parsing.
 		guard let data = try? handle.read(upToCount: 4_194_304) else { return nil }
@@ -71,7 +71,7 @@ enum SessionTitle {
 
 	/// The first line of a prompt. A slash command comes wrapped in tags and becomes »/name args«, like the extension
 	/// shows it. Other tagged text, e.g. a tool result, is no prompt.
-	private static func promptLine(_ text: String) -> String? {
+	static func promptLine(_ text: String) -> String? {
 		if let name = tagContent("command-name", in: text) {
 			let arguments = tagContent("command-args", in: text) ?? ""
 			let command = "\(name) \(arguments)".trimmingCharacters(in: .whitespacesAndNewlines)
@@ -82,7 +82,7 @@ enum SessionTitle {
 		return line.isEmpty ? nil : line
 	}
 
-	private static func tagContent(_ tag: String, in text: String) -> String? {
+	static func tagContent(_ tag: String, in text: String) -> String? {
 		guard let open = text.range(of: "<\(tag)>"), let close = text.range(of: "</\(tag)>", range: open.upperBound..<text.endIndex) else { return nil }
 		return String(text[open.upperBound..<close.lowerBound])
 	}
