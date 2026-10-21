@@ -104,7 +104,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let color = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
 			if layout.working == 0, let context = NSGraphicsContext.current?.cgContext {
-				context.addPath(Spinner.wave(to: layout.waveEnd, height: rect.height, amplitude: Spinner.stillAmplitude))
+				context.addPath(Spinner.wave(to: layout.waveEnd, height: rect.height))
 				context.setLineWidth(Spinner.lineWidth)
 				context.setLineCap(.round)
 				context.setLineJoin(.round)

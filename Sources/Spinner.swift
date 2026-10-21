@@ -9,9 +9,7 @@ import QuartzCore
 @MainActor
 final class Spinner {
 	private static let wavelength = 20.0
-	private static let amplitude = 5.0
-	/// The still wave of the idle icon is calmer.
-	static let stillAmplitude = 2.5
+	private static let amplitude = 2.5
 	static let lineWidth = 2.6
 	/// The ends of the wave keep this distance from the edges of the space it has.
 	private static let inset = 2.0
@@ -52,7 +50,7 @@ final class Spinner {
 		}
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
-		let path = shownShape.map { $0.size == imageFrame.size && $0.end == waveEnd } == true ? nil : Self.wave(to: waveEnd, height: imageFrame.height)
+		let path = shownShape.map { $0.size == imageFrame.size && $0.end == waveEnd } == true ? nil : Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: button?.isFlipped ?? false)
 		for layer in [track, segment] {
 			layer.bounds = CGRect(origin: .zero, size: imageFrame.size)
 			layer.position = CGPoint(x: imageFrame.midX, y: imageFrame.midY)
@@ -83,15 +81,17 @@ final class Spinner {
 		segment.add(run, forKey: "run")
 	}
 
-	/// A sine wave with a fixed wavelength from the left end to `end`, vertically centered.
-	static func wave(to end: Double, height: Double, amplitude: Double? = nil) -> CGPath {
+	/// A sine wave with a fixed wavelength from the left end to `end`, vertically centered. It starts upward also where
+	/// the y axis points down, as in the layers of the flipped button, so that it matches the still wave in the image.
+	static func wave(to end: Double, height: Double, yAxisDown: Bool = false) -> CGPath {
 		let path = CGMutablePath()
 		let start = inset
 		let length = max(end - inset - start, 1)
 		let steps = Int(length * 2)
 		for step in 0...steps {
 			let x = start + length * Double(step) / Double(steps)
-			let point = CGPoint(x: x, y: height / 2 + sin((x - start) / wavelength * 2 * .pi) * (amplitude ?? Self.amplitude))
+			let offset = sin((x - start) / wavelength * 2 * .pi) * amplitude
+			let point = CGPoint(x: x, y: height / 2 + (yAxisDown ? -offset : offset))
 			if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
 		}
 		return path

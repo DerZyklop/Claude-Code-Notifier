@@ -11,7 +11,7 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
   dark green segment that runs along it from left to right. Core Animation moves the segment, so the app does no work
   per frame. From two working sessions on, their number stands right of the wave. Sessions that ask you add an orange
   speech bubble at the right end, with their number from two sessions on. The wave keeps its wavelength and gets
-  shorter to make room. Without work, the wave stands still in the menu bar color and with half the height. A gap in
+  shorter to make room. Without work, the same wave stands still in the menu bar color. A gap in
   the still wave means that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, and the running time
   since the start on the right (»58s« in the first minute, a clock for the first hour like »4:07«, then »1h 09m«, then »2d 4h 03m«). The title is the one that the Claude Code extension shows: an agent
