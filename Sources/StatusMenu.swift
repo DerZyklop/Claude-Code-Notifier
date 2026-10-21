@@ -54,12 +54,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 		let layout = Self.layout(working: working, waiting: waiting)
 
-		let image = icon(layout: layout, hasProblem: hasProblem, isDark: isDark)
+		let image = icon(layout: layout, isDark: isDark)
 		if button.image !== image { button.image = image }
 		button.title = ""
 		button.imagePosition = .imageOnly
 		button.layoutSubtreeIfNeeded()
-		spinner.show(waveEnd: layout.waveEnd, over: working > 0 ? button.cell?.imageRect(forBounds: button.bounds) : nil)
+		spinner.show(waveEnd: layout.waveEnd, over: button.cell?.imageRect(forBounds: button.bounds), isWorking: working > 0,
+			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark))
 	}
 
 	private static let iconWidth = 58.0
@@ -94,27 +95,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	private static let bubbleWidth = bubble(count: 1).size.width
 
-	/// One image for all parts. It cannot be a template image, because the menu bar would color the bubble too, so it
-	/// colors the still wave and the number itself.
-	private func icon(layout: IconLayout, hasProblem: Bool, isDark: Bool) -> NSImage {
-		let cacheKey = "\(layout)-\(hasProblem)-\(isDark)"
+	/// The menu bar color, for the still wave and the number.
+	private static func textColor(isDark: Bool) -> NSColor {
+		isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
+	}
+
+	/// The number and the bubble in one image, above which ``Spinner`` draws the wave. It cannot be a template image,
+	/// because the menu bar would color the bubble too, so it colors the number itself.
+	private func icon(layout: IconLayout, isDark: Bool) -> NSImage {
+		let cacheKey = "\(layout)-\(isDark)"
 		if let image = iconCache[cacheKey] { return image }
 		let bubble = layout.bubbleX.map { _ in Self.bubble(count: layout.waiting) }
 		let height = max(18, bubble?.size.height ?? 0)
-		let color = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
+		let color = Self.textColor(isDark: isDark)
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
-			if layout.working == 0, let context = NSGraphicsContext.current?.cgContext {
-				context.addPath(Spinner.wave(to: layout.waveEnd, height: rect.height))
-				context.setLineWidth(Spinner.lineWidth)
-				context.setLineCap(.round)
-				context.setLineJoin(.round)
-				context.setStrokeColor(color.cgColor)
-				context.strokePath()
-				if hasProblem {
-					// A gap in the middle of the wave.
-					context.clear(CGRect(x: layout.waveEnd / 2 - 3, y: 0, width: 6, height: rect.height))
-				}
-			}
 			if let x = layout.numberCenterX {
 				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color)
 			}
