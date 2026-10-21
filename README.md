@@ -11,8 +11,8 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
   dark green segment that runs along it from left to right. Core Animation moves the segment, so the app does no work
   per frame. From two working sessions on, their number stands right of the wave. Sessions that ask you add an orange
   speech bubble at the right end, with their number from two sessions on. The wave keeps its wavelength and gets
-  shorter to make room. Without work, a sparkle at the left end. A crossed-out sparkle means that the setup has a
-  problem.
+  shorter to make room. Without work, the wave stands still in the menu bar color and with half the height. A gap in
+  the still wave means that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, and the running time
   since the start on the right (»58s« in the first minute, a clock for the first hour like »4:07«, then »1h 09m«, then »2d 4h 03m«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
@@ -75,7 +75,7 @@ answer quickly gives no notification.
 3. Start at login: System Settings › General › Login Items › »+« › choose the app. Or use »Launch at Login« in the menu
    (only after step 1, because the entry points to the current location of the app).
 
-The window opens at every start until the setup is complete. Later, a crossed-out sparkle in the menu bar shows that the
+The window opens at every start until the setup is complete. Later, a gap in the wave in the menu bar shows that the
 hooks stopped working, and »Hook Setup …« in the menu opens the window again. The app honors `CLAUDE_CONFIG_DIR` like
 Claude Code does.
 

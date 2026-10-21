@@ -10,7 +10,9 @@ import QuartzCore
 final class Spinner {
 	private static let wavelength = 20.0
 	private static let amplitude = 5.0
-	private static let lineWidth = 2.6
+	/// The still wave of the idle icon is calmer.
+	static let stillAmplitude = 2.5
+	static let lineWidth = 2.6
 	/// The ends of the wave keep this distance from the edges of the space it has.
 	private static let inset = 2.0
 	/// One run from left to right in 1.4 s.
@@ -82,14 +84,14 @@ final class Spinner {
 	}
 
 	/// A sine wave with a fixed wavelength from the left end to `end`, vertically centered.
-	private static func wave(to end: Double, height: Double) -> CGPath {
+	static func wave(to end: Double, height: Double, amplitude: Double? = nil) -> CGPath {
 		let path = CGMutablePath()
 		let start = inset
 		let length = max(end - inset - start, 1)
 		let steps = Int(length * 2)
 		for step in 0...steps {
 			let x = start + length * Double(step) / Double(steps)
-			let point = CGPoint(x: x, y: height / 2 + sin((x - start) / wavelength * 2 * .pi) * amplitude)
+			let point = CGPoint(x: x, y: height / 2 + sin((x - start) / wavelength * 2 * .pi) * (amplitude ?? Self.amplitude))
 			if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
 		}
 		return path

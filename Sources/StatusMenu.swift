@@ -43,8 +43,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	/// The icon always has the same width, so that the menu bar never shifts. From the right: the bubble of the waiting
-	/// sessions, the number of working sessions, and the wave in the space that is left. Without work, a sparkle at the
-	/// left end. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
+	/// sessions, the number of working sessions, and the wave in the space that is left. Without work, the wave stands
+	/// still in the menu bar color, and a setup problem breaks it in the middle. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
@@ -95,23 +95,25 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private static let bubbleWidth = bubble(count: 1).size.width
 
 	/// One image for all parts. It cannot be a template image, because the menu bar would color the bubble too, so it
-	/// colors the sparkle and the number itself.
+	/// colors the still wave and the number itself.
 	private func icon(layout: IconLayout, hasProblem: Bool, isDark: Bool) -> NSImage {
 		let cacheKey = "\(layout)-\(hasProblem)-\(isDark)"
 		if let image = iconCache[cacheKey] { return image }
 		let bubble = layout.bubbleX.map { _ in Self.bubble(count: layout.waiting) }
 		let height = max(18, bubble?.size.height ?? 0)
 		let color = isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
-		let sparkle = layout.working > 0 ? nil : hasProblem ? Self.crossedOutSparkle : Self.sparkle
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
-			if let sparkle {
-				let tinted = NSImage(size: sparkle.size, flipped: false) { tintRect in
-					sparkle.draw(in: tintRect)
-					color.set()
-					tintRect.fill(using: .sourceAtop)
-					return true
+			if layout.working == 0, let context = NSGraphicsContext.current?.cgContext {
+				context.addPath(Spinner.wave(to: layout.waveEnd, height: rect.height, amplitude: Spinner.stillAmplitude))
+				context.setLineWidth(Spinner.lineWidth)
+				context.setLineCap(.round)
+				context.setLineJoin(.round)
+				context.setStrokeColor(color.cgColor)
+				context.strokePath()
+				if hasProblem {
+					// A gap in the middle of the wave.
+					context.clear(CGRect(x: layout.waveEnd / 2 - 3, y: 0, width: 6, height: rect.height))
 				}
-				tinted.draw(in: NSRect(x: 0, y: (rect.height - sparkle.size.height) / 2, width: sparkle.size.width, height: sparkle.size.height))
 			}
 			if let x = layout.numberCenterX {
 				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color)
@@ -142,42 +144,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		}
 	}
 
-	private static let sparkle: NSImage? = {
-		guard let symbol = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude Code Notifier")?
-			.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)) else { return nil }
-		let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-			symbol.draw(in: NSRect(x: rect.midX - symbol.size.width / 2, y: rect.midY - symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height))
-			return true
-		}
-		image.isTemplate = true
-		return image
-	}()
-
-	/// The sparkle with a diagonal line, for a setup problem. macOS has no crossed-out sparkle symbol. Like the system's
-	/// crossed-out symbols, the line has a small gap on each side.
-	private static let crossedOutSparkle: NSImage? = {
-		guard let sparkle else { return nil }
-		let image = NSImage(size: sparkle.size, flipped: false) { rect in
-			sparkle.draw(in: rect)
-			// The line crosses the square around the sparkle, not the whole canvas.
-			let square = NSRect(x: rect.midX - rect.height / 2, y: rect.minY, width: rect.height, height: rect.height)
-			let inset = square.width * 0.2
-			let line = NSBezierPath()
-			line.move(to: NSPoint(x: square.minX + inset, y: square.maxY - inset))
-			line.line(to: NSPoint(x: square.maxX - inset, y: square.minY + inset))
-			line.lineCapStyle = .round
-			NSGraphicsContext.current?.compositingOperation = .clear
-			line.lineWidth = 3.2
-			line.stroke()
-			NSGraphicsContext.current?.compositingOperation = .sourceOver
-			line.lineWidth = 1.2
-			NSColor.black.setStroke()
-			line.stroke()
-			return true
-		}
-		image.isTemplate = true
-		return image
-	}()
 
 	// MARK: - Menu
 
