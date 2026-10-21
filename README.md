@@ -7,8 +7,8 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
 | Claude asks you: a permission, a question (`AskUserQuestion`) or a plan approval (`ExitPlanMode`) | »Claude asks you« | Purr |
 | Claude has finished its turn, and the prompt is open | »Your turn«, with the start of Claude's last message | Bottle |
 
-- **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner: an orange arc that turns
-  around a faint orange ring, with a sparkle in the middle for one session, or the number of working sessions. Core
+- **Menu bar icon:** a sparkle while no session works. While sessions work, a spinner: a green arc that turns
+  around a faint green ring, with a sparkle in the middle for one session, or the number of working sessions. Core
   Animation turns the arc, so the app does no work per frame. Sessions that ask you add an orange speech bubble with
   their count inside it, so a forgotten prompt does not hide the work in other sessions. A crossed-out sparkle means
   that the setup has a problem.

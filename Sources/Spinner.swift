@@ -1,7 +1,7 @@
 import AppKit
 import QuartzCore
 
-/// The menu bar spinner while sessions work: an orange arc that turns around a faint orange ring. In the middle, a
+/// The menu bar spinner while sessions work: a green arc that turns around a faint green ring. In the middle, a
 /// sparkle for one working session, or the number of working sessions.
 ///
 /// The middle is the template image of the button, so it takes the menu bar color. The ring and the arc are layers
@@ -14,7 +14,7 @@ final class Spinner {
 	private static let lineWidth = 2.6
 	/// One turn in 1.2 s.
 	private static let turnDuration = 1.2
-	private static let color = NSColor.systemOrange
+	private static let color = NSColor.systemGreen
 
 	private let ring = CAShapeLayer()
 	private let arc = CAShapeLayer()
