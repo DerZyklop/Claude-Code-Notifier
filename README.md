@@ -10,14 +10,17 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
 - **Menu bar icon:** always 58 pt wide, so the menu bar never shifts. While sessions work, a pale green wave with a
   dark green segment that runs along it from left to right. Core Animation moves the segment, so the app does no work
   per frame. From two working sessions on, their number stands right of the wave. Sessions that ask you add an orange
-  speech bubble at the right end, with their number from two sessions on. The wave keeps its wavelength and gets
+  speech bubble at the right end, with their number from two sessions on. The bubble has the highest priority: it
+  pops in, and every 5 s it rings twice. It swings, grows and glows dark red, a halo pings behind it, and the wave
+  glows dark red with it. The wave keeps its wavelength and gets
   shorter to make room. Without work, the same wave stands still in the menu bar color. When work starts, the green
   wave grows in from the left. When it ends, the green wave leaves to the right. A gap in
   the still wave means that the setup has a problem.
 - **Menu:** a card with one row per session: a colored state icon, the session title, and the running time
   since the start on the right (»58s« in the first minute, a clock for the first hour like »4:07«, then »1h 09m«, then »2d 4h 03m«). The title is the one that the Claude Code extension shows: an agent
   name, a title from a rename, the title that Claude made, or the first prompt. The app reads it from the end of the
-  transcript. The time updates every second while the menu is open. A row is highlighted under the mouse pointer, but
+  transcript. The time updates every second while the menu is open. Sessions that ask you come first, then the
+  working ones, then the finished ones. A row is highlighted under the mouse pointer, but
   the card only shows information, it cannot be clicked. Archived sessions are not in the card.
 - **Notifications:** one per session, with the session title. A newer one replaces the older one. A click brings VS Code to the front.
 - **Menu:** three groups. First the card, with the app status on the right of its header (»Listening on

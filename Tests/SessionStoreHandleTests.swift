@@ -594,6 +594,6 @@ private struct Fixture {
 		}
 		// A shell command in the background shows the turn as working.
 		fixture.store.apply(shellCommands: [7: 1])
-		#expect(fixture.store.sortedSessions.map(\.id) == ["asks", "turn", "working new", "background", "working old", "ended"])
+		#expect(fixture.store.sortedSessions.map(\.id) == ["asks", "working new", "background", "working old", "turn", "ended"])
 	}
 }

@@ -12,6 +12,16 @@ enum SettingsKey {
 enum SessionState: Int {
 	case asksYou, yourTurn, working, ended
 
+	/// The place in the card: sessions that ask you on top, then the working ones, then the finished ones.
+	var listOrder: Int {
+		switch self {
+		case .asksYou: 0
+		case .working: 1
+		case .yourTurn: 2
+		case .ended: 3
+		}
+	}
+
 	var title: String {
 		switch self {
 		case .asksYou: "asks you"
@@ -157,7 +167,7 @@ final class SessionStore: ObservableObject {
 	}
 
 	var sortedSessions: [Session] {
-		sessions.values.sorted { ($0.shownState.rawValue, $1.updated) < ($1.shownState.rawValue, $0.updated) }
+		sessions.values.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
 	}
 
 	func handle(_ data: Data) {

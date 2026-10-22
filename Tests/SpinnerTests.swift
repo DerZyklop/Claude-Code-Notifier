@@ -348,7 +348,9 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		let wave = subpaths(Spinner.wave(to: 26, height: 20, yAxisDown: button.isFlipped))
 		#expect(subpaths(spinner.still.path) == wave)
 		#expect(subpaths(spinner.track.path) == wave)
-		#expect(subpaths(spinner.segment.path) == wave)
+		#expect(subpaths(spinner.segmentMask.path) == wave)
+		// The segment runs on the same curve, continued past both ends, so it slides in behind the mask.
+		#expect(Spinner.length(of: spinner.segment.path) > Spinner.length(of: spinner.segmentMask.path))
 	}
 
 	@Test(arguments: [false, true])
@@ -406,7 +408,9 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		#expect(subpaths(spinner.still.path).count == 2)
 		let wave = subpaths(Spinner.wave(to: 26, height: 20, yAxisDown: button.isFlipped))
 		#expect(subpaths(spinner.track.path) == wave)
-		#expect(subpaths(spinner.segment.path) == wave)
+		#expect(subpaths(spinner.segmentMask.path) == wave)
+		// The segment runs on the same curve, continued past both ends, so it slides in behind the mask.
+		#expect(Spinner.length(of: spinner.segment.path) > Spinner.length(of: spinner.segmentMask.path))
 	}
 
 	@Test func nilFrameHidesTheLayers() {
@@ -459,7 +463,9 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		spinner.show(waveEnd: end, over: NSRect(origin: imageFrame.origin, size: size), isWorking: false, hasGap: hasGap, stillColor: stillColor)
 		let wave = subpaths(Spinner.wave(to: end, height: size.height, yAxisDown: button.isFlipped))
 		#expect(subpaths(spinner.track.path) == wave)
-		#expect(subpaths(spinner.segment.path) == wave)
+		#expect(subpaths(spinner.segmentMask.path) == wave)
+		// The segment runs on the same curve, continued past both ends, so it slides in behind the mask.
+		#expect(Spinner.length(of: spinner.segment.path) > Spinner.length(of: spinner.segmentMask.path))
 		let still = Spinner.wave(to: end, height: size.height, yAxisDown: button.isFlipped, gap: hasGap)
 		#expect(subpaths(spinner.still.path) == subpaths(still))
 		let shape = try #require(spinner.shownShape)
@@ -540,25 +546,27 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		#expect(hasLimitedFrameRate(track))
 	}
 
-	@Test func startWorkRunsTheSegmentAfterTheSwap() throws {
+	@Test func startWorkRunsTheSegmentAsAMovingDash() throws {
 		let spinner = Spinner(button: makeButton())
-		let before = CACurrentMediaTime()
+		withoutActions { spinner.segment.path = Spinner.wave(to: 40, height: 18, yAxisDown: false) }
 		spinner.startWork()
-		let after = CACurrentMediaTime()
-		let run = try #require(spinner.segment.animation(forKey: "run") as? CAAnimationGroup)
+		let length = Spinner.length(of: spinner.segment.path)
+		#expect(length > 0)
+		#expect(spinner.segment.strokeEnd == 1)
+		#expect(doubles(spinner.segment.lineDashPattern) == [length * Spinner.segmentShare, length * (1 - Spinner.segmentShare)])
+
+		// The dash moves by one pattern per round, so the next round starts where the last one ended.
+		let run = try #require(spinner.segment.animation(forKey: "run") as? CABasicAnimation)
+		#expect(run.keyPath == "lineDashPhase")
+		#expect((run.fromValue as? NSNumber)?.doubleValue == length)
+		#expect((run.toValue as? NSNumber)?.doubleValue == 0)
 		#expect(run.duration == Spinner.runDuration)
 		#expect(run.repeatCount == .infinity)
-		#expect((before + Spinner.swapDuration...after + Spinner.swapDuration).contains(run.beginTime))
-		#expect(controlPoints(run.timingFunction) == easeInEaseOut)
 		#expect(hasLimitedFrameRate(run))
 
-		let animations = try #require(run.animations as? [CAKeyframeAnimation])
-		try #require(animations.count == 2)
-		#expect(animations.map(\.keyPath) == ["strokeEnd", "strokeStart"])
-		#expect(doubles(animations[0].values) == [0, 1, 1])
-		#expect(doubles(animations[0].keyTimes) == [0, 0.65, 1])
-		#expect(doubles(animations[1].values) == [0, 0, 1])
-		#expect(doubles(animations[1].keyTimes) == [0, 0.35, 1])
+		let fadeIn = try #require(spinner.segment.animation(forKey: "fadeIn") as? CAKeyframeAnimation)
+		#expect(doubles(fadeIn.values) == [0, 0, 1])
+		#expect(fadeIn.duration == Spinner.swapDuration + 0.3)
 	}
 
 	@Test func endWorkStopsTheSegment() {

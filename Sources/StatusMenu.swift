@@ -16,6 +16,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
 	private lazy var spinner = Spinner(button: statusItem.button!)
+	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
+	private lazy var attention = AttentionBubble(button: statusItem.button!)
 	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
@@ -59,8 +61,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let image = icon(layout: layout, isDark: isDark)
 		if button.image !== image { button.image = image }
 		button.layoutSubtreeIfNeeded()
-		spinner.show(waveEnd: layout.waveEnd, over: button.cell?.imageRect(forBounds: button.bounds), isWorking: working > 0,
+		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
+		spinner.show(waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark))
+		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
+		let bubbleSize = Self.bubble(count: 1).size
+		let bubbleFrame = imageFrame.flatMap { frame in
+			layout.bubbleX.map { NSRect(x: frame.minX + $0, y: frame.midY - bubbleSize.height / 2, width: bubbleSize.width, height: bubbleSize.height) }
+		}
+		attention.show(count: layout.waiting, image: { Self.bubble(count: layout.waiting, color: $0) }, in: bubbleFrame)
+		spinner.glow(with: attention)
 	}
 
 	static let iconWidth = 58.0
@@ -102,20 +112,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 	}
 
-	/// The number and the bubble in one image, above which ``Spinner`` draws the wave. It cannot be a template image,
-	/// because the menu bar would color the bubble too, so it colors the number itself.
+	/// The number in one image, above which ``Spinner`` draws the wave and ``AttentionBubble`` the bubble. The image
+	/// keeps the height of the bubble, so the parts stay centered. It cannot be a template image, because the number
+	/// must match the colors of the layers, so it colors the number itself.
 	private func icon(layout: IconLayout, isDark: Bool) -> NSImage {
 		let cacheKey = "\(layout)-\(isDark)"
 		if let image = iconCache[cacheKey] { return image }
-		let bubble = layout.bubbleX.map { _ in Self.bubble(count: layout.waiting) }
-		let height = max(18, bubble?.size.height ?? 0)
+		let height = max(18, Self.bubble(count: 1).size.height)
 		let color = Self.textColor(isDark: isDark)
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
 			if let x = layout.numberCenterX {
 				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color, prefix: Self.workingPrefix)
-			}
-			if let bubble, let x = layout.bubbleX {
-				bubble.draw(in: NSRect(x: x, y: (rect.height - bubble.size.height) / 2, width: bubble.size.width, height: bubble.size.height))
 			}
 			return true
 		}
@@ -126,9 +133,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// An orange speech bubble with the count in white inside it from two sessions on, in the color of »asks you« in the card. Space above
 	/// the bubble makes the middle of its body the middle of the image, so the body lines up with the spinner and the
 	/// tail hangs below.
-	static func bubble(count: Int) -> NSImage {
+	static func bubble(count: Int, color: NSColor = .systemOrange) -> NSImage {
 		let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuBarFont(ofSize: 0).pointSize + 4, weight: .regular)
-			.applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
+			.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
 		guard let bubble = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "\(count) asking")?.withSymbolConfiguration(configuration) else { return NSImage() }
 		let bodyMiddle = bubble.size.height * 0.58
 		let size = NSSize(width: bubble.size.width, height: (bodyMiddle * 2).rounded(.up))

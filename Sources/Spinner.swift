@@ -5,7 +5,7 @@ import QuartzCore
 ///
 /// - The still wave in the menu bar color, while no session works.
 /// - A pale green wave, while sessions work.
-/// - A dark green segment that runs along the pale green wave from left to right.
+/// - A dark green segment that runs along the pale green wave from left to right, without a jump between rounds.
 ///
 /// When work starts, the green wave grows in from the left and the still wave shrinks back at the same point. When
 /// work ends, the green wave leaves to the right and the still wave grows back. The wave keeps its wavelength and gets
@@ -22,6 +22,8 @@ final class Spinner {
 	static let gapWidth = 6.0
 	/// One run of the segment from left to right.
 	static let runDuration = 1.4
+	/// The length of the segment, as a share of the wave.
+	static let segmentShare = 0.35
 	/// The change between the still and the green wave.
 	static let swapDuration = 0.6
 	static let color = NSColor.systemGreen
@@ -29,6 +31,9 @@ final class Spinner {
 	let still = CAShapeLayer()
 	let track = CAShapeLayer()
 	let segment = CAShapeLayer()
+	/// Shows the segment only inside the shape of the green wave. The segment runs on a longer path, so it slides in
+	/// behind the rounded end of the wave instead of popping up with a full round cap.
+	let segmentMask = CAShapeLayer()
 	private weak var button: NSStatusBarButton?
 	/// The shape of the shown waves, to build their paths only when it changes.
 	private(set) var shownShape: (size: CGSize, end: Double, hasGap: Bool)?
@@ -49,6 +54,12 @@ final class Spinner {
 			layer.isHidden = true
 			button.layer?.addSublayer(layer)
 		}
+		segmentMask.fillColor = nil
+		segmentMask.strokeColor = NSColor.black.cgColor
+		segmentMask.lineWidth = Self.lineWidth
+		segmentMask.lineCap = .round
+		segmentMask.lineJoin = .round
+		segment.mask = segmentMask
 	}
 
 	/// Shows the waves over the image frame of the button, from its left end to `waveEnd`.
@@ -68,8 +79,11 @@ final class Spinner {
 			let wave = Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown)
 			still.path = hasGap ? Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown, gap: true) : wave
 			track.path = wave
-			segment.path = wave
+			segmentMask.path = wave
+			segment.path = Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown, overhang: Self.lineWidth)
 			shownShape = shape
+			// A new length changes the dash of the segment. Without the fade in, it keeps running.
+			if self.isWorking { runSegment(fadeInAfter: nil) }
 		}
 		for layer in [still, track, segment] {
 			layer.bounds = CGRect(origin: .zero, size: imageFrame.size)
@@ -77,12 +91,27 @@ final class Spinner {
 			layer.contentsScale = button?.window?.backingScaleFactor ?? 2
 			layer.isHidden = false
 		}
+		segmentMask.frame = CGRect(origin: .zero, size: imageFrame.size)
+		segmentMask.contentsScale = segment.contentsScale
 		still.strokeColor = stillColor.cgColor
 		CATransaction.commit()
 
 		guard isWorking != self.isWorking else { return }
 		self.isWorking = isWorking
 		if isWorking { startWork() } else { endWork() }
+	}
+
+	/// Lets the waves glow in dark red together with the bubble of the waiting sessions. Without a shown bubble, the glow
+	/// stops.
+	func glow(with bubble: AttentionBubble) {
+		let peak = AttentionBubble.glowColor
+		for (layer, peakColor) in [(still, peak.cgColor), (track, peak.withAlphaComponent(0.45).cgColor), (segment, peak.cgColor)] {
+			if let normal = layer.strokeColor, let animation = bubble.glow("strokeColor", normal: normal, peak: peakColor) {
+				layer.add(animation, forKey: "glow")
+			} else {
+				layer.removeAnimation(forKey: "glow")
+			}
+		}
 	}
 
 	/// The green wave grows in from the left while the still wave shrinks back, then the segment starts to run.
@@ -95,29 +124,57 @@ final class Spinner {
 		CATransaction.commit()
 		Self.animate(still, "strokeStart", from: 0, to: 1)
 		Self.animate(track, "strokeEnd", from: 0, to: 1)
+		runSegment(fadeInAfter: Self.swapDuration)
+	}
 
-		// The segment grows from the left end, runs along the wave, and shrinks into the right end.
-		let end = CAKeyframeAnimation(keyPath: "strokeEnd")
-		end.values = [0, 1, 1]
-		end.keyTimes = [0, 0.65, 1]
-		let start = CAKeyframeAnimation(keyPath: "strokeStart")
-		start.values = [0, 0, 1]
-		start.keyTimes = [0, 0.35, 1]
-		let run = CAAnimationGroup()
-		run.animations = [end, start]
+	/// The segment is one dash on the wave that moves to the right at an even speed. It leaves at the right end while it
+	/// enters again at the left end, so a new round does not jump back.
+	/// - Parameter fadeInAfter: Fades the segment in after this delay, e.g. after the green wave grew in.
+	private func runSegment(fadeInAfter delay: Double?) {
+		let length = Self.length(of: segment.path)
+		CATransaction.begin()
+		CATransaction.setDisableActions(true)
+		segment.strokeEnd = 1
+		segment.lineDashPattern = [NSNumber(value: length * Self.segmentShare), NSNumber(value: length * (1 - Self.segmentShare))]
+		CATransaction.commit()
+
+		let run = CABasicAnimation(keyPath: "lineDashPhase")
+		// A falling phase moves the dash toward the end of the path.
+		run.fromValue = length
+		run.toValue = 0
 		run.duration = Self.runDuration
-		run.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 		run.repeatCount = .infinity
-		run.beginTime = CACurrentMediaTime() + Self.swapDuration
 		Self.limitFrameRate(run)
 		segment.add(run, forKey: "run")
+
+		guard let delay else { return }
+		let fadeIn = CAKeyframeAnimation(keyPath: "opacity")
+		fadeIn.values = [0, 0, 1]
+		fadeIn.keyTimes = [0, NSNumber(value: delay / (delay + 0.3)), 1]
+		fadeIn.duration = delay + 0.3
+		Self.limitFrameRate(fadeIn)
+		segment.add(fadeIn, forKey: "fadeIn")
+	}
+
+	/// The length of a path of lines.
+	static func length(of path: CGPath?) -> Double {
+		var length = 0.0
+		var last: CGPoint?
+		path?.applyWithBlock { element in
+			let point = element.pointee.points[0]
+			if element.pointee.type == .addLineToPoint, let last { length += hypot(point.x - last.x, point.y - last.y) }
+			last = point
+		}
+		return length
 	}
 
 	/// The segment stops, the green wave leaves to the right while the still wave grows back from the left.
 	func endWork() {
 		segment.removeAnimation(forKey: "run")
+		segment.removeAnimation(forKey: "fadeIn")
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
+		segment.strokeEnd = 0
 		still.strokeStart = 0
 		still.strokeEnd = 1
 		track.strokeStart = 1
@@ -143,16 +200,18 @@ final class Spinner {
 
 	/// A sine wave with a fixed wavelength from the left end to `end`, vertically centered. It starts upward also where
 	/// the y axis points down, as in the layers of the flipped button.
-	/// - Parameter gap: Leaves out the middle of the wave.
-	static func wave(to end: Double, height: Double, yAxisDown: Bool, gap: Bool = false) -> CGPath {
+	/// - Parameters:
+	///   - gap: Leaves out the middle of the wave.
+	///   - overhang: Continues the wave by this length past both ends, with the same curve.
+	static func wave(to end: Double, height: Double, yAxisDown: Bool, gap: Bool = false, overhang: Double = 0) -> CGPath {
 		let path = CGMutablePath()
 		let start = inset
 		let length = max(end - inset - start, 1)
 		let gapRange = (start + length / 2 - gapWidth / 2)...(start + length / 2 + gapWidth / 2)
-		let steps = Int(length * 2)
+		let steps = Int((length + 2 * overhang) * 2)
 		var isDrawing = false
 		for step in 0...steps {
-			let x = start + length * Double(step) / Double(steps)
+			let x = start - overhang + (length + 2 * overhang) * Double(step) / Double(steps)
 			if gap && gapRange.contains(x) {
 				isDrawing = false
 				continue
