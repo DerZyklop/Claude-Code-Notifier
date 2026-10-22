@@ -63,12 +63,13 @@ final class Spinner {
 		let yAxisDown = button?.isFlipped ?? false
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
-		if shownShape.map({ $0.size == imageFrame.size && $0.end == waveEnd && $0.hasGap == hasGap }) != true {
+		let shape = (size: imageFrame.size, end: waveEnd, hasGap: hasGap)
+		if shownShape.map({ $0 != shape }) ?? true {
 			let wave = Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown)
 			still.path = hasGap ? Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown, gap: true) : wave
 			track.path = wave
 			segment.path = wave
-			shownShape = (imageFrame.size, waveEnd, hasGap)
+			shownShape = shape
 		}
 		for layer in [still, track, segment] {
 			layer.bounds = CGRect(origin: .zero, size: imageFrame.size)
@@ -137,9 +138,7 @@ final class Spinner {
 
 	/// 30 frames per second look smooth and keep the work of the window server low.
 	static func limitFrameRate(_ animation: CAAnimation) {
-		if #available(macOS 12, *) {
-			animation.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
-		}
+		animation.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
 	}
 
 	/// A sine wave with a fixed wavelength from the left end to `end`, vertically centered. It starts upward also where
