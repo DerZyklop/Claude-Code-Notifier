@@ -143,14 +143,13 @@ final class SessionStore: ObservableObject {
 
 	private let system: System
 	private let setup: HookSetup
-	private var interruptTimer: Timer?
 
 	/// - Parameter checksSessions: Calls ``checkSessions()`` now and every 3 s.
 	init(system: System, setup: HookSetup, checksSessions: Bool) {
 		self.system = system
 		self.setup = setup
 		guard checksSessions else { return }
-		interruptTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+		Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
 			Task { @MainActor in self?.checkSessions() }
 		}
 		// Shows the sessions that run already when the app starts.
@@ -187,13 +186,11 @@ final class SessionStore: ObservableObject {
 			guard let body else { return }
 			let session = set(.asksYou, for: event, previous: previous)
 			notify(.asksYou, session: session, body: body)
+		case "Notification" where event.isIdleReminder:
+			if previous?.state == .yourTurn || previous?.state == .asksYou { return }
+			let session = set(.yourTurn, for: event, previous: previous)
+			notify(.yourTurn, session: session, body: event.message ?? "Claude is waiting for your input.")
 		case "Notification":
-			if event.isIdleReminder {
-				if previous?.state == .yourTurn || previous?.state == .asksYou { return }
-				let session = set(.yourTurn, for: event, previous: previous)
-				notify(.yourTurn, session: session, body: event.message ?? "Claude is waiting for your input.")
-				return
-			}
 			// A question or a plan reported this wait already.
 			if previous?.state == .asksYou { return }
 			let session = set(.asksYou, for: event, previous: previous)
@@ -206,13 +203,11 @@ final class SessionStore: ObservableObject {
 		case "StopFailure":
 			let session = set(.yourTurn, for: event, previous: previous)
 			notify(.yourTurn, session: session, body: "Claude stopped because of an error: \(event.error ?? "unknown").")
-		case "SessionEnd":
+		case "SessionEnd" where event.reason == "clear":
 			// `/clear` ends the session too, but only to start the next one at once.
-			if event.reason == "clear" {
-				sessions[id] = nil
-				removeNotification(of: id)
-				return
-			}
+			sessions[id] = nil
+			removeNotification(of: id)
+		case "SessionEnd":
 			// No notification: the user closes a session. An archived one leaves the menu with the next check.
 			set(.ended, for: event, previous: previous)
 			removeNotification(of: id)
@@ -297,7 +292,7 @@ final class SessionStore: ObservableObject {
 		let shellCommandCounts = system.shellCommandCounts
 		Task.detached(priority: .utility) {
 			let commands = shellCommandCounts(pids)
-			await MainActor.run { self.apply(shellCommands: commands) }
+			await self.apply(shellCommands: commands)
 		}
 
 		// A process that ended without a `SessionEnd` hook, e.g. in a session that started before the hooks.
