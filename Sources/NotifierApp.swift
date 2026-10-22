@@ -16,12 +16,11 @@ struct NotifierApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 	private let server = EventServer(port: eventPort)
-	private var settingsTimer: Timer?
 	private var statusMenu: StatusMenu?
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		Self.migrateSettings()
-		statusMenu = MainActor.assumeIsolated { StatusMenu() }
+		statusMenu = StatusMenu()
 		let center = UNUserNotificationCenter.current()
 		center.delegate = self
 		center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -32,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		)
 
 		// Notices when the hooks are removed or changed later. The test reruns only when the hook commands change.
-		settingsTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+		Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
 			Task { @MainActor in HookSetup.shared.refresh() }
 		}
 	}
