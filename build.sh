@@ -24,7 +24,8 @@ swiftc -sdk "$SDK" -module-cache-path .build/module-cache -O -parse-as-library -
 	Sources/*.swift \
 	-o "$APP/Contents/MacOS/ClaudeCodeNotifier"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# A new build number for each build. Notification Center reloads the icon and name of an app when it changes.
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -36,15 +37,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundleExecutable</key><string>ClaudeCodeNotifier</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
-	<key>CFBundleVersion</key><string>BUILD_NUMBER</string>
+	<key>CFBundleVersion</key><string>$(date +%Y%m%d%H%M%S)</string>
 	<key>LSMinimumSystemVersion</key><string>13.0</string>
 	<key>LSUIElement</key><true/>
 </dict>
 </plist>
 PLIST
-
-# A new build number for each build. Notification Center reloads the icon and name of an app when it changes.
-sed -i '' "s/BUILD_NUMBER/$(date +%Y%m%d%H%M%S)/" "$APP/Contents/Info.plist"
 
 # The app icon, in all sizes that macOS asks for.
 ICON_WORK=$(mktemp -d "$TMPDIR/icon.XXXXXX")
