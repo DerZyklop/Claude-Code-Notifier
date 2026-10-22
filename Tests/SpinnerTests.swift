@@ -210,6 +210,13 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		#expect(glyphs(line) == glyphs(reference))
 	}
 
+	@Test(arguments: [(2, "×2"), (10, "×9+")])
+	func countLineStartsWithThePrefix(count: Int, text: String) {
+		let line = Spinner.countLine(count, color: .black, prefix: "×")
+		#expect(CTLineGetStringRange(line).length == text.utf16.count)
+		#expect(Spinner.countWidth(count, prefix: "×") > Spinner.countWidth(count))
+	}
+
 	@Test func countLineHasTheColor() throws {
 		let color = NSColor(srgbRed: 0.1, green: 0.2, blue: 0.3, alpha: 1)
 		let run = try #require((CTLineGetGlyphRuns(Spinner.countLine(3, color: color)) as? [CTRun])?.first)

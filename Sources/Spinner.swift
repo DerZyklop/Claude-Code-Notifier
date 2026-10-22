@@ -165,21 +165,21 @@ final class Spinner {
 		return path
 	}
 
-	static func countLine(_ count: Int, color: NSColor) -> CTLine {
-		let text = count > 9 ? "9+" : "\(count)"
+	static func countLine(_ count: Int, color: NSColor, prefix: String = "") -> CTLine {
+		let text = prefix + (count > 9 ? "9+" : "\(count)")
 		let font = NSFont.monospacedDigitSystemFont(ofSize: count > 9 ? 9 : 12, weight: .bold)
 		return CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
 	}
 
-	/// The visible width of the number that ``drawCount(_:at:color:)`` draws.
-	static func countWidth(_ count: Int) -> Double {
-		CTLineGetBoundsWithOptions(countLine(count, color: .black), .useGlyphPathBounds).width
+	/// The visible width of the number that ``drawCount(_:at:color:prefix:)`` draws.
+	static func countWidth(_ count: Int, prefix: String = "") -> Double {
+		CTLineGetBoundsWithOptions(countLine(count, color: .black, prefix: prefix), .useGlyphPathBounds).width
 	}
 
 	/// Centers the visible outline of the digits. The line box of the text has room for descenders, so centering it
 	/// would put the digits too high. The bubble of the waiting sessions uses it too, so both numbers have one size.
-	static func drawCount(_ count: Int, at center: NSPoint, color: NSColor = .black) {
-		let line = countLine(count, color: color)
+	static func drawCount(_ count: Int, at center: NSPoint, color: NSColor = .black, prefix: String = "") {
+		let line = countLine(count, color: color, prefix: prefix)
 		let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
 		guard let context = NSGraphicsContext.current?.cgContext else { return }
 		context.textPosition = CGPoint(x: center.x - outline.midX, y: center.y - outline.midY)

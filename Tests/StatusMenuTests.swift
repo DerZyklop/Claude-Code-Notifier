@@ -49,7 +49,7 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 
 	@Test(arguments: [2, 5, 9, 10])
 	func moreWorkingSessionsGetANumberAtTheRight(working: Int) {
-		let number = Spinner.countWidth(working)
+		let number = Spinner.countWidth(working, prefix: StatusMenu.workingPrefix)
 		#expect(StatusMenu.layout(working: working, waiting: 0)
 			== StatusMenu.IconLayout(working: working, waiting: 0, waveEnd: 58 - (number + 4), numberCenterX: 58 - number / 2))
 	}
@@ -69,14 +69,14 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 
 	@Test func numberGoesLeftOfTheBubble() {
 		let bubble = StatusMenu.bubbleWidth
-		let number = Spinner.countWidth(3)
+		let number = Spinner.countWidth(3, prefix: StatusMenu.workingPrefix)
 		#expect(StatusMenu.layout(working: 3, waiting: 2) == StatusMenu.IconLayout(
 			working: 3, waiting: 2, waveEnd: 58 - bubble - 2 - (number + 4), numberCenterX: 58 - bubble - 2 - number / 2, bubbleX: 58 - bubble))
 	}
 
 	@Test func partsKeepTheirGaps() throws {
 		let layout = StatusMenu.layout(working: 4, waiting: 4)
-		let number = Spinner.countWidth(4)
+		let number = Spinner.countWidth(4, prefix: StatusMenu.workingPrefix)
 		let numberX = try #require(layout.numberCenterX)
 		let bubbleX = try #require(layout.bubbleX)
 		#expect(abs(numberX + number / 2 + StatusMenu.gap - bubbleX) < 0.001)

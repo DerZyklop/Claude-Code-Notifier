@@ -65,6 +65,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	static let iconWidth = 58.0
 	static let gap = 2.0
+	/// The number of working sessions reads as »×2«: two times the wave.
+	static let workingPrefix = "×"
 
 	/// Where the parts of the icon go.
 	struct IconLayout: Hashable {
@@ -85,7 +87,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			right -= gap
 		}
 		if working > 1 {
-			let width = Spinner.countWidth(working)
+			let width = Spinner.countWidth(working, prefix: workingPrefix)
 			layout.numberCenterX = right - width / 2
 			right -= width + 2 * gap
 		}
@@ -110,7 +112,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let color = Self.textColor(isDark: isDark)
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
 			if let x = layout.numberCenterX {
-				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color)
+				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color, prefix: Self.workingPrefix)
 			}
 			if let bubble, let x = layout.bubbleX {
 				bubble.draw(in: NSRect(x: x, y: (rect.height - bubble.size.height) / 2, width: bubble.size.width, height: bubble.size.height))
