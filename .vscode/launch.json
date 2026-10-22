@@ -1,0 +1,24 @@
+{
+	"configurations": [
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:claude-code-notifier}",
+			"name": "Debug ClaudeCodeNotifier",
+			"target": "ClaudeCodeNotifier",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug ClaudeCodeNotifier"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:claude-code-notifier}",
+			"name": "Release ClaudeCodeNotifier",
+			"target": "ClaudeCodeNotifier",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release ClaudeCodeNotifier"
+		}
+	]
+}
