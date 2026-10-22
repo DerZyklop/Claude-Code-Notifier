@@ -60,5 +60,5 @@ iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIco
 # The notification chimes. Notifications only find sounds in the app bundle or in ~/Library/Sounds.
 cp /System/Library/Sounds/{Purr,Bottle}.aiff "$APP/Contents/Resources/"
 
-codesign --force --sign - "$APP"
+codesign --force --options runtime --sign - "$APP"
 echo "Built $APP"

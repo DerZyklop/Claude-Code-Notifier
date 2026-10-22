@@ -175,6 +175,12 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		#expect(hookCommand.contains("-m 1"))
 	}
 
+	@Test func commandSkipsTheCurlConfigurationAndProxies() {
+		// curl reads `-q` only as its first argument.
+		#expect(hookCommand.hasPrefix("curl -q "))
+		#expect(hookCommand.contains("--noproxy '*'"))
+	}
+
 	@Test func commandNeedsNoEscapingInJSON() {
 		#expect(!hookCommand.contains("\""))
 		#expect(!hookCommand.contains("\\"))

@@ -26,9 +26,11 @@ A macOS menu bar app. It tells you when a Claude Code session needs you or has f
 
 ## How it works
 
-Claude Code hooks send each event with `curl` to `http://127.0.0.1:47823/event`. The app listens only on the loopback
-interface, and it accepts only requests with the header `X-Claude-Hook`. If the app is not running, the hook fails
-silently after at most 1 s, and Claude Code is not affected.
+Claude Code hooks send each event with `curl` to `http://127.0.0.1:47823/event`. The hook command ignores proxies and
+`~/.curlrc`, so the event goes only to the app. The app listens only on the loopback interface, and it accepts only
+requests with the header `X-Claude-Hook`. It refuses requests from web pages: requests with an `Origin` header or with
+a host name other than `localhost`. If the app is not running, the hook fails silently after at most 1 s, and Claude
+Code is not affected.
 
 | Hook | State |
 |---|---|
@@ -106,6 +108,10 @@ caches of the Xcode tools change outside the project. `make-icon.swift` draws th
 Tools can be newer than their compiler. Set `SDK=<path>` to use another one.
 
 ## Limits
+
+- Every user account on the Mac can reach `127.0.0.1:47823`. Another account can send fake events. While the app does
+  not run, another account can also take the port and receive the hook data of your sessions, for example your
+  prompts. On a Mac with one user, this does not matter.
 
 - A click on a notification brings VS Code to the front, but not the window of the session. Opening the session's
   folder in VS Code would focus its window only if the window shows exactly this folder. For a folder inside a

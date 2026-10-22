@@ -7,7 +7,8 @@ import UserNotifications
 let eventPort: UInt16 = 47823
 
 /// The hook command. It sends the hook's JSON from stdin to the app and never fails or blocks Claude Code for long.
-let hookCommand = "curl -s -m 1 -H 'X-Claude-Hook: 1' --data-binary @- http://127.0.0.1:\(eventPort)/event >/dev/null 2>&1 || true"
+/// `-q` skips ~/.curlrc and `--noproxy` skips proxies, so the JSON goes only to the app.
+let hookCommand = "curl -q -s -m 1 --noproxy '*' -H 'X-Claude-Hook: 1' --data-binary @- http://127.0.0.1:\(eventPort)/event >/dev/null 2>&1 || true"
 
 /// The hook events the app needs, see ``SessionStore/handle(_:)``, each with the matcher its hook needs.
 let requiredHooks: [(event: String, matcher: String?)] = [
@@ -121,12 +122,15 @@ final class HookSetup: ObservableObject {
 			process.standardError = FileHandle.nullDevice
 			do {
 				try process.run()
-				stdin.fileHandleForWriting.write(payload)
-				try stdin.fileHandleForWriting.close()
 			} catch {
 				commandTest = .failed("The command could not start: \(error.localizedDescription)")
 				return
 			}
+			// A command that ends without reading its input must not stop the app with SIGPIPE.
+			let input = stdin.fileHandleForWriting
+			_ = fcntl(input.fileDescriptor, F_SETNOSIGPIPE, 1)
+			try? input.write(contentsOf: payload)
+			try? input.close()
 		}
 
 		Task {

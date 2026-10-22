@@ -82,13 +82,10 @@ private final class RunningServer: @unchecked Sendable {
 		return body()
 	}
 
-	/// Sends the chunks with a short pause between them and returns the answer. Throws when the server does not close
-	/// the connection within 5 seconds.
-	/// - Parameter closing: Closes the sending side after the last chunk.
-	func send(_ chunks: String..., closing: Bool = false) throws -> String {
+	/// A new connection to the server. The caller closes it. A receive waits at most 5 seconds.
+	func connect() throws -> Int32 {
 		let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
 		try #require(socket >= 0)
-		defer { close(socket) }
 		var timeout = timeval(tv_sec: 5, tv_usec: 0)
 		setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 		var noSignal: Int32 = 1
@@ -98,9 +95,21 @@ private final class RunningServer: @unchecked Sendable {
 		setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &noDelay, socklen_t(MemoryLayout<Int32>.size))
 		var address = loopback(port: port)
 		let connected = withUnsafePointer(to: &address) {
-			$0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+			$0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
 		}
-		try #require(connected == 0)
+		guard connected == 0 else {
+			close(socket)
+			throw Timeout()
+		}
+		return socket
+	}
+
+	/// Sends the chunks with a short pause between them and returns the answer. Throws when the server does not close
+	/// the connection within 5 seconds.
+	/// - Parameter closing: Closes the sending side after the last chunk.
+	func send(_ chunks: String..., closing: Bool = false) throws -> String {
+		let socket = try connect()
+		defer { close(socket) }
 		for (index, chunk) in chunks.enumerated() {
 			if index > 0 { usleep(50_000) }
 			let bytes = Array(chunk.utf8)
@@ -178,7 +187,7 @@ private final class RunningServer: @unchecked Sendable {
 		#expect(request.body == "")
 	}
 
-	@Test(arguments: ["five", "5x", "", "-", "99999999999999999999"])
+	@Test(arguments: ["five", "5x", "", "-", "99999999999999999999", "-1", "-99999999999999999999"])
 	func invalidContentLengthCountsAsZero(value: String) throws {
 		let request = try #require(parse("POST /event HTTP/1.1\r\nContent-Length: \(value)\r\n\r\nhello"))
 		#expect(request.body == "")
@@ -238,6 +247,10 @@ private final class RunningServer: @unchecked Sendable {
 		"POST /event HTTP/1.1\r\nUser-Agent: X-Claude-Hook: 1\r\nContent-Length: 2\r\n\r\n{}",
 		"post /event HTTP/1.1\r\nX-Claude-Hook: 1\r\nContent-Length: 2\r\n\r\n{}",
 		"POST /event HTTP/1.1\r\nContent-Length: 18\r\n\r\n\r\nX-Claude-Hook: 1",
+		// A web page after DNS rebinding: its browser sends the name of the page and an Origin.
+		"POST /event HTTP/1.1\r\nHost: evil.example:47823\r\nOrigin: http://evil.example:47823\r\nX-Claude-Hook: 1\r\nContent-Length: 2\r\n\r\n{}",
+		"POST /event HTTP/1.1\r\nHost: evil.example:47823\r\nX-Claude-Hook: 1\r\nContent-Length: 2\r\n\r\n{}",
+		"POST /event HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: null\r\nX-Claude-Hook: 1\r\nContent-Length: 2\r\n\r\n{}",
 	])
 	func otherRequestGets404AndNoEvent(request: String) async throws {
 		let server = try await RunningServer.ready()
@@ -285,6 +298,40 @@ private final class RunningServer: @unchecked Sendable {
 		#expect(try await server.eventsAfterOneMore().map(\.utf8.count) == [999_935])
 	}
 
+	@Test func negativeContentLengthGets404AndTheServerRuns() async throws {
+		let server = try await RunningServer.ready()
+		#expect(try server.send("GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n") == notFound)
+		#expect(try server.send("POST /event HTTP/1.1\r\nX-Claude-Hook: 1\r\nContent-Length: -1\r\n\r\n{}") == noContent)
+		#expect(try await server.eventsAfterOneMore() == [""])
+	}
+
+	@Test func idleConnectionClosesAfterTheTimeout() async throws {
+		let server = try await RunningServer.ready()
+		let start = Date()
+		#expect(try server.send() == "")
+		let elapsed = Date().timeIntervalSince(start)
+		#expect(elapsed > EventServer.connectionTimeout - 0.5 && elapsed < EventServer.connectionTimeout + 1.5)
+	}
+
+	@Test func idleConnectionsCannotBlockAHook() async throws {
+		let server = try await RunningServer.ready()
+		var idle: [Int32] = []
+		defer { idle.forEach { close($0) } }
+		for _ in 0..<EventServer.maxConnections {
+			idle.append(try server.connect())
+			// The server takes the connections in this order.
+			try await Task.sleep(nanoseconds: 5_000_000)
+		}
+		#expect(try server.send(event("hook")) == noContent)
+		try await waitFor { server.events == ["hook"] }
+		// The server closed the oldest connection for the hook. The timeout would close it only seconds later.
+		var timeout = timeval(tv_sec: 1, tv_usec: 0)
+		setsockopt(idle[0], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+		var byte: UInt8 = 0
+		let count = recv(idle[0], &byte, 1, 0)
+		#expect(count == 0 || (count < 0 && errno == ECONNRESET))
+	}
+
 	@Test func secondServerOnAUsedPortReportsAnError() async throws {
 		let first = try await RunningServer.ready()
 		let second = RunningServer(port: first.port)
@@ -293,5 +340,36 @@ private final class RunningServer: @unchecked Sendable {
 		let error = try #require(second.states.first ?? nil)
 		#expect(error.contains("Address already in use"))
 		#expect(try await first.eventsAfterOneMore() == [])
+	}
+}
+
+@Suite struct EventServerHookOriginTests {
+	@Test(arguments: [
+		"POST /event HTTP/1.1\r\nHost: 127.0.0.1:47823\r\nUser-Agent: curl/8.7.1\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: localhost:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nhost: LOCALHOST\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: 0.0.0.0:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: 127.1\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: [::1]:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nX-Claude-Hook: 1",
+	])
+	func hookRequest(head: String) {
+		#expect(EventServer.isFromHook(head))
+	}
+
+	@Test(arguments: [
+		"POST /event HTTP/1.1\r\nHost: evil.example:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: localhost.evil.example:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: 127.0.0.1.nip.io:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nHost: 127.0.0.1:47823\r\nOrigin: http://127.0.0.1:47823\r\nX-Claude-Hook: 1",
+		"POST /event HTTP/1.1\r\nORIGIN: null\r\nX-Claude-Hook: 1",
+	])
+	func browserRequest(head: String) {
+		#expect(!EventServer.isFromHook(head))
+	}
+
+	/// The request line is no header, even when its path looks like one.
+	@Test func requestLineIsNoHeader() {
+		#expect(EventServer.isFromHook("origin: /event HTTP/1.1\r\nHost: 127.0.0.1"))
 	}
 }

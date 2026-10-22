@@ -318,11 +318,11 @@ final class SessionStore: ObservableObject {
 	/// Whether the last message in the transcript is the interrupt marker. Reads only the end of the file, and skips
 	/// the metadata lines that Claude Code writes after a message.
 	static func endsWithInterrupt(transcript path: String) -> Bool {
-		guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+		guard let handle = FileHandle.regularFile(atPath: path) else { return false }
 		defer { try? handle.close() }
 		guard let end = try? handle.seekToEnd() else { return false }
 		try? handle.seek(toOffset: end > 65_536 ? end - 65_536 : 0)
-		guard let data = try? handle.readToEnd() else { return false }
+		guard let data = try? handle.read(upToCount: 65_536) else { return false }
 
 		for line in data.split(separator: UInt8(ascii: "\n")).reversed() {
 			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }

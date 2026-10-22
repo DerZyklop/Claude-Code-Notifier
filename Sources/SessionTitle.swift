@@ -9,12 +9,12 @@ enum SessionTitle {
 	private static let prefixes = Dictionary(uniqueKeysWithValues: kinds.map { ($0.0, Data(#"{"type":"\#($0.0)""#.utf8)) })
 
 	static func read(transcript path: String) -> String? {
-		guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+		guard let handle = FileHandle.regularFile(atPath: path) else { return nil }
 		defer { try? handle.close() }
 
 		if let end = try? handle.seekToEnd() {
 			try? handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
-			if let data = try? handle.readToEnd() {
+			if let data = try? handle.read(upToCount: 524_288) {
 				// A title line starts with its type, so only these few lines need parsing.
 				var latest: [String: String] = [:]
 				for line in data.split(separator: UInt8(ascii: "\n")) {
@@ -31,7 +31,7 @@ enum SessionTitle {
 
 	/// When the session started: the time of the first entry in the transcript. `nil` while there is none.
 	static func start(transcript path: String) -> Date? {
-		guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+		guard let handle = FileHandle.regularFile(atPath: path) else { return nil }
 		defer { try? handle.close() }
 		guard let data = try? handle.read(upToCount: 65_536) else { return nil }
 		for line in data.split(separator: UInt8(ascii: "\n")) {
@@ -87,4 +87,19 @@ enum SessionTitle {
 		return String(text[open.upperBound..<close.lowerBound])
 	}
 
+}
+
+extension FileHandle {
+	/// A handle to read a regular file, or `nil`. A transcript path can come from any process that reaches the event
+	/// server: a FIFO would block the open, and a device such as /dev/zero would never end.
+	static func regularFile(atPath path: String) -> FileHandle? {
+		let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+		guard descriptor >= 0 else { return nil }
+		var info = stat()
+		guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+			Darwin.close(descriptor)
+			return nil
+		}
+		return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+	}
 }

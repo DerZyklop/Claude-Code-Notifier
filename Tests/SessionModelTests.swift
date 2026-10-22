@@ -279,6 +279,16 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(try !endsWithInterrupt(""))
 	}
 
+	/// An event can name any path. These must neither block nor read without end.
+	@Test(.timeLimit(.minutes(1)), arguments: ["/dev/zero", "/dev/urandom"])
+	func deviceIsNoInterrupt(path: String) {
+		#expect(!SessionStore.endsWithInterrupt(transcript: path))
+	}
+
+	@Test(.timeLimit(.minutes(1))) func fifoIsNoInterrupt() throws {
+		try withFIFO { #expect(!SessionStore.endsWithInterrupt(transcript: $0)) }
+	}
+
 	@Test(arguments: [interruptLine, toolUseInterruptLine])
 	func markerAsLastUserLine(marker: String) throws {
 		#expect(try endsWithInterrupt(lines: [promptLine, assistantLine, marker]))

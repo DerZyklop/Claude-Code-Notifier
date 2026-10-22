@@ -370,3 +370,45 @@ private let startDate = Date(timeIntervalSince1970: 1_792_571_415.25)
 		#expect(try start([filler(bytesToEndOfTimestampLine - line.utf8.count), line]) == expected)
 	}
 }
+
+/// An event can name any path as its transcript. Only a regular file opens, so that a read neither blocks nor runs
+/// without end.
+@Suite(.timeLimit(.minutes(1))) struct RegularFileTests {
+	@Test func regularFileOpens() throws {
+		try withTranscript(Data("line\n".utf8)) { path in
+			let handle = try #require(FileHandle.regularFile(atPath: path))
+			defer { try? handle.close() }
+			#expect(try handle.readToEnd() == Data("line\n".utf8))
+		}
+	}
+
+	@Test func linkToARegularFileOpens() throws {
+		try withTranscript(Data("line\n".utf8)) { path in
+			let link = path + ".link"
+			try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: path)
+			#expect(FileHandle.regularFile(atPath: link) != nil)
+		}
+	}
+
+	@Test(arguments: ["/dev/zero", "/dev/urandom", "/dev/null", "/private/tmp", "/nonexistent/transcript.jsonl"])
+	func otherPathDoesNotOpen(path: String) {
+		#expect(FileHandle.regularFile(atPath: path) == nil)
+	}
+
+	@Test func fifoDoesNotOpen() throws {
+		try withFIFO { #expect(FileHandle.regularFile(atPath: $0) == nil) }
+	}
+
+	@Test(arguments: ["/dev/zero", "/dev/urandom"])
+	func deviceHasNoTitleAndNoStart(path: String) {
+		#expect(SessionTitle.read(transcript: path) == nil)
+		#expect(SessionTitle.start(transcript: path) == nil)
+	}
+
+	@Test func fifoHasNoTitleAndNoStart() throws {
+		try withFIFO { path in
+			#expect(SessionTitle.read(transcript: path) == nil)
+			#expect(SessionTitle.start(transcript: path) == nil)
+		}
+	}
+}
