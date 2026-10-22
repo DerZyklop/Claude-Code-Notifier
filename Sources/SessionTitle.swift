@@ -4,29 +4,30 @@ import Foundation
 /// title lines again and again, so the end of the file has the current ones.
 enum SessionTitle {
 	/// The title kinds by priority, like the extension: an agent name, then a title from a rename, then the title that
-	/// Claude made, then a summary. Each entry is the line type and its field.
+	/// Claude made, then a summary. Each entry is the start of a title line of the kind, and the field of the title.
 	private static let kinds = [("agent-name", "agentName"), ("custom-title", "customTitle"), ("ai-title", "aiTitle"), ("summary", "summary")]
-	private static let prefixes = Dictionary(uniqueKeysWithValues: kinds.map { ($0.0, Data(#"{"type":"\#($0.0)""#.utf8)) })
+		.map { (prefix: Data(#"{"type":"\#($0.0)""#.utf8), field: $0.1) }
 
 	static func read(transcript path: String) -> String? {
 		guard let handle = FileHandle.regularFile(atPath: path) else { return nil }
 		defer { try? handle.close() }
+		return latestTitle(handle) ?? firstPrompt(handle)
+	}
 
-		if let end = try? handle.seekToEnd() {
-			try? handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
-			if let data = try? handle.read(upToCount: 524_288) {
-				// A title line starts with its type, so only these few lines need parsing.
-				var latest: [String: String] = [:]
-				for line in data.split(separator: UInt8(ascii: "\n")) {
-					guard let (type, field) = kinds.first(where: { line.starts(with: prefixes[$0.0]!) }),
-						let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-						let value = json[field] as? String, !value.isEmpty else { continue }
-					latest[type] = value
-				}
-				if let title = kinds.lazy.compactMap({ latest[$0.0] }).first { return title }
-			}
+	/// The title of the first kind that has a line in the last 512 KiB of the transcript.
+	private static func latestTitle(_ handle: FileHandle) -> String? {
+		guard let end = try? handle.seekToEnd() else { return nil }
+		try? handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
+		guard let data = try? handle.read(upToCount: 524_288) else { return nil }
+		// A title line starts with its type, so only these few lines need parsing.
+		var latest: [String: String] = [:]
+		for line in data.split(separator: UInt8(ascii: "\n")) {
+			guard let kind = kinds.first(where: { line.starts(with: $0.prefix) }),
+				let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+				let value = json[kind.field] as? String, !value.isEmpty else { continue }
+			latest[kind.field] = value
 		}
-		return firstPrompt(handle)
+		return kinds.lazy.compactMap { latest[$0.field] }.first
 	}
 
 	/// When the session started: the time of the first entry in the transcript. `nil` while there is none.
