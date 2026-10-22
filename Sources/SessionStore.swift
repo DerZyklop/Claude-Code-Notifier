@@ -1,12 +1,18 @@
-import Foundation
+import AppKit
 import UserNotifications
 
 enum SettingsKey {
 	static let notifyOnDone = "notifyOnDone"
+	/// Turns the notifications off.
 	static let muted = "muted"
+	/// Turns every sound of the app on or off.
 	static let playsSound = "playsSound"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
 	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true]
+
+	static func isOn(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
+		defaults.object(forKey: key) as? Bool ?? defaultValues[key] ?? false
+	}
 }
 
 enum SessionState: Int {
@@ -41,7 +47,7 @@ enum SessionState: Int {
 	}
 }
 
-/// The situations that send a notification. Each has its own subtitle and sound.
+/// The situations that send a notification. Each has its own subtitle.
 enum NotificationKind: CaseIterable {
 	/// Claude waits for an answer within its turn: a permission, a question or a plan approval.
 	case asksYou
@@ -52,14 +58,6 @@ enum NotificationKind: CaseIterable {
 		switch self {
 		case .asksYou: "Claude asks you"
 		case .yourTurn: "Your turn"
-		}
-	}
-
-	/// A macOS sound that `build.sh` copies into the app bundle.
-	var sound: UNNotificationSoundName {
-		switch self {
-		case .asksYou: UNNotificationSoundName("Purr.aiff")
-		case .yourTurn: UNNotificationSoundName("Bottle.aiff")
 		}
 	}
 
@@ -350,10 +348,8 @@ final class SessionStore: ObservableObject {
 		let content = UNMutableNotificationContent()
 		content.title = title
 		content.subtitle = kind.subtitle
+		// No sound: the chime of the bubble is the only sound of the app, see ``AttentionBubble``.
 		content.body = body
-		if system.defaults.object(forKey: SettingsKey.playsSound) as? Bool ?? true {
-			content.sound = UNNotificationSound(named: kind.sound)
-		}
 		// No thread identifier: macOS then stacks all notifications of the app in one group.
 		system.addNotification(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
 	}

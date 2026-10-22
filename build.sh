@@ -40,6 +40,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleVersion</key><string>$(date +%Y%m%d%H%M%S)</string>
 	<key>LSMinimumSystemVersion</key><string>13.0</string>
 	<key>LSUIElement</key><true/>
+	<key>NSFocusStatusUsageDescription</key><string>While a Focus is on, the app plays no sounds.</string>
 </dict>
 </plist>
 PLIST
@@ -54,9 +55,6 @@ for points in 16 32 128 256 512; do
 	sips -z $((points * 2)) $((points * 2)) "$ICON_WORK/icon.png" --out "$ICON_WORK/AppIcon.iconset/icon_${points}x${points}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-
-# The notification chimes. Notifications only find sounds in the app bundle or in ~/Library/Sounds.
-cp /System/Library/Sounds/{Purr,Bottle}.aiff "$APP/Contents/Resources/"
 
 codesign --force --options runtime --sign - "$APP"
 echo "Built $APP"

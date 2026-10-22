@@ -1,4 +1,5 @@
 import AppKit
+import Intents
 import SwiftUI
 import UserNotifications
 
@@ -23,7 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		statusMenu = StatusMenu()
 		let center = UNUserNotificationCenter.current()
 		center.delegate = self
-		center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+		center.requestAuthorization(options: [.alert]) { _, _ in }
+		// The chime reads the Focus state, see ``AttentionBubble``.
+		INFocusStatusCenter.default.requestAuthorization(completionHandler: nil)
 
 		server.start(
 			onEvent: { data in Task { @MainActor in SessionStore.shared.handle(data) } },
@@ -79,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 	/// Show the banner even while this app counts as active, e.g. while its menu is open.
 	func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-		completionHandler([.banner, .sound])
+		completionHandler([.banner])
 	}
 
 	/// A click on a notification brings VS Code to the front.

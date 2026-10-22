@@ -500,7 +500,7 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		spinner.show(waveEnd: 26, over: imageFrame, isWorking: false, hasGap: false, stillColor: stillColor)
 		#expect(!spinner.isWorking)
 		#expect(spinner.track.strokeStart == 1)
-		#expect(spinner.segment.animation(forKey: "run") == nil)
+		#expect(spinner.segmentMask.strokeStart == 1)
 
 		// A second call to endWork would set the value back to 1.
 		withoutActions { spinner.track.strokeStart = 0.5 }
@@ -564,16 +564,45 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		#expect(run.repeatCount == .infinity)
 		#expect(hasLimitedFrameRate(run))
 
-		let fadeIn = try #require(spinner.segment.animation(forKey: "fadeIn") as? CAKeyframeAnimation)
-		#expect(doubles(fadeIn.values) == [0, 0, 1])
-		#expect(fadeIn.duration == Spinner.swapDuration + 0.3)
+		// The dash starts just before the left end, and the stroke grows with its front in the first round.
+		#expect(run.timeOffset == Spinner.runDuration * (1 - Spinner.segmentShare))
+		let enter = try #require(spinner.segment.animation(forKey: "enter") as? CABasicAnimation)
+		#expect(enter.keyPath == "strokeEnd")
+		#expect(enter.fromValue as? Double == 0)
+		#expect(enter.toValue as? Double == 1)
+		#expect(enter.duration == Spinner.runDuration)
+		#expect(enter.timingFunction == nil)
+		#expect(hasLimitedFrameRate(enter))
 	}
 
-	@Test func endWorkStopsTheSegment() {
+	@Test func endWorkLetsTheSegmentLeaveWithTheGreenWave() throws {
 		let spinner = Spinner(button: makeButton())
 		spinner.startWork()
 		spinner.endWork()
+		#expect(spinner.segment.animation(forKey: "run") != nil)
+		#expect(spinner.segmentMask.strokeStart == 1)
+		let mask = try #require(spinner.segmentMask.animation(forKey: "strokeStart") as? CABasicAnimation)
+		#expect(mask.fromValue as? Double == 0)
+		#expect(mask.toValue as? Double == 1)
+		#expect(mask.duration == Spinner.swapDuration)
+	}
+
+	@Test func stopSegmentHidesItAndResetsTheMask() {
+		let spinner = Spinner(button: makeButton())
+		spinner.startWork()
+		spinner.endWork()
+		spinner.stopSegment()
 		#expect(spinner.segment.animation(forKey: "run") == nil)
+		#expect(spinner.segment.strokeEnd == 0)
+		#expect(spinner.segmentMask.strokeStart == 0)
+	}
+
+	@Test func startWorkShowsTheWholeMaskAgain() {
+		let spinner = Spinner(button: makeButton())
+		spinner.endWork()
+		spinner.startWork()
+		#expect(spinner.segmentMask.strokeStart == 0)
+		#expect(spinner.segmentMask.animation(forKey: "strokeStart") == nil)
 	}
 
 	@Test func endWorkSwapsTheWavesBack() {
@@ -608,6 +637,7 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		spinner.endWork()
 		#expect(spinner.segment.animation(forKey: "run") == nil)
 		#expect(spinner.track.strokeStart == 1)
+		#expect(spinner.segmentMask.strokeStart == 1)
 	}
 }
 
@@ -636,5 +666,26 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 			Spinner.limitFrameRate(animation)
 			#expect(hasLimitedFrameRate(animation))
 		}
+	}
+}
+
+@Suite @MainActor struct AttentionBubbleChimeTests {
+	@Test func chimePlaysForFiveMinutesFromTheFirstChime() {
+		let bubble = AttentionBubble(button: makeButton())
+		let start = Date()
+		#expect(bubble.allowsChime(at: start))
+		#expect(bubble.firstChime == start)
+		#expect(bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit - 1)))
+		#expect(!bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit)))
+	}
+
+	@Test func restartLetsTheChimePlayAgain() {
+		let bubble = AttentionBubble(button: makeButton())
+		let start = Date()
+		_ = bubble.allowsChime(at: start)
+		bubble.restartChimeTime()
+		let later = start.addingTimeInterval(AttentionBubble.chimeLimit * 2)
+		#expect(bubble.allowsChime(at: later))
+		#expect(bubble.firstChime == later)
 	}
 }

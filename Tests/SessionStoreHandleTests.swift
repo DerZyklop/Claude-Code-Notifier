@@ -531,19 +531,9 @@ private struct Fixture {
 		fixture.store.post(kind, title: "Title", body: "Body", identifier: "id")
 		#expect(fixture.log.sent == [Sent("id", "Title", kind, "Body")])
 		let request = try #require(fixture.log.added.first)
-		#expect(request.content.sound == UNNotificationSound(named: kind.sound))
+		#expect(request.content.sound == nil)
 		#expect(request.content.threadIdentifier.isEmpty)
 		#expect(request.trigger == nil)
-	}
-
-	@Test(arguments: [nil, true, false] as [Bool?])
-	func postPlaysASoundUnlessItIsOff(playsSound: Bool?) throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		if let playsSound { fixture.defaults.set(playsSound, forKey: SettingsKey.playsSound) }
-		fixture.store.post(.yourTurn, title: "Title", body: "Body", identifier: "id")
-		let request = try #require(fixture.log.added.first)
-		#expect((request.content.sound != nil) == (playsSound ?? true))
 	}
 
 	@Test(arguments: [(NotificationKind.asksYou, "test-asksYou"), (.yourTurn, "test-yourTurn")])

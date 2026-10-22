@@ -18,6 +18,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private lazy var spinner = Spinner(button: statusItem.button!)
 	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
 	private lazy var attention = AttentionBubble(button: statusItem.button!)
+	/// The sessions whose turn runs, to notice when one starts to work.
+	private var workingTurnIDs: Set<String> = []
 	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
@@ -55,6 +57,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let hasProblem = HookSetup.shared.hasProblem
 		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
 		let working = hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count
+		// An answer lets a session work again, so the chime may play again for the next question.
+		let turnIDs = Set(sessions.filter { $0.state == .working }.map(\.id))
+		if !turnIDs.isSubset(of: workingTurnIDs) { attention.restartChimeTime() }
+		workingTurnIDs = turnIDs
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 		let layout = Self.layout(working: working, waiting: waiting)
 
@@ -173,9 +179,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader("Notifications"))
+		menu.addItem(toggle("Show Notifications", SettingsKey.muted, isInverted: true))
 		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
-		menu.addItem(toggle("Play Sound", SettingsKey.playsSound))
-		menu.addItem(toggle("Mute All", SettingsKey.muted))
 		let tests = NSMenu()
 		for kind in NotificationKind.allCases {
 			let item = action(kind.subtitle, #selector(sendTestNotification(_:)))
@@ -185,6 +190,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let testsItem = NSMenuItem(title: "Send Test", action: nil, keyEquivalent: "")
 		testsItem.submenu = tests
 		menu.addItem(testsItem)
+		menu.addItem(sectionHeader("Sounds"))
+		menu.addItem(toggle("Play Sounds", SettingsKey.playsSound))
 
 		menu.addItem(.separator())
 		let launchAtLogin = action("Launch at Login", #selector(toggleLaunchAtLogin))
@@ -242,11 +249,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
 	}
 
-	private func toggle(_ title: String, _ key: String) -> NSMenuItem {
+	/// - Parameter isInverted: Shows a check mark while the setting is off.
+	private func toggle(_ title: String, _ key: String, isInverted: Bool = false) -> NSMenuItem {
 		let item = action(title, #selector(toggleSetting(_:)))
 		let defaultValue = SettingsKey.defaultValues[key] ?? true
 		item.representedObject = (key, defaultValue)
-		item.state = (UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue) ? .on : .off
+		item.state = (UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue) != isInverted ? .on : .off
 		return item
 	}
 

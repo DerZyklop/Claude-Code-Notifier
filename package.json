@@ -1,0 +1,9 @@
+{
+	"name": "claude-code-notifier",
+	"private": true,
+	"scripts": {
+		"build": "./build.sh",
+		"restart": "pkill -f 'Claude Code Notifier.app/Contents/MacOS'; sleep 1; open 'build/Claude Code Notifier.app'",
+		"start": "npm run build && npm run restart"
+	}
+}

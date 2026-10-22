@@ -83,12 +83,11 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 	}
 
 	@Test(arguments: [
-		(NotificationKind.asksYou, "Claude asks you", "Purr.aiff"),
-		(.yourTurn, "Your turn", "Bottle.aiff"),
+		(NotificationKind.asksYou, "Claude asks you"),
+		(.yourTurn, "Your turn"),
 	])
-	func subtitleAndSound(kind: NotificationKind, subtitle: String, sound: String) {
+	func subtitle(kind: NotificationKind, subtitle: String) {
 		#expect(kind.subtitle == subtitle)
-		#expect(kind.sound == UNNotificationSoundName(sound))
 	}
 
 	@Test(arguments: [

@@ -1,14 +1,15 @@
 import AppKit
+import Intents
 import QuartzCore
 
 /// The orange bubble of the waiting sessions, as a layer above the image of the button, so that it can move. It has the
 /// highest priority in the icon: it pops in when it appears, and then it rings twice every ``ringInterval`` seconds
 /// until no session asks you anymore. With each ring, it glows from orange to dark red and back, and a halo grows out
-/// from behind it and fades. The wave glows with it, see ``glow(_:normal:peak:)``. Core Animation runs it in the window server, so the app does no work per frame.
+/// from behind it and fades. The wave glows with it, see ``glow(_:normal:peak:)``. A calm sound plays with each round. Core Animation runs it in the window server, so the app does no work per frame.
 @MainActor
 final class AttentionBubble {
 	static let popDuration = 0.45
-	static let ringInterval = 5.0
+	static let ringInterval = 20.0
 	/// How long the two rings of a round move. The rest of ``ringInterval``, the bubble rests.
 	static let ringLength = 1.6
 	static let color = NSColor.systemOrange
@@ -47,6 +48,8 @@ final class AttentionBubble {
 			}
 			shownCount = 0
 			ringStart = nil
+			chime?.invalidate()
+			chime = nil
 			return
 		}
 		let scale = button?.window?.backingScaleFactor ?? 2
@@ -88,6 +91,7 @@ final class AttentionBubble {
 			start += Self.popDuration
 		}
 		ringStart = start
+		startChime(at: start)
 
 		let swingOnce: [(Double, Any)] = [(0, 0), (0.06, -0.55), (0.12, 0.55), (0.18, -0.45), (0.24, 0.35), (0.3, -0.2), (0.36, 0)]
 		let swing = Self.keyframes("transform.rotation.z", swingOnce + swingOnce.map { ($0.0 + 0.5, $0.1) })
@@ -105,6 +109,51 @@ final class AttentionBubble {
 		let haloColor = Self.keyframes("fillColor", [(0, Self.glowColor.cgColor), (0.4, Self.color.cgColor), (0.5, Self.color.cgColor),
 			(0.5, Self.glowColor.cgColor), (0.9, Self.color.cgColor)])
 		halo.add(Self.repeating([spread, fade, haloColor], from: start), forKey: "ring")
+	}
+
+	/// Plays a calm sound with each round of rings, see ``startChime(at:)``.
+	private var chime: Timer?
+	/// The sound of a round: the short, quiet »Pop«.
+	static let chimeSound = "Pop"
+	static let chimeVolume: Float = 0.35
+
+	/// Plays the chime with each round, from the first one on.
+	private func startChime(at start: CFTimeInterval) {
+		chime?.invalidate()
+		let firstFire = Date().addingTimeInterval(start - CACurrentMediaTime())
+		let timer = Timer(fire: firstFire, interval: Self.ringInterval, repeats: true) { [weak self] _ in
+			Task { @MainActor in if self?.allowsChime() == true { Self.playChime() } }
+		}
+		// The `common` modes include the one the run loop uses while a menu is open.
+		RunLoop.main.add(timer, forMode: .common)
+		chime = timer
+	}
+
+	/// The chime stops after this many seconds without an answer, see ``allowsChime(at:)``.
+	static let chimeLimit = 300.0
+	/// When the first chime played since the last start of work, `nil` before it.
+	private(set) var firstChime: Date?
+
+	/// Whether the chime may play: only in the first ``chimeLimit`` seconds after the first chime. The time starts
+	/// again with ``restartChimeTime()``.
+	func allowsChime(at now: Date = Date()) -> Bool {
+		guard let firstChime else {
+			self.firstChime = now
+			return true
+		}
+		return now.timeIntervalSince(firstChime) < Self.chimeLimit
+	}
+
+	/// Lets the chime play again for ``chimeLimit`` seconds, e.g. when a session starts to work.
+	func restartChimeTime() {
+		firstChime = nil
+	}
+
+	/// Follows the setting »Play Sounds« in the menu, and stays silent while a Focus of macOS is on.
+	private static func playChime() {
+		guard SettingsKey.isOn(SettingsKey.playsSound), INFocusStatusCenter.default.focusStatus.isFocused != true, let sound = NSSound(named: chimeSound)?.copy() as? NSSound else { return }
+		sound.volume = chimeVolume
+		sound.play()
 	}
 
 	/// When the current round of rings started, `nil` while the bubble is hidden. ``glow(_:normal:peak:)`` uses it.

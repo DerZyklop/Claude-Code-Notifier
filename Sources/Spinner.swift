@@ -15,7 +15,7 @@ import QuartzCore
 final class Spinner {
 	static let wavelength = 20.0
 	static let amplitude = 2.5
-	static let lineWidth = 2.6
+	static let lineWidth = 3.4
 	/// The ends of the wave keep this distance from the edges of the space it has.
 	static let inset = 2.0
 	/// The gap in the middle of the still wave for a setup problem.
@@ -82,8 +82,8 @@ final class Spinner {
 			segmentMask.path = wave
 			segment.path = Self.wave(to: waveEnd, height: imageFrame.height, yAxisDown: yAxisDown, overhang: Self.lineWidth)
 			shownShape = shape
-			// A new length changes the dash of the segment. Without the fade in, it keeps running.
-			if self.isWorking { runSegment(fadeInAfter: nil) }
+			// A new length changes the dash of the segment. It keeps running without a new entry.
+			if self.isWorking { runSegment(entersFromLeft: false) }
 		}
 		for layer in [still, track, segment] {
 			layer.bounds = CGRect(origin: .zero, size: imageFrame.size)
@@ -121,16 +121,19 @@ final class Spinner {
 		still.strokeStart = 1
 		track.strokeStart = 0
 		track.strokeEnd = 1
+		segmentMask.strokeStart = 0
+		segmentMask.removeAnimation(forKey: "strokeStart")
 		CATransaction.commit()
 		Self.animate(still, "strokeStart", from: 0, to: 1)
 		Self.animate(track, "strokeEnd", from: 0, to: 1)
-		runSegment(fadeInAfter: Self.swapDuration)
+		runSegment(entersFromLeft: true)
 	}
 
 	/// The segment is one dash on the wave that moves to the right at an even speed. It leaves at the right end while it
 	/// enters again at the left end, so a new round does not jump back.
-	/// - Parameter fadeInAfter: Fades the segment in after this delay, e.g. after the green wave grew in.
-	private func runSegment(fadeInAfter delay: Double?) {
+	/// - Parameter entersFromLeft: Starts with the dash just before the left end. In the first round, the end of the
+	///   stroke moves with the front of the dash, so the dash does not also show at the right end.
+	private func runSegment(entersFromLeft: Bool) {
 		let length = Self.length(of: segment.path)
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
@@ -145,15 +148,18 @@ final class Spinner {
 		run.duration = Self.runDuration
 		run.repeatCount = .infinity
 		Self.limitFrameRate(run)
+		segment.removeAnimation(forKey: "enter")
+		if entersFromLeft {
+			// At the phase of the dash length, the dash lies just before the start of the path.
+			run.timeOffset = Self.runDuration * (1 - Self.segmentShare)
+			let enter = CABasicAnimation(keyPath: "strokeEnd")
+			enter.fromValue = 0
+			enter.toValue = 1
+			enter.duration = Self.runDuration
+			Self.limitFrameRate(enter)
+			segment.add(enter, forKey: "enter")
+		}
 		segment.add(run, forKey: "run")
-
-		guard let delay else { return }
-		let fadeIn = CAKeyframeAnimation(keyPath: "opacity")
-		fadeIn.values = [0, 0, 1]
-		fadeIn.keyTimes = [0, NSNumber(value: delay / (delay + 0.3)), 1]
-		fadeIn.duration = delay + 0.3
-		Self.limitFrameRate(fadeIn)
-		segment.add(fadeIn, forKey: "fadeIn")
 	}
 
 	/// The length of a path of lines.
@@ -168,19 +174,35 @@ final class Spinner {
 		return length
 	}
 
-	/// The segment stops, the green wave leaves to the right while the still wave grows back from the left.
+	/// The green wave leaves to the right while the still wave grows back from the left. The segment keeps running and
+	/// leaves with the green wave, because its mask leaves the same way. The end of the mask moves faster than the
+	/// segment, so a new round of the segment stays hidden.
 	func endWork() {
-		segment.removeAnimation(forKey: "run")
-		segment.removeAnimation(forKey: "fadeIn")
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
-		segment.strokeEnd = 0
 		still.strokeStart = 0
 		still.strokeEnd = 1
 		track.strokeStart = 1
+		segmentMask.strokeStart = 1
 		CATransaction.commit()
+		CATransaction.begin()
+		CATransaction.setCompletionBlock { [weak self] in
+			MainActor.assumeIsolated { if self?.isWorking == false { self?.stopSegment() } }
+		}
 		Self.animate(still, "strokeEnd", from: 0, to: 1)
 		Self.animate(track, "strokeStart", from: 0, to: 1)
+		Self.animate(segmentMask, "strokeStart", from: 0, to: 1)
+		CATransaction.commit()
+	}
+
+	/// Stops the hidden segment after the green wave left.
+	func stopSegment() {
+		segment.removeAnimation(forKey: "run")
+		CATransaction.begin()
+		CATransaction.setDisableActions(true)
+		segment.strokeEnd = 0
+		segmentMask.strokeStart = 0
+		CATransaction.commit()
 	}
 
 	static func animate(_ layer: CAShapeLayer, _ keyPath: String, from: Double, to: Double) {

@@ -65,8 +65,14 @@ private final class RunningServer: @unchecked Sendable {
 		)
 	}
 
-	/// Starts a server on a free port and waits until it listens.
+	/// Starts a server on a free port and waits until it listens. A parallel test can take the same port between
+	/// ``freePort()`` and the start, so the server then tries another port.
 	static func ready() async throws -> RunningServer {
+		for _ in 1..<3 {
+			let server = RunningServer(port: try freePort())
+			try await waitFor { !server.states.isEmpty }
+			if server.states == [nil] { return server }
+		}
 		let server = RunningServer(port: try freePort())
 		try await waitFor { !server.states.isEmpty }
 		try #require(server.states == [nil])
