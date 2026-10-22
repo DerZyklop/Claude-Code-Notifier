@@ -20,6 +20,7 @@ struct SessionCard: View {
 
 	var body: some View {
 		let sessions = store.sortedSessions
+		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 		VStack(spacing: 0) {
 			header
 			if sessions.isEmpty {
@@ -35,8 +36,8 @@ struct SessionCard: View {
 			}
 		}
 		.padding(4)
-		.background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.04)))
-		.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+		.background(shape.fill(Color.primary.opacity(0.04)))
+		.overlay(shape.strokeBorder(Color.primary.opacity(0.15)))
 		.padding(.horizontal, 10)
 		.padding(.vertical, 4)
 		.font(.system(size: NSFont.systemFontSize))

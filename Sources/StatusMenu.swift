@@ -16,7 +16,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
 	private lazy var spinner = Spinner(button: statusItem.button!)
-	/// The icons with a bubble, by their content and the menu bar appearance.
+	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
 
@@ -24,6 +24,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		super.init()
 		menu.delegate = self
 		statusItem.menu = menu
+		statusItem.button?.title = ""
+		statusItem.button?.imagePosition = .imageOnly
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
 		Publishers.Merge(SessionStore.shared.objectWillChange, HookSetup.shared.objectWillChange)
@@ -35,7 +37,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
 			.store(in: &subscriptions)
-		// An icon with a bubble colors its left part itself, see ``icon(left:key:waiting:isDark:)``.
+		// The app colors the number and the still wave itself, see ``textColor(isDark:)``.
 		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
 			Task { @MainActor in self?.updateIcon() }
 		}
@@ -56,8 +58,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 		let image = icon(layout: layout, isDark: isDark)
 		if button.image !== image { button.image = image }
-		button.title = ""
-		button.imagePosition = .imageOnly
 		button.layoutSubtreeIfNeeded()
 		spinner.show(waveEnd: layout.waveEnd, over: button.cell?.imageRect(forBounds: button.bounds), isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark))
@@ -138,18 +138,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		}
 	}
 
-
 	// MARK: - Menu
 
 	/// Three groups: the sessions with the status of the app, the notification settings, and the app itself.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
-		let setup = HookSetup.shared
-		let store = SessionStore.shared
 
 		// A problem gets a clickable item above the card. The card header names the problem too.
-		if setup.hasProblem {
-			menu.addItem(action("⚠︎ \(setup.problem ?? "Setup Incomplete") – Open Setup …", #selector(showSetup)))
+		if let problem = HookSetup.shared.problem {
+			menu.addItem(action("⚠︎ \(problem) – Open Setup …", #selector(showSetup)))
 		}
 		clock.tick()
 		let card = NSHostingView(rootView: sessionCard())
@@ -161,7 +158,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let cardItem = NSMenuItem()
 		cardItem.view = card
 		menu.addItem(cardItem)
-		if store.sessions.values.contains(where: { $0.state == .ended }) {
+		if SessionStore.shared.sessions.values.contains(where: { $0.state == .ended }) {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
 
@@ -169,7 +166,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		menu.addItem(sectionHeader("Notifications"))
 		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
 		menu.addItem(toggle("Play Sound", SettingsKey.playsSound))
-		menu.addItem(toggle("Mute All", SettingsKey.muted, default: false))
+		menu.addItem(toggle("Mute All", SettingsKey.muted))
 		let tests = NSMenu()
 		for kind in NotificationKind.allCases {
 			let item = action(kind.subtitle, #selector(sendTestNotification(_:)))
@@ -202,6 +199,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	func menuDidClose(_ menu: NSMenu) {
 		timer?.invalidate()
 		timer = nil
+		// Only the card of the open menu needs ``fitCard()``.
+		card = nil
 	}
 
 	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
@@ -234,8 +233,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
 	}
 
-	private func toggle(_ title: String, _ key: String, default defaultValue: Bool = true) -> NSMenuItem {
+	private func toggle(_ title: String, _ key: String) -> NSMenuItem {
 		let item = action(title, #selector(toggleSetting(_:)))
+		let defaultValue = SettingsKey.defaultValues[key] ?? true
 		item.representedObject = (key, defaultValue)
 		item.state = (UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue) ? .on : .off
 		return item
