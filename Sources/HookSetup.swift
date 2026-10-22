@@ -89,7 +89,8 @@ final class HookSetup: ObservableObject {
 
 	var isComplete: Bool { isListening && hooksConfigured && commandTest == .passed && notificationsAllowed == true }
 
-	/// Reads the settings again. Tests the hook command once it is configured and has not passed yet.
+	/// Reads the settings again. While the app listens, it tests the hook commands when the test has not run yet or the
+	/// settings changed.
 	func refresh() {
 		readNotificationsAllowed { allowed in
 			Task { @MainActor in self.notificationsAllowed = allowed }
@@ -164,16 +165,13 @@ final class HookSetup: ObservableObject {
 
 	static func checkSettings(at url: URL) -> SettingsCheck {
 		guard FileManager.default.fileExists(atPath: url.path) else { return .fileMissing }
-		let root: [String: Any]
+		let object: Any
 		do {
-			let data = try Data(contentsOf: url)
-			guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-				return .unreadable("The file holds no JSON object.")
-			}
-			root = object
+			object = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
 		} catch {
 			return .unreadable(error.localizedDescription)
 		}
+		guard let root = object as? [String: Any] else { return .unreadable("The file holds no JSON object.") }
 		if root["disableAllHooks"] as? Bool == true { return .hooksDisabled }
 
 		let hooks = root["hooks"] as? [String: Any] ?? [:]
@@ -299,13 +297,14 @@ struct SetupView: View {
 	}
 
 	private var listenerRow: some View {
+		let title = "App listens for events"
 		switch setup.listenerError {
 		case .none:
-			CheckRow(status: .waiting, title: "App listens for events", detail: "Starting …")
+			return CheckRow(status: .waiting, title: title, detail: "Starting …")
 		case .some(.none):
-			CheckRow(status: .ok, title: "App listens for events", detail: "On 127.0.0.1:\(String(eventPort)).")
+			return CheckRow(status: .ok, title: title, detail: "On 127.0.0.1:\(eventPort).")
 		case .some(.some(let error)):
-			CheckRow(status: .failed, title: "App listens for events", detail: "Port \(String(eventPort)) is not available: \(error) Is another copy of the app running?")
+			return CheckRow(status: .failed, title: title, detail: "Port \(eventPort) is not available: \(error) Is another copy of the app running?")
 		}
 	}
 
