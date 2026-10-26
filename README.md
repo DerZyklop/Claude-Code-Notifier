@@ -1,4 +1,4 @@
-# Claude Code Notifier
+# Claude Code Pulse
 
 A macOS menu bar app. When a Claude Code session needs you or finishes its turn, the app tells you.
 
@@ -50,7 +50,7 @@ Claude prints the overview, and the app writes the file.
 
 ## Setup
 
-1. Move `build/Claude Code Notifier.app` to `/Applications` or `~/Applications`.
+1. Move `build/Claude Code Pulse.app` to `/Applications` or `~/Applications`.
 2. Open the app, and allow notifications.
 3. Follow the setup window. It shows the hook block to add to `~/.claude/settings.json`, with a copy button. The app
    never changes this file.

@@ -215,7 +215,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		launchAtLogin.state = SMAppService.mainApp.status == .enabled ? .on : .off
 		menu.addItem(launchAtLogin)
 		menu.addItem(action("Hook Setup …", #selector(showSetup)))
-		let quit = action("Quit Claude Code Notifier", #selector(quit))
+		let quit = action("Quit Claude Code Pulse", #selector(quit))
 		quit.keyEquivalent = "q"
 		menu.addItem(quit)
 	}

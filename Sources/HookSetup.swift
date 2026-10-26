@@ -199,7 +199,7 @@ enum SetupWindow {
 		if window == nil {
 			let hosting = NSHostingController(rootView: SetupView().environmentObject(HookSetup.shared))
 			let newWindow = NSWindow(contentViewController: hosting)
-			newWindow.title = "Claude Code Notifier Setup"
+			newWindow.title = "Claude Code Pulse Setup"
 			newWindow.styleMask = [.titled, .closable]
 			newWindow.isReleasedWhenClosed = false
 			newWindow.isRestorable = false
@@ -260,7 +260,7 @@ struct SetupView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
-			Text("Claude Code Notifier learns about your sessions through Claude Code hooks. These checks make sure that the hooks reach the app.")
+			Text("Claude Code Pulse learns about your sessions through Claude Code hooks. These checks make sure that the hooks reach the app.")
 				.fixedSize(horizontal: false, vertical: true)
 
 			listenerRow
@@ -315,7 +315,7 @@ struct SetupView: View {
 			case .some(true):
 				CheckRow(status: .ok, title: title, detail: "macOS shows the notifications of this app.")
 			case .some(false):
-				CheckRow(status: .failed, title: title, detail: "macOS blocks them. Allow them in System Settings › Notifications › Claude Code Notifier.")
+				CheckRow(status: .failed, title: title, detail: "macOS blocks them. Allow them in System Settings › Notifications › Claude Code Pulse.")
 				Spacer()
 				Button("Open Notification Settings") {
 					NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)

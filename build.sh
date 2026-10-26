@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "build/Claude Code Notifier.app". Needs only the Xcode Command Line Tools.
+# Builds "build/Claude Code Pulse.app". Needs only the Xcode Command Line Tools.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -15,14 +15,14 @@ SDK="${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/d
 CFFIXED_USER_HOME="$PWD/.build/home" CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" SDKROOT="$SDK" \
 	swift test --build-system native
 
-APP="build/Claude Code Notifier.app"
+APP="build/Claude Code Pulse.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc -sdk "$SDK" -module-cache-path .build/module-cache -O -parse-as-library -swift-version 5 \
 	-target "$(uname -m)-apple-macos13.0" \
 	Sources/*.swift \
-	-o "$APP/Contents/MacOS/ClaudeCodeNotifier"
+	-o "$APP/Contents/MacOS/ClaudeCodePulse"
 
 # A new build number for each build. Notification Center reloads the icon and name of an app when it changes.
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -31,10 +31,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key><string>local.claude-code-notifier.app</string>
-	<key>CFBundleName</key><string>Claude Code Notifier</string>
-	<key>CFBundleDisplayName</key><string>Claude Code Notifier</string>
+	<key>CFBundleName</key><string>Claude Code Pulse</string>
+	<key>CFBundleDisplayName</key><string>Claude Code Pulse</string>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
-	<key>CFBundleExecutable</key><string>ClaudeCodeNotifier</string>
+	<key>CFBundleExecutable</key><string>ClaudeCodePulse</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>$(date +%Y%m%d%H%M%S)</string>
