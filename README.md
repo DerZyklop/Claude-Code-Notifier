@@ -24,10 +24,11 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 
 The app writes `morning-overview.md` into the project folder `~/S/plano`. The file is a short list of open tasks in
 four sections: open PRs, draft PRs, the tickets of the sprint and other work. In each section, the easiest tasks come
-first. Git does not track the file, and the app never stages it.
+first. The app adds the file to `.git/info/exclude`, so git never stages it.
 
-- **When:** the first start, wake or unlock on a weekday from 6:00 on. A file that already shows today's date skips the
-  run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns the daily run off.
+- **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
+  today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns
+  the daily run off.
 - **Done:** a notification says how many tasks are open. A click on it opens the file in iA Writer, or in VS Code without iA Writer. Until you open
   the file, the menu shows a green dot behind »Open Morning Overview«. A failure always gets a notification, and the menu shows its reason.
 - **Sources:**
@@ -46,7 +47,36 @@ login shell, and Claude only reads:
 - `--permission-mode dontAsk` refuses every call that is not on the allow list, without a prompt. Only the Jira read
   tools are on it. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
 
-Claude prints the overview, and the app writes the file.
+Claude prints the overview, and the app writes the file. The run never gets `BITBUCKET_API_TOKEN` or `SLACK_USER_TOKEN`.
+
+## DiDi
+
+The app writes `didi.md` into the same folder: the summary of the current sprint. A sprint starts on Tuesday at 11:00.
+The file has three sections:
+
+- **Merges:** each PR that you wrote and that was merged in the sprint, with up to 3 highlights from its description
+  and its review comments.
+- **Slack:** up to 10 special things from the Slack messages of the sprint, in channels and in DMs. Each one links to
+  its message.
+- **Notes:** your own text. Each run keeps it. In a file that the app did not write, all text below the title counts as
+  notes.
+
+- **When:** the first start, wake or unlock on a Tuesday from 6:00 on. A run before 11:00 covers the full sprint of the
+  last week. »Update Now« covers the current sprint until now.
+- **Backup:** before each write, the app copies the old file to
+  `~/Library/Application Support/local.claude-code-notifier.app/didi/`, one file for each sprint.
+- **Safety:** the app fetches all data with GET requests. Claude gets no tool and no MCP server, runs in an empty
+  folder, and only answers in a fixed JSON shape. The app writes each line of the file itself. It refuses an answer
+  that names a PR or a Slack message that is not in the data.
+
+The prompt is `Resources/didi-prompt.md`. For Slack, the login shell must set `SLACK_USER_TOKEN`. Without it, the
+file says »Slack not available«. To get the token:
+
+1. On api.slack.com/apps, create an app »From scratch« in your workspace.
+2. Add the User Token Scopes `search:read`, `users:read`, `channels:read`, `groups:read`, `im:read` and `mpim:read`.
+3. Install the app in the workspace. A workspace admin can have to approve it.
+4. Put `export SLACK_USER_TOKEN=xoxp-…` into `~/.zprofile`, next to the `BITBUCKET_API_*` variables. The app reads the
+   login shell, which does not read `~/.zshrc`.
 
 ## Setup
 

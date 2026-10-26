@@ -38,13 +38,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 			Task { @MainActor in HookSetup.shared.refresh() }
 		}
 
-		// The first start, wake or unlock of a weekday morning updates the morning overview.
-		let runIfDue: (Notification) -> Void = { _ in Task { @MainActor in MorningOverview.shared.runIfDue() } }
+		// The first start, wake or unlock after the due time updates the reports. The timer covers a Mac that stays awake.
+		let runIfDue: (Notification) -> Void = { _ in Task { @MainActor in await Report.runAllIfDue() } }
 		for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
 			NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main, using: runIfDue)
 		}
 		DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main, using: runIfDue)
-		Task { @MainActor in MorningOverview.shared.runIfDue() }
+		Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { _ in
+			Task { @MainActor in await Report.runAllIfDue() }
+		}
+		Task { @MainActor in await Report.runAllIfDue() }
 	}
 
 	/// The settings file of the first bundle ID, `local.claude-code-notifier`. The app got a new ID because Notification
@@ -93,11 +96,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		completionHandler([.banner])
 	}
 
-	/// A click on a notification brings VS Code to the front. A click on a ready morning overview opens its file.
+	/// A click on a notification brings VS Code to the front. A click on a ready report opens its file.
 	func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-		let opensOverview = response.notification.request.identifier == MorningOverview.readyNotificationID
+		let identifier = response.notification.request.identifier
 		Task { @MainActor in
-			if opensOverview { MorningOverview.shared.openFile() } else { activateVSCode() }
+			if let report = Report.forNotification(identifier) { report.openFile() } else { activateVSCode() }
 		}
 		completionHandler()
 	}

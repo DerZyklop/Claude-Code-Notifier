@@ -150,8 +150,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	// MARK: - Menu
 
-	/// Four groups: the sessions with the status of the app, the morning overview, the notification settings, and the
-	/// app itself.
+	/// The groups: the sessions with the status of the app, one for each report, the notification settings, and the app
+	/// itself.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
 
@@ -173,26 +173,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
 
-		menu.addItem(.separator())
-		menu.addItem(sectionHeader("Morning Overview"))
-		let overview = MorningOverview.shared
-		// An item without an action is disabled.
-		let update = action(overview.isRunning ? "Updating …" : overview.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
-			#selector(updateMorningOverview))
-		if overview.isRunning { update.action = nil }
-		menu.addItem(update)
-		if let failure = overview.failure {
-			// Without an action, the item shows the reason in gray and does nothing on a click.
-			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
-			reason.toolTip = failure
-			reason.indentationLevel = 1
-			menu.addItem(reason)
-		}
-		let open = action("Open Morning Overview", #selector(openMorningOverview))
-		if overview.isUnread { open.attributedTitle = Self.withGreenDot(open.title) }
-		if !FileManager.default.fileExists(atPath: overview.fileURL.path) { open.action = nil }
-		menu.addItem(open)
-		menu.addItem(toggle("Every Weekday at \(MorningOverview.dueHour):00", SettingsKey.updatesMorningOverview))
+		for report in Report.all { addGroup(for: report, to: menu) }
 
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader("Notifications"))
@@ -253,6 +234,32 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		if card.frame.height != height { card.frame.size.height = height }
 	}
 
+	/// The group of a report: update, the reason of a failure, open, and the setting of the automatic run.
+	private func addGroup(for report: Report, to menu: NSMenu) {
+		let kind = report.kind
+		menu.addItem(.separator())
+		menu.addItem(sectionHeader(kind.title))
+		// An item without an action is disabled.
+		let update = action(report.isRunning ? "Updating …" : report.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
+			#selector(updateReport(_:)))
+		update.representedObject = report
+		if report.isRunning { update.action = nil }
+		menu.addItem(update)
+		if let failure = report.failure {
+			// Without an action, the item shows the reason in gray and does nothing on a click.
+			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
+			reason.toolTip = failure
+			reason.indentationLevel = 1
+			menu.addItem(reason)
+		}
+		let open = action("Open \(kind.title)", #selector(openReport(_:)))
+		open.representedObject = report
+		if report.isUnread { open.attributedTitle = Self.withGreenDot(open.title) }
+		if !FileManager.default.fileExists(atPath: report.fileURL.path) { open.action = nil }
+		menu.addItem(open)
+		menu.addItem(toggle(kind.schedule.menuTitle, kind.settingsKey))
+	}
+
 	// MARK: - Items
 
 	private func action(_ title: String, _ selector: Selector) -> NSMenuItem {
@@ -295,12 +302,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		SessionStore.shared.removeEnded()
 	}
 
-	@objc private func updateMorningOverview() {
-		Task { await MorningOverview.shared.update() }
+	@objc private func updateReport(_ sender: NSMenuItem) {
+		guard let report = sender.representedObject as? Report else { return }
+		Task { await report.update() }
 	}
 
-	@objc private func openMorningOverview() {
-		MorningOverview.shared.openFile()
+	@objc private func openReport(_ sender: NSMenuItem) {
+		(sender.representedObject as? Report)?.openFile()
 	}
 
 	@objc private func toggleSetting(_ sender: NSMenuItem) {

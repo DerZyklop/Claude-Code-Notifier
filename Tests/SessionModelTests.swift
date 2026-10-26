@@ -45,11 +45,12 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(SettingsKey.muted == "muted")
 		#expect(SettingsKey.playsSound == "playsSound")
 		#expect(SettingsKey.updatesMorningOverview == "updatesMorningOverview")
+		#expect(SettingsKey.updatesDiDi == "updatesDiDi")
 	}
 
 	@Test func onlyMuteIsOffByDefault() {
 		#expect(SettingsKey.defaultValues == [SettingsKey.notifyOnDone: true, SettingsKey.muted: false, SettingsKey.playsSound: true,
-			SettingsKey.updatesMorningOverview: true])
+			SettingsKey.updatesMorningOverview: true, SettingsKey.updatesDiDi: true])
 	}
 }
 

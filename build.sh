@@ -56,8 +56,8 @@ for points in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 
-# The prompt of the morning overview.
-cp Resources/morning-overview-prompt.md "$APP/Contents/Resources/"
+# The prompts of the reports.
+cp Resources/*.md "$APP/Contents/Resources/"
 
 codesign --force --options runtime --sign - "$APP"
 echo "Built $APP"
