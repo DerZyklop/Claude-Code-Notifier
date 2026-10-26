@@ -47,13 +47,13 @@ private let expectedFile = """
 
 	## Merges
 
-	- [#7](https://bb/7) First line
+	- [`#7`](https://bb/7) First line
 	  - Needs a new token
-	- [#9](https://bb/9) Second
+	- [`#9`](https://bb/9) Second
 
 	## Slack
 
-	- [#dev](https://x.slack.com/archives/C1/p1) Release 11.1 goes live on Thursday. Be ready.
+	- [`#dev`](https://x.slack.com/archives/C1/p1) Release 11.1 goes live on Thursday. Be ready.
 
 	## Notes
 
@@ -209,7 +209,7 @@ extension ReportFixture {
 		let text = try fixture.text
 		#expect(text.contains("  - -40% bundle size\n  - Heading\n  - see \\[this\\](https://evil) !\\[x\\](https://evil/i.png)\n"))
 		#expect(text.contains("  - \\<img src=https://evil\\> **Risk:** slow\n"))
-		#expect(text.contains("- [#dev](https://x.slack.com/archives/C1/p1) #release is frozen\n"))
+		#expect(text.contains("- [`#dev`](https://x.slack.com/archives/C1/p1) #release is frozen\n"))
 	}
 
 	@Test func readyBodyCountsOnlyTheSlackSectionOfTheApp() {
@@ -285,5 +285,10 @@ extension ReportFixture {
 	])
 	func markdownTextIsOnePlainLine(text: String, result: String) {
 		#expect(DiDi.markdownText(text) == result)
+	}
+
+	@Test(arguments: [("#4213", "`#4213`"), ("#dev", "`#dev`"), ("DM with Milad", "DM with Milad"), ("Group [x]", "Group \\[x\\]")])
+	func linkTextStartsWithoutATag(text: String, result: String) {
+		#expect(DiDi.linkText(text) == result)
 	}
 }

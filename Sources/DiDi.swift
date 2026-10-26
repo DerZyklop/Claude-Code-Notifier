@@ -176,7 +176,7 @@ enum DiDi {
 			guard let permalink = point["permalink"] as? String, let channel = channels[permalink] else {
 				throw Report.Failure("Claude named a Slack message that is not in the data.")
 			}
-			return "- [\(markdownText(channel))](\(permalink)) \(markdownText(point["text"] as? String ?? ""))"
+			return "- [\(linkText(channel))](\(permalink)) \(markdownText(point["text"] as? String ?? ""))"
 		}
 		let notes = try notes(in: old)
 
@@ -190,7 +190,7 @@ enum DiDi {
 		}
 		for pullRequest in pullRequests {
 			guard let id = pullRequest["id"] as? Int else { continue }
-			lines.append("- [#\(id)](\(pullRequest["url"] as? String ?? "")) \(markdownText(pullRequest["title"] as? String ?? ""))")
+			lines.append("- [\(linkText("#\(id)"))](\(pullRequest["url"] as? String ?? "")) \(markdownText(pullRequest["title"] as? String ?? ""))")
 			lines += (highlights[id] ?? []).map { "  - " + $0 }
 		}
 		lines += ["", "## Slack", ""]
@@ -222,6 +222,12 @@ enum DiDi {
 			.trimmingCharacters(in: .whitespaces)
 			.replacingOccurrences(of: "^(?:#{1,6}|>|[-*+]|[0-9]+\\.)\\s+", with: "", options: .regularExpression)
 			.replacingOccurrences(of: "([\\\\\\[\\]<>])", with: "\\\\$1", options: .regularExpression)
+	}
+
+	/// The text of a link. A text that starts with `#`, e.g. `#4213` or `#dev`, becomes code, as in
+	/// ``MorningOverview/numberLinksAsCode(in:)``: some Markdown editors read `[#4213]` as a tag and show no link.
+	static func linkText(_ text: String) -> String {
+		text.hasPrefix("#") ? "`\(text.replacingOccurrences(of: "`", with: ""))`" : markdownText(text)
 	}
 
 	/// The user's own text of the old file: the text below »## Notes«. A file that the app did not write, e.g. one that
