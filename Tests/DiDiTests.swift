@@ -30,7 +30,7 @@ private func didiBody(of request: URLRequest) -> Data {
 		])
 	}
 	let merged: [[String: Any]] = [
-		["id": 9, "title": "Second", "author": ["display_name": "Nils"], "closed_on": "2026-10-23T10:00:00+00:00", "comment_count": 0,
+		["id": 9, "title": "PLANO-9 Second", "author": ["display_name": "Nils"], "closed_on": "2026-10-23T10:00:00+00:00", "comment_count": 0,
 			"summary": ["raw": "Text ![shot](https://x/y.png) <!-- template -->more"], "links": ["html": ["href": "https://bb/9"]]],
 		["id": 8, "title": "Of Rui", "author": ["display_name": "Rui"], "closed_on": "2026-10-22T10:00:00+00:00", "comment_count": 3],
 		["id": 7, "title": "First\nline", "author": ["display_name": "Nils"], "closed_on": "2026-10-21T10:00:00+00:00", "comment_count": 2,
@@ -49,7 +49,7 @@ private let expectedFile = """
 
 	- [`#7`](https://bb/7) First line
 	  - Needs a new token
-	- [`#9`](https://bb/9) Second
+	- [`#9`](https://bb/9) PLANO-9 Second
 
 	## Slack
 
@@ -287,8 +287,36 @@ extension ReportFixture {
 		#expect(DiDi.markdownText(text) == result)
 	}
 
-	@Test(arguments: [("#4213", "`#4213`"), ("#dev", "`#dev`"), ("DM with Milad", "DM with Milad"), ("Group [x]", "Group \\[x\\]")])
-	func linkTextStartsWithoutATag(text: String, result: String) {
-		#expect(DiDi.linkText(text) == result)
+	@Test(arguments: [
+		("PLANO-197675 Start a run", "PLANO-197675", "Start a run"),
+		("feature/PLANO-197417 Load the item", "PLANO-197417", "Load the item"),
+		("[🔥release relevant] PLANO-1 Stop it", "PLANO-1", "[🔥release relevant] Stop it"),
+		("NO_JIRA_ISSUE Fix NG01354", nil, nil),
+	] as [(String, String?, String?)])
+	func ticketComesFromTheTitle(title: String, id: String?, rest: String?) {
+		let ticket = DiDi.ticket(in: title)
+		#expect(ticket?.id == id)
+		#expect(ticket?.title == rest)
+	}
+
+	@Test func titleLineLinksThePullRequestAndTheTicket() {
+		#expect(DiDi.titleLine(id: 4265, url: "https://bb/4265", title: "PLANO-197675 Start a run", jiraBrowseURL: "https://x.atlassian.net/browse/")
+			== "[`#4265`](https://bb/4265) [PLANO-197675](https://x.atlassian.net/browse/PLANO-197675) Start a run")
+		#expect(DiDi.titleLine(id: 4265, url: "https://bb/4265", title: "PLANO-197675 Start a run", jiraBrowseURL: nil)
+			== "[`#4265`](https://bb/4265) PLANO-197675 Start a run")
+	}
+
+	@Test func jiraSiteComesFromTheMorningOverview() {
+		#expect(DiDi.jiraBrowseURL(in: "- [ ] [PLANO-1](https://x.atlassian.net/browse/PLANO-1) Do it") == "https://x.atlassian.net/browse/")
+		#expect(DiDi.jiraBrowseURL(in: "- [ ] Nothing") == nil)
+	}
+
+	@Test func mergeLinksTheTicketWithTheSiteOfTheMorningOverview() async throws {
+		let fixture = try ReportFixture(didi: claudeAnswer())
+		defer { fixture.cleanUp() }
+		try "- [ ] [PLANO-1](https://x.atlassian.net/browse/PLANO-1) Do it\n".write(
+			to: fixture.folder.appendingPathComponent("morning-overview.md"), atomically: true, encoding: .utf8)
+		await fixture.report.update()
+		#expect(try fixture.text.contains("- [`#9`](https://bb/9) [PLANO-9](https://x.atlassian.net/browse/PLANO-9) Second\n"))
 	}
 }

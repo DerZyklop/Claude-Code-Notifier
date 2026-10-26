@@ -68,13 +68,7 @@ enum MorningOverview {
 			let reason = (result.error + result.output).split(separator: "\n").last.map(String.init) ?? "no output"
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
-		return numberLinksAsCode(in: withDailyTasks(report.system.dailyTasks, in: text))
-	}
-
-	/// Writes the text of a PR link as code, e.g. ``[`#4213`](…)``. Some Markdown editors read `[#4213]` as a tag and show
-	/// no link. An escaped `[\#4213]` gets the same form.
-	static func numberLinksAsCode(in overview: String) -> String {
-		overview.replacingOccurrences(of: #"\[\\?#(\d+)\]\("#, with: "[`#$1`](", options: .regularExpression)
+		return Report.hashLinksAsCode(in: withDailyTasks(report.system.dailyTasks, in: text))
 	}
 
 	/// The overview in the output of the run, or `nil` if the output is no overview. Text before the title and a Markdown

@@ -21,6 +21,13 @@ import Testing
 		#expect(schedule.dueMoment(at: tuesdayMorning.addingTimeInterval(86_400), calendar: utcCalendar) == nil)
 	}
 
+	@Test func hashLinksBecomeCode() {
+		#expect(Report.hashLinksAsCode(in: "- [ ] [#4213](https://x/4213) [\\#7](https://x/7) [#dev](https://s) [PLANO-1](https://y) PR #12 [#8]")
+			== "- [ ] [`#4213`](https://x/4213) [`#7`](https://x/7) [`#dev`](https://s) [PLANO-1](https://y) PR #12 [#8]")
+		// Escaped brackets of plain text stay.
+		#expect(Report.hashLinksAsCode(in: "see \\[#5\\](https://x)") == "see \\[#5\\](https://x)")
+	}
+
 	@Test func forNotificationFindsTheReport() {
 		#expect(Report.forNotification("morning-overview") === Report.morningOverview)
 		#expect(Report.forNotification("didi") === Report.didi)

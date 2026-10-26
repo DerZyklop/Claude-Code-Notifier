@@ -24,7 +24,8 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 
 The app writes `morning-overview.md` into the project folder `~/S/plano`. The file is a short list of open tasks in
 four sections: open PRs, draft PRs, the tickets of the sprint and other work. In each section, the easiest tasks come
-first. The app adds the file to `.git/info/exclude`, so git never stages it.
+first. Each task has a title line with the links of the PR and the ticket and a short title, and its next actions as
+sub-items. The app adds the file to `.git/info/exclude`, so git never stages it.
 
 - **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
   today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns
@@ -54,8 +55,9 @@ Claude prints the overview, and the app writes the file. The run never gets `BIT
 The app writes `didi.md` into the same folder: the summary of the current sprint. A sprint starts on Tuesday at 11:00.
 The file has three sections:
 
-- **Merges:** each PR that you wrote and that was merged in the sprint, with up to 3 highlights from its description
-  and its review comments.
+- **Merges:** each PR that you wrote and that was merged in the sprint. The title line has the links of the PR and the
+  ticket, as in the morning overview. Up to 3 highlights from the description and the review comments are its
+  sub-items. The Jira site of the ticket link comes from the morning overview.
 - **Slack:** up to 10 special things from the Slack messages of the sprint, in channels and in DMs. Each one links to
   its message.
 - **Notes:** your own text. Each run keeps it. In a file that the app did not write, all text below the title counts as

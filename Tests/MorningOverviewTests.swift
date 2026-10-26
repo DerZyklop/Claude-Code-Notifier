@@ -113,7 +113,7 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text == MorningOverview.numberLinksAsCode(in: MorningOverview.withDailyTasks(["Zeiterfassung"], in: overviewText + "\n")))
+		#expect(text == Report.hashLinksAsCode(in: MorningOverview.withDailyTasks(["Zeiterfassung"], in: overviewText + "\n")))
 		#expect(text.contains("[`#12`](") && !text.contains("[#"))
 		#expect(fixture.report.isUnread)
 		#expect(fixture.report.failure == nil)
@@ -278,11 +278,6 @@ extension ReportFixture {
 		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], in: overview)
 			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Zeiterfassung\n- [ ] Mail\n\n## Open PRs\n\nNothing open.\n\n## Other Work\n")
 		#expect(MorningOverview.withDailyTasks([], in: overview) == overview)
-	}
-
-	@Test func numberLinksBecomeCode() {
-		#expect(MorningOverview.numberLinksAsCode(in: "- [ ] [#4213](https://x/4213) [\\#7](https://x/7) [PLANO-1](https://y) PR #12 [#8]")
-			== "- [ ] [`#4213`](https://x/4213) [`#7`](https://x/7) [PLANO-1](https://y) PR #12 [#8]")
 	}
 
 	@Test(arguments: [

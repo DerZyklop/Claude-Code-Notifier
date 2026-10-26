@@ -36,13 +36,16 @@ Updated: YYYY-MM-DD HH:MM
 
 ## Open PRs
 
-- [ ] [`#1234`](https://…) [PROJ-123](https://…/browse/PROJ-123) Short title: the next action.
+- [ ] [`#1234`](https://…) [PROJ-123](https://…/browse/PROJ-123) Short title of the topic
+  - The next action.
 
 ## Draft PRs
 
 ## Remaining Tickets in this Sprint
 
-- [ ] [PROJ-456](https://…/browse/PROJ-456) Short title: the next action.
+- [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic
+  - The next action.
+  - The action after it.
 
 ## Other Work
 ```
@@ -50,7 +53,10 @@ Updated: YYYY-MM-DD HH:MM
 Rules:
 
 - Use the time from the facts for the `Updated:` line.
-- Each task is one line. The line starts with its links: first the PR as ``[`#1234`](<PR URL>)``, with the number as code, then the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Other Work«. Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
+- Each task has a title line and one or more sub-items.
+  - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Other Work«. Leave the ticket ID out of the title, because the link shows it.
+  - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
+  - Below the title line, write each next action as a sub-item `  - `, with no checkbox. Each sub-item is one line.
 - In each section, sort the tasks by these criteria. A task that meets an earlier criterion comes first. Among tasks with the same criteria, the easier task comes first.
   1. The task blocks a colleague. A PR with `waitsForMyReview: true` in the JSON always counts. Other examples: an answer to a colleague's question, or a ticket that a colleague's ticket depends on.
   2. A colleague already reviewed the PR. In the JSON, a reviewer has `approved: true` or a `state`.

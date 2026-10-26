@@ -176,9 +176,12 @@ enum DiDi {
 			guard let permalink = point["permalink"] as? String, let channel = channels[permalink] else {
 				throw Report.Failure("Claude named a Slack message that is not in the data.")
 			}
-			return "- [\(linkText(channel))](\(permalink)) \(markdownText(point["text"] as? String ?? ""))"
+			return "- " + Report.hashLinksAsCode(in: "[\(markdownText(channel))](\(permalink))") + " " + markdownText(point["text"] as? String ?? "")
 		}
 		let notes = try notes(in: old)
+		let morningOverview = try? String(contentsOf: report.system.folder.appendingPathComponent(Report.Kind.morningOverview.fileName),
+			encoding: .utf8)
+		let jiraBrowseURL = morningOverview.flatMap(jiraBrowseURL(in:))
 
 		let sprint = data["sprint"] as? [String: String] ?? [:]
 		let updated = Report.timestampFormatter(report.system.calendar).string(from: report.system.now())
@@ -190,7 +193,8 @@ enum DiDi {
 		}
 		for pullRequest in pullRequests {
 			guard let id = pullRequest["id"] as? Int else { continue }
-			lines.append("- [\(linkText("#\(id)"))](\(pullRequest["url"] as? String ?? "")) \(markdownText(pullRequest["title"] as? String ?? ""))")
+			lines.append("- " + titleLine(id: id, url: pullRequest["url"] as? String ?? "", title: pullRequest["title"] as? String ?? "",
+				jiraBrowseURL: jiraBrowseURL))
 			lines += (highlights[id] ?? []).map { "  - " + $0 }
 		}
 		lines += ["", "## Slack", ""]
@@ -224,10 +228,31 @@ enum DiDi {
 			.replacingOccurrences(of: "([\\\\\\[\\]<>])", with: "\\\\$1", options: .regularExpression)
 	}
 
-	/// The text of a link. A text that starts with `#`, e.g. `#4213` or `#dev`, becomes code, as in
-	/// ``MorningOverview/numberLinksAsCode(in:)``: some Markdown editors read `[#4213]` as a tag and show no link.
-	static func linkText(_ text: String) -> String {
-		text.hasPrefix("#") ? "`\(text.replacingOccurrences(of: "`", with: ""))`" : markdownText(text)
+	/// The title line of a merge, as in the morning overview: the PR link, the ticket link, and the title without the
+	/// ticket ID. Without the Jira site, the ticket ID stays in the title.
+	static func titleLine(id: Int, url: String, title: String, jiraBrowseURL: String?) -> String {
+		var links = Report.hashLinksAsCode(in: "[#\(id)](\(url))")
+		var title = title
+		if let jiraBrowseURL, let ticket = ticket(in: title) {
+			links += " [\(ticket.id)](\(jiraBrowseURL)\(ticket.id))"
+			title = ticket.title
+		}
+		return links + " " + markdownText(title)
+	}
+
+	/// The ticket ID in a PR title, e.g. `PLANO-197417` in `feature/PLANO-197417 Load the item`, and the title without the
+	/// ID and its branch prefix.
+	static func ticket(in title: String) -> (id: String, title: String)? {
+		guard let range = title.range(of: "(?:[A-Za-z0-9_.-]+/)?[A-Z][A-Z0-9]+-[0-9]+\\b", options: .regularExpression),
+			let idRange = title[range].range(of: "[A-Z][A-Z0-9]+-[0-9]+", options: .regularExpression) else { return nil }
+		let rest = title.replacingCharacters(in: range, with: " ")
+			.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+		return (String(title[range][idRange]), rest)
+	}
+
+	/// The start of the ticket links in the morning overview, e.g. `https://x.atlassian.net/browse/`, or `nil` without one.
+	static func jiraBrowseURL(in morningOverview: String) -> String? {
+		morningOverview.range(of: "https://[^\\s()\\[\\]]+/browse/", options: .regularExpression).map { String(morningOverview[$0]) }
 	}
 
 	/// The user's own text of the old file: the text below »## Notes«. A file that the app did not write, e.g. one that

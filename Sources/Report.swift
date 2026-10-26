@@ -206,6 +206,13 @@ final class Report: ObservableObject {
 		return timestampFormatter(calendar).date(from: String(line.dropFirst("Updated: ".count).prefix(16)))
 	}
 
+	/// Writes the text of a link that starts with `#` as code, e.g. ``[`#4213`](…)`` or ``[`#dev`](…)``. Some Markdown
+	/// editors read `[#4213]` as a tag and show no link. An escaped `[\#4213]` gets the same form. A text with a backslash
+	/// in it stays, so that escaped brackets in plain text do not become a link.
+	nonisolated static func hashLinksAsCode(in text: String) -> String {
+		text.replacingOccurrences(of: #"\[\\?#([^\[\]`\\]+)\]\("#, with: "[`#$1`](", options: .regularExpression)
+	}
+
 	/// Makes a new file.
 	func update() async {
 		guard !isRunning else { return }
