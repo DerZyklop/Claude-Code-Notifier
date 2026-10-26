@@ -129,24 +129,21 @@ final class AttentionBubble {
 		chime = timer
 	}
 
-	/// The chime stops after this many seconds without an answer, see ``allowsChime(at:)``.
+	/// A session gets the chime for this many seconds after it starts to ask, see ``allowsChime(at:)``.
 	static let chimeLimit = 300.0
-	/// When the first chime played since the last start of work, `nil` before it.
-	private(set) var firstChime: Date?
+	/// When each asking session started to ask, by its ID.
+	private(set) var askedSince: [String: Date] = [:]
 
-	/// Whether the chime may play: only in the first ``chimeLimit`` seconds after the first chime. The time starts
-	/// again with ``restartChimeTime()``.
-	func allowsChime(at now: Date = Date()) -> Bool {
-		guard let firstChime else {
-			self.firstChime = now
-			return true
-		}
-		return now.timeIntervalSince(firstChime) < Self.chimeLimit
+	/// Starts the time of each session that starts to ask, and forgets the sessions that do not ask anymore. A session
+	/// that asks again later gets a new time.
+	func track(asking ids: Set<String>, at now: Date = Date()) {
+		askedSince = askedSince.filter { ids.contains($0.key) }
+		for id in ids where askedSince[id] == nil { askedSince[id] = now }
 	}
 
-	/// Lets the chime play again for ``chimeLimit`` seconds, e.g. when a session starts to work.
-	func restartChimeTime() {
-		firstChime = nil
+	/// Whether the chime may play: only while a session asks for less than ``chimeLimit`` seconds.
+	func allowsChime(at now: Date = Date()) -> Bool {
+		askedSince.values.contains { now.timeIntervalSince($0) < Self.chimeLimit }
 	}
 
 	/// Follows the setting »Play Sounds« in the menu, and stays silent while a Focus of macOS is on.

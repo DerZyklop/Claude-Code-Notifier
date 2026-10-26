@@ -18,8 +18,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private lazy var spinner = Spinner(button: statusItem.button!)
 	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
 	private lazy var attention = AttentionBubble(button: statusItem.button!)
-	/// The sessions whose turn runs, to notice when one starts to work.
-	private var workingTurnIDs: Set<String> = []
 	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
@@ -57,10 +55,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let hasProblem = HookSetup.shared.hasProblem
 		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
 		let working = hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count
-		// An answer lets a session work again, so the chime may play again for the next question.
-		let turnIDs = Set(sessions.filter { $0.state == .working }.map(\.id))
-		if !turnIDs.isSubset(of: workingTurnIDs) { attention.restartChimeTime() }
-		workingTurnIDs = turnIDs
+		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 		let layout = Self.layout(working: working, waiting: waiting)
 

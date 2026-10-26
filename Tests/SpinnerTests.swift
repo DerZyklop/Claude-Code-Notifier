@@ -670,22 +670,37 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 }
 
 @Suite @MainActor struct AttentionBubbleChimeTests {
-	@Test func chimePlaysForFiveMinutesFromTheFirstChime() {
+	@Test func chimePlaysForFiveMinutesAfterASessionStartsToAsk() {
 		let bubble = AttentionBubble(button: makeButton())
 		let start = Date()
-		#expect(bubble.allowsChime(at: start))
-		#expect(bubble.firstChime == start)
+		#expect(!bubble.allowsChime(at: start))
+		bubble.track(asking: ["a"], at: start)
+		#expect(bubble.askedSince == ["a": start])
 		#expect(bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit - 1)))
 		#expect(!bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit)))
 	}
 
-	@Test func restartLetsTheChimePlayAgain() {
+	@Test func eachSessionHasItsOwnTime() {
 		let bubble = AttentionBubble(button: makeButton())
 		let start = Date()
-		_ = bubble.allowsChime(at: start)
-		bubble.restartChimeTime()
+		let later = start.addingTimeInterval(AttentionBubble.chimeLimit - 10)
+		bubble.track(asking: ["a"], at: start)
+		bubble.track(asking: ["a", "b"], at: later)
+		#expect(bubble.askedSince == ["a": start, "b": later])
+		#expect(bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit + 10)))
+		// Another session that works does not give the time of »a« back.
+		bubble.track(asking: ["a"], at: later)
+		#expect(!bubble.allowsChime(at: start.addingTimeInterval(AttentionBubble.chimeLimit)))
+	}
+
+	@Test func aNewQuestionOfTheSameSessionGetsANewTime() {
+		let bubble = AttentionBubble(button: makeButton())
+		let start = Date()
+		bubble.track(asking: ["a"], at: start)
+		bubble.track(asking: [], at: start.addingTimeInterval(1))
+		#expect(bubble.askedSince.isEmpty)
 		let later = start.addingTimeInterval(AttentionBubble.chimeLimit * 2)
+		bubble.track(asking: ["a"], at: later)
 		#expect(bubble.allowsChime(at: later))
-		#expect(bubble.firstChime == later)
 	}
 }
