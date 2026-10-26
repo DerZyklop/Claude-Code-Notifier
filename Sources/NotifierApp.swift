@@ -37,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
 			Task { @MainActor in HookSetup.shared.refresh() }
 		}
+
+		// The first start, wake or unlock of a weekday morning updates the morning overview.
+		let runIfDue: (Notification) -> Void = { _ in Task { @MainActor in MorningOverview.shared.runIfDue() } }
+		for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+			NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main, using: runIfDue)
+		}
+		DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main, using: runIfDue)
+		Task { @MainActor in MorningOverview.shared.runIfDue() }
 	}
 
 	/// The settings file of the first bundle ID, `local.claude-code-notifier`. The app got a new ID because Notification
@@ -85,9 +93,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		completionHandler([.banner])
 	}
 
-	/// A click on a notification brings VS Code to the front.
+	/// A click on a notification brings VS Code to the front. A click on a ready morning overview opens its file.
 	func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-		Task { @MainActor in activateVSCode() }
+		let opensOverview = response.notification.request.identifier == MorningOverview.readyNotificationID
+		Task { @MainActor in
+			if opensOverview { MorningOverview.shared.openFile() } else { activateVSCode() }
+		}
 		completionHandler()
 	}
 }
@@ -97,6 +108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 @MainActor
 func activateVSCode() {
 	NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.VSCode").first?.activate()
+}
+
+/// Opens a file in the first of the apps that is installed, or in the default app for its type.
+/// - Parameter bundleIDs: The bundle IDs of the apps, the preferred one first.
+@MainActor
+func openDocument(_ url: URL, preferring bundleIDs: [String]) {
+	if let app = bundleIDs.lazy.compactMap({ NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }).first {
+		NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+	} else {
+		NSWorkspace.shared.open(url)
+	}
 }
 
 extension HookSetup {

@@ -12,12 +12,16 @@ struct RunningSession {
 	let state: SessionState?
 	let stateChanged: Date
 
-	/// Where Claude Code keeps the transcript: the folder name is the working directory with every character that is
-	/// not a letter or digit replaced by `-`.
 	var transcriptPath: String {
-		let folder = String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
-		return claudeConfigDirectory.appendingPathComponent("projects/\(folder)/\(sessionID).jsonl").path
+		claudeProjectFolder(of: cwd).appendingPathComponent("\(sessionID).jsonl").path
 	}
+}
+
+/// Where Claude Code keeps the transcripts and the memory of a working directory: the folder name is the working
+/// directory with every character that is not a letter or digit replaced by `-`.
+func claudeProjectFolder(of cwd: String) -> URL {
+	let folder = String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+	return claudeConfigDirectory.appendingPathComponent("projects/\(folder)")
 }
 
 /// The Claude Code configuration folder. Like Claude Code, it honors `CLAUDE_CONFIG_DIR`.

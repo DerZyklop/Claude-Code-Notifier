@@ -396,19 +396,9 @@ struct SetupView: View {
 						NSWorkspace.shared.open(claudeSettingsURL.deletingLastPathComponent())
 					}
 				} else {
-					Button("Open settings.json") { openClaudeSettings() }
+					Button("Open settings.json") { openDocument(claudeSettingsURL, preferring: ["com.microsoft.VSCode"]) }
 				}
 			}
 		}
-	}
-}
-
-/// Opens `~/.claude/settings.json` in VS Code, or in the default app for JSON files.
-@MainActor
-private func openClaudeSettings() {
-	if let vscode = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") {
-		NSWorkspace.shared.open([claudeSettingsURL], withApplicationAt: vscode, configuration: NSWorkspace.OpenConfiguration())
-	} else {
-		NSWorkspace.shared.open(claudeSettingsURL)
 	}
 }

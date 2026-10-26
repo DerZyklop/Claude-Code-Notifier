@@ -150,7 +150,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	// MARK: - Menu
 
-	/// Three groups: the sessions with the status of the app, the notification settings, and the app itself.
+	/// Four groups: the sessions with the status of the app, the morning overview, the notification settings, and the
+	/// app itself.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
 
@@ -171,6 +172,27 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		if SessionStore.shared.sessions.values.contains(where: { $0.state == .ended }) {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
+
+		menu.addItem(.separator())
+		menu.addItem(sectionHeader("Morning Overview"))
+		let overview = MorningOverview.shared
+		// An item without an action is disabled.
+		let update = action(overview.isRunning ? "Updating …" : overview.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
+			#selector(updateMorningOverview))
+		if overview.isRunning { update.action = nil }
+		menu.addItem(update)
+		if let failure = overview.failure {
+			// Without an action, the item shows the reason in gray and does nothing on a click.
+			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
+			reason.toolTip = failure
+			reason.indentationLevel = 1
+			menu.addItem(reason)
+		}
+		let open = action("Open Morning Overview", #selector(openMorningOverview))
+		if overview.isUnread { open.attributedTitle = Self.withGreenDot(open.title) }
+		if !FileManager.default.fileExists(atPath: overview.fileURL.path) { open.action = nil }
+		menu.addItem(open)
+		menu.addItem(toggle("Every Weekday at \(MorningOverview.dueHour):00", SettingsKey.updatesMorningOverview))
 
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader("Notifications"))
@@ -253,6 +275,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return item
 	}
 
+	/// The title with a green dot behind it, in the font of the menu.
+	static func withGreenDot(_ title: String) -> NSAttributedString {
+		let font = NSFont.menuFont(ofSize: 0)
+		let text = NSMutableAttributedString(string: title + " ", attributes: [.font: font])
+		text.append(NSAttributedString(string: "●", attributes: [.font: font, .foregroundColor: NSColor.systemGreen]))
+		return text
+	}
+
 	static func symbol(_ name: String) -> NSImage? {
 		let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
 		image?.isTemplate = true
@@ -263,6 +293,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	@objc private func removeEnded() {
 		SessionStore.shared.removeEnded()
+	}
+
+	@objc private func updateMorningOverview() {
+		Task { await MorningOverview.shared.update() }
+	}
+
+	@objc private func openMorningOverview() {
+		MorningOverview.shared.openFile()
 	}
 
 	@objc private func toggleSetting(_ sender: NSMenuItem) {

@@ -7,8 +7,10 @@ enum SettingsKey {
 	static let muted = "muted"
 	/// Turns every sound of the app on or off.
 	static let playsSound = "playsSound"
+	/// Updates the morning overview on each weekday, see ``MorningOverview/runIfDue()``.
+	static let updatesMorningOverview = "updatesMorningOverview"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
-	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true]
+	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true, updatesMorningOverview: true]
 
 	static func isOn(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
 		defaults.object(forKey: key) as? Bool ?? defaultValues[key] ?? false
@@ -345,9 +347,13 @@ final class SessionStore: ObservableObject {
 	}
 
 	func post(_ kind: NotificationKind, title: String, body: String, identifier: String) {
+		post(subtitle: kind.subtitle, title: title, body: body, identifier: identifier)
+	}
+
+	func post(subtitle: String, title: String, body: String, identifier: String) {
 		let content = UNMutableNotificationContent()
 		content.title = title
-		content.subtitle = kind.subtitle
+		content.subtitle = subtitle
 		// No sound: the chime of the bubble is the only sound of the app, see ``AttentionBubble``.
 		content.body = body
 		// No thread identifier: macOS then stacks all notifications of the app in one group.
