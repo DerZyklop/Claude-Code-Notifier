@@ -18,9 +18,12 @@ struct NotifierApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 	private let server = EventServer(port: eventPort)
 	private var statusMenu: StatusMenu?
+	/// The handlers of the quit signals, see ``quitOnSignals()``.
+	private var signalSources: [DispatchSourceSignal] = []
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		Self.migrateSettings()
+		quitOnSignals()
 		statusMenu = StatusMenu()
 		let center = UNUserNotificationCenter.current()
 		center.delegate = self
@@ -53,6 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 	func applicationWillTerminate(_ notification: Notification) {
 		MainActor.assumeIsolated { Blink1.shared.show(.off) }
+	}
+
+	/// `kill` and `npm run restart` send `SIGTERM`, and Ctrl-C in a terminal sends `SIGINT`. The app then quits the normal
+	/// way, so that ``applicationWillTerminate(_:)`` turns the light off. A crash or `kill -9` skips it.
+	private func quitOnSignals() {
+		for number in [SIGTERM, SIGINT] {
+			// Without this, the signal ends the app before the handler runs.
+			signal(number, SIG_IGN)
+			let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+			source.setEventHandler { NSApp.terminate(nil) }
+			source.resume()
+			signalSources.append(source)
+		}
 	}
 
 	/// The settings file of the first bundle ID, `local.claude-code-notifier`. The app got a new ID because Notification
