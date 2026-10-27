@@ -8,10 +8,10 @@ import UserNotifications
 /// ``Kind`` holds what differs between the reports.
 @MainActor
 final class Report: ObservableObject {
-	static let morningOverview = Report(kind: .morningOverview, system: .live)
-	static let didi = Report(kind: .didi, system: .live)
+	static let morningOverview: Report = Report(kind: .morningOverview, system: .live)
+	static let didi: Report = Report(kind: .didi, system: .live)
 	/// All reports, in the order of the menu.
-	static let all = [morningOverview, didi]
+	static let all: [Report] = [morningOverview, didi]
 	/// An automatic run that failed waits this long before the next try, so that each unlock does not start one.
 	static let retryDelay: TimeInterval = 30 * 60
 	/// The tokens that the run of Claude does not get. Only the app uses them.
@@ -23,6 +23,8 @@ final class Report: ObservableObject {
 		var directory: URL
 		var input = Data()
 		var timeout: TimeInterval = 30
+		/// Gets the pid of the program right after its start.
+		var started: @Sendable (Int32) -> Void = { _ in }
 	}
 
 	struct CommandResult {
@@ -104,6 +106,8 @@ final class Report: ObservableObject {
 		var supportFolder: URL
 		/// The tasks of every morning. They come first in the morning overview.
 		var dailyTasks: [String]
+		/// The tasks of one weekday, by its number in `Calendar`, e.g. 2 for Monday. They come after the daily tasks.
+		var weekdayTasks: [Int: [String]]
 		var now: () -> Date
 		var calendar: Calendar
 		var defaults: UserDefaults
@@ -117,11 +121,12 @@ final class Report: ObservableObject {
 		/// Opens a file in iA Writer, else in VS Code.
 		var open: @MainActor (URL) -> Void
 
-		static let live = System(
+		static let live: System = System(
 			folder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("S/plano"),
 			supportFolder: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
 				.appendingPathComponent("local.claude-code-notifier.app"),
-			dailyTasks: ["Zeiterfassung"],
+			dailyTasks: ["⏲️ Zeiterfassung"],
+			weekdayTasks: [2: ["🧠 Reflect ticket"]],
 			now: Date.init,
 			calendar: .current,
 			defaults: .standard,
@@ -146,6 +151,10 @@ final class Report: ObservableObject {
 	@Published private(set) var isRunning = false
 	/// The start of the current run, for its time in the menu.
 	private(set) var runStarted: Date?
+	/// The process of Claude in the current run. The menu shows its session as the report.
+	private(set) var runPID: Int32?
+	/// You stopped the current run. It ends without a new file and without a failure.
+	private(set) var isStopped = false
 	/// The reason why the last run failed, `nil` after a run that worked.
 	@Published private(set) var failure: String?
 	/// A new file waits to be opened. The menu marks it. The defaults keep it, so the mark stays after a restart.
@@ -167,12 +176,6 @@ final class Report: ObservableObject {
 
 	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
 	var failedNotificationID: String { kind.notificationID + "-failed" }
-
-	/// Whether the prompt is the one of a report run. Each prompt file starts with the title of its report as a heading.
-	static func isPrompt(_ prompt: String) -> Bool {
-		guard let firstLine = prompt.split(separator: "\n", maxSplits: 1).first else { return false }
-		return all.map(\.kind.title).contains { firstLine.caseInsensitiveCompare("# " + $0) == .orderedSame }
-	}
 
 	/// The report whose ready notification has this identifier.
 	static func forNotification(_ identifier: String) -> Report? {
@@ -232,6 +235,7 @@ final class Report: ObservableObject {
 		guard !isRunning else { return }
 		runStarted = system.now()
 		isRunning = true
+		isStopped = false
 		defer { isRunning = false }
 		guard let prompt = system.prompt(kind.promptResource) else { return fail("The prompt is missing in the app.") }
 
@@ -241,13 +245,23 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("\(error)")
 		}
-		let command: Command
+		if isStopped { return }
+		var command: Command
 		do {
 			command = try claudeCommand(prompt: prompt + facts(input.facts), input: input.json)
 		} catch {
 			return fail("The folder of the run could not be made: \(error.localizedDescription)")
 		}
+		command.started = { [weak self] pid in
+			Task { @MainActor in
+				self?.runPID = pid
+				// A stop between the start of the program and this moment did not know the pid yet.
+				if self?.isStopped == true { kill(pid, SIGTERM) }
+			}
+		}
 		let result = await system.run(command)
+		runPID = nil
+		if isStopped { return }
 		if result.timedOut { return fail("Claude did not finish within \(Int(kind.timeout / 60)) minutes.") }
 		if result.status == 127 { return fail("The command »claude« was not found.") }
 
@@ -280,6 +294,13 @@ final class Report: ObservableObject {
 		if !system.defaults.bool(forKey: SettingsKey.muted) {
 			system.post(kind.title, kind.notificationID, "Ready", kind.readyBody(text, input))
 		}
+	}
+
+	/// Ends the current run. Claude gets a `SIGTERM`. Before Claude starts, the run ends after it collected its input.
+	func stop() {
+		guard isRunning else { return }
+		isStopped = true
+		if let runPID { kill(runPID, SIGTERM) }
 	}
 
 	/// Every failure gets a notification, also while the notifications are off. The macOS log keeps the reason.
@@ -433,6 +454,7 @@ final class Report: ObservableObject {
 				} catch {
 					return continuation.resume(returning: CommandResult(status: 127, output: "", error: error.localizedDescription))
 				}
+				command.started(process.processIdentifier)
 				let timedOut = TimeoutFlag()
 				let timer = DispatchWorkItem {
 					timedOut.isSet = true

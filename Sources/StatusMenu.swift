@@ -73,6 +73,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
+		let light: Blink1.State = if layout.waiting > 0 { .asksYou } else if isReporting || hasUnread { .report } else if working > 0 { .working } else { .off }
+		Blink1.shared.show(light)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
@@ -101,7 +103,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		var dotCenterX: Double?
 	}
 
-	static let dotDiameter = 6.0
+	static let dotDiameter = 8.0
 
 	static func layout(working: Int, waiting: Int, hasUnread: Bool = false) -> IconLayout {
 		var layout = IconLayout(working: min(working, 10), waiting: min(waiting, 10))
@@ -233,6 +235,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		self.timer = timer
 	}
 
+	static let updatingTitle = "Updating …"
+	static let stopTitle = "Stop It!"
+
+	/// The stop item under the mouse, see ``menu(_:willHighlight:)``.
+	private weak var highlightedStop: NSMenuItem?
+
+	/// The item of a running report says what a click does while the mouse is on it.
+	func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+		highlightedStop?.title = Self.updatingTitle
+		highlightedStop = item?.action == #selector(stopReport(_:)) ? item : nil
+		highlightedStop?.title = Self.stopTitle
+	}
+
 	func menuDidClose(_ menu: NSMenu) {
 		timer?.invalidate()
 		timer = nil
@@ -262,11 +277,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let kind = report.kind
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader(kind.title))
-		// An item without an action is disabled.
-		let update = action(report.isRunning ? "Updating …" : report.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
-			#selector(updateReport(_:)))
+		// While the report runs, a click stops it. See ``menu(_:willHighlight:)``.
+		let update = action(report.isRunning ? Self.updatingTitle : report.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
+			report.isRunning ? #selector(stopReport(_:)) : #selector(updateReport(_:)))
 		update.representedObject = report
-		if report.isRunning { update.action = nil }
 		menu.addItem(update)
 		if let failure = report.failure {
 			// Without an action, the item shows the reason in gray and does nothing on a click.
@@ -328,6 +342,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	@objc private func updateReport(_ sender: NSMenuItem) {
 		guard let report = sender.representedObject as? Report else { return }
 		Task { await report.update() }
+	}
+
+	@objc private func stopReport(_ sender: NSMenuItem) {
+		(sender.representedObject as? Report)?.stop()
 	}
 
 	@objc private func openReport(_ sender: NSMenuItem) {

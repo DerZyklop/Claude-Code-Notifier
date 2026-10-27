@@ -3,6 +3,7 @@
 	"private": true,
 	"scripts": {
 		"build": "./build.sh",
+		"test": "swift test",
 		"restart": "pkill -f 'Claude Code Pulse.app/Contents/MacOS'; sleep 1; open 'build/Claude Code Pulse.app'",
 		"start": "npm run build && npm run restart",
 		"install-extension": "cd vscode-extension && npx --yes @vscode/vsce package --allow-missing-repository --skip-license -o ../build/claude-code-pulse-focus.vsix && code --install-extension ../build/claude-code-pulse-focus.vsix"

@@ -131,6 +131,15 @@ extension ReportFixture {
 		#expect(fixture.log.removed == ["morning-overview-failed"])
 	}
 
+	@Test func mondayAddsTheTasksOfMonday() async throws {
+		let fixture = try ReportFixture(now: tuesdayMorning.addingTimeInterval(-24 * 60 * 60))
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(text.contains("- [ ] Zeiterfassung\n- [ ] Reflect\n\n## "))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Daily tasks: Zeiterfassung, Reflect."))
+	}
+
 	@Test func claudeGetsOnlyReadTools() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
@@ -288,6 +297,15 @@ extension ReportFixture {
 	] as [([String: Any], Bool)])
 	func concernsTheAuthorAndTheReviewers(pullRequest: [String: Any], concerns: Bool) {
 		#expect(MorningOverview.concerns(pullRequest, me: "Nils") == concerns)
+	}
+
+	@Test(arguments: [
+		(["draft": true, "author": ["display_name": "Rui"]], true),
+		(["draft": true, "author": ["display_name": "Nils"]], false),
+		(["draft": false, "author": ["display_name": "Rui"]], false),
+	] as [([String: Any], Bool)])
+	func onlyDraftsOfOthersGetRemoved(pullRequest: [String: Any], removed: Bool) {
+		#expect(MorningOverview.isDraftOfOthers(pullRequest, me: "Nils") == removed)
 	}
 
 	@Test func subItemsGetFourSpaces() {

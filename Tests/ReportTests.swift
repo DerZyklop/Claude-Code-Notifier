@@ -28,15 +28,6 @@ import Testing
 		#expect(Report.hashLinksAsCode(in: "see \\[#5\\](https://x)") == "see \\[#5\\](https://x)")
 	}
 
-	@Test func eachPromptFileStartsWithItsTitle() throws {
-		for report in Report.all {
-			let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../Resources/\(report.kind.promptResource).md")
-			#expect(Report.isPrompt(try String(contentsOf: url, encoding: .utf8)))
-		}
-		#expect(!Report.isPrompt("Morning overview"))
-		#expect(!Report.isPrompt(""))
-	}
-
 	@Test func forNotificationFindsTheReport() {
 		#expect(Report.forNotification("morning-overview") === Report.morningOverview)
 		#expect(Report.forNotification("didi") === Report.didi)
@@ -144,12 +135,41 @@ import Testing
 		#expect(report.failure == "The command »claude« was not found.")
 	}
 
+	@Test func stopEndsTheRunWithoutAFileAndWithoutAFailure() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let shared = Locked<Report?>(nil)
+		var system = fixture.report.system
+		let run = system.run
+		system.run = { command in
+			guard command.arguments.count > 2 && command.arguments[2] == "claude" else { return await run(command) }
+			await MainActor.run { shared.update { $0 }?.stop() }
+			return .init(status: 143, output: "", error: "")
+		}
+		let report = Report(kind: .morningOverview, system: system)
+		shared.update { $0 = report }
+		await report.update()
+		#expect(report.isStopped)
+		#expect(!report.isRunning)
+		#expect(report.failure == nil)
+		#expect(!FileManager.default.fileExists(atPath: report.fileURL.path))
+		#expect(fixture.log.posts.isEmpty)
+	}
+
+	@Test func stopDoesNothingWithoutARun() throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		fixture.report.stop()
+		#expect(!fixture.report.isStopped)
+	}
+
 	@Test func updateKeepsTheStartOfTheRun() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
 		#expect(fixture.report.runStarted == nil)
 		await fixture.report.update()
 		#expect(fixture.report.runStarted == fixture.report.system.now())
+		#expect(fixture.report.runPID == nil)
 	}
 
 	@Test func theMarkStaysAfterARestart() async throws {

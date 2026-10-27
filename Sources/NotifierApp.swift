@@ -51,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		Task { @MainActor in await Report.runAllIfDue() }
 	}
 
+	func applicationWillTerminate(_ notification: Notification) {
+		MainActor.assumeIsolated { Blink1.shared.show(.off) }
+	}
+
 	/// The settings file of the first bundle ID, `local.claude-code-notifier`. The app got a new ID because Notification
 	/// Center kept showing a placeholder icon for the old one.
 	static let oldSettingsFile = FileManager.default.homeDirectoryForCurrentUser

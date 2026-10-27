@@ -90,7 +90,7 @@ struct Session: Identifiable, Equatable {
 	var pid: Int32?
 	/// The shell commands of the session that run now. After the turn, these are commands in the background.
 	var shellCommands = 0
-	/// The headless run of a report, see ``Report/isPrompt(_:)``. The menu shows the report instead.
+	/// The headless run of a report, found by the pid of its process. The menu shows the report instead.
 	var isReport = false
 
 	/// Whether the turn is over, but a shell command still runs in the background.
@@ -152,8 +152,6 @@ struct HookEvent: Decodable {
 	let reason: String?
 	let transcript_path: String?
 	let error: String?
-	/// The text of the prompt, in `UserPromptSubmit`.
-	let prompt: String?
 
 	/// Claude Code also sends a `Notification` when it waits for input for a while after it finished.
 	var isIdleReminder: Bool {
@@ -171,18 +169,23 @@ final class SessionStore: ObservableObject {
 		var addNotification: (UNNotificationRequest) -> Void
 		var removeNotifications: ([String]) -> Void
 		var defaults: UserDefaults
+		/// The pids of the Claude Code processes of the running reports. `--restricted` turns off their hooks, so only
+		/// their session files show them.
+		var reportPIDs: () -> Set<Int32> = { [] }
 
-		static let live = System(
+		static let live: System = System(
 			runningSessions: { ClaudeSessionFiles.running() },
 			archivedSessionIDs: { VSCodeArchive.sessionIDs() },
 			shellCommandCounts: { ClaudeSessionFiles.shellCommandCounts(of: $0) },
 			addNotification: { UNUserNotificationCenter.current().add($0) },
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			defaults: .standard
+			defaults: .standard,
+			// The store calls it on the main actor.
+			reportPIDs: { MainActor.assumeIsolated { Set(Report.all.compactMap { $0.runPID }) } }
 		)
 	}
 
-	static let shared = SessionStore(system: .live, setup: .shared, checksSessions: true)
+	static let shared: SessionStore = SessionStore(system: .live, setup: .shared, checksSessions: true)
 
 	@Published private(set) var sessions: [String: Session] = [:] {
 		didSet {
@@ -307,7 +310,7 @@ final class SessionStore: ObservableObject {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
 		var session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
-		session.isReport = previous?.isReport ?? false || event.prompt.map(Report.isPrompt) ?? false
+		session.isReport = previous?.isReport ?? false
 		sessions[session.id] = session
 		return session
 	}
@@ -343,6 +346,7 @@ final class SessionStore: ObservableObject {
 	/// notification: those come from the hooks.
 	func syncWithSessionFiles(archived: Set<String>) {
 		let running = system.runningSessions().filter { !archived.contains($0.sessionID) }
+		let reportPIDs = system.reportPIDs()
 		for process in running {
 			let previous = sessions[process.sessionID]
 			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: SessionTitle.start(transcript: process.transcriptPath) ?? process.started,
@@ -351,6 +355,7 @@ final class SessionStore: ObservableObject {
 			// VS Code restarts the process of a session now and then, so the process can start later than the session.
 			session.started = min(session.started, process.started)
 			session.pid = process.pid
+			if reportPIDs.contains(process.pid) { session.isReport = true }
 			// The file wins only when it is newer than the last hook event, because a hook comes faster.
 			if let state = process.state, state != session.state, session.state != .ended, process.stateChanged > session.updated.addingTimeInterval(1) {
 				session.state = state

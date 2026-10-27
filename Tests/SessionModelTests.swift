@@ -36,7 +36,7 @@ private func hookEvent(_ json: String) throws -> HookEvent {
 }
 
 private func notification(type: String? = nil, message: String? = nil) -> HookEvent {
-	HookEvent(hook_event_name: "Notification", session_id: "s", cwd: nil, message: message, notification_type: type, tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: nil, error: nil, prompt: nil)
+	HookEvent(hook_event_name: "Notification", session_id: "s", cwd: nil, message: message, notification_type: type, tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: nil, error: nil)
 }
 
 @Suite struct SettingsKeyTests {

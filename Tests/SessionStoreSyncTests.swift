@@ -36,6 +36,7 @@ private final class FakeSystem: @unchecked Sendable {
 		var countedPIDs: [Set<Int32>] = []
 		var added: [UNNotificationRequest] = []
 		var removed: [String] = []
+		var reportPIDs: Set<Int32> = []
 	}
 
 	private let lock = NSLock()
@@ -53,7 +54,8 @@ private final class FakeSystem: @unchecked Sendable {
 			shellCommandCounts: { pids in self.locked { $0.countedPIDs.append(pids); return $0.shellCommands } },
 			addNotification: { request in self.locked { $0.added.append(request) } },
 			removeNotifications: { ids in self.locked { $0.removed += ids } },
-			defaults: defaults
+			defaults: defaults,
+			reportPIDs: { self.locked { $0.reportPIDs } }
 		)
 	}
 
@@ -98,7 +100,7 @@ private final class Fixture {
 	@discardableResult
 	func add(_ state: SessionState, id: String, transcript: String? = nil, pid: Int32? = nil) -> Session {
 		let event = HookEvent(hook_event_name: "UserPromptSubmit", session_id: id, cwd: "/Users/me/Project", message: nil, notification_type: nil,
-			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil, prompt: nil)
+			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil)
 		let previous = pid.map { Session(id: id, cwd: nil, started: Date(), state: state, updated: Date(), pid: $0) }
 		return store.set(state, for: event, previous: previous)
 	}
@@ -130,6 +132,22 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			#expect(fixture.store.sessions == ["a": expected])
 			#expect(fixture.fake[\.added].isEmpty)
 			#expect(fixture.fake[\.removed].isEmpty)
+		}
+
+		@Test func theProcessOfAReportMarksItsSession() throws {
+			let fixture = try Fixture()
+			defer { fixture.cleanUp() }
+			fixture.fake[\.running] = [process("report", pid: 5, state: .working), process("other", pid: 6, state: .working)]
+			fixture.fake[\.reportPIDs] = [5]
+
+			fixture.store.syncWithSessionFiles(archived: [])
+
+			#expect(fixture.store.sessions["report"]?.isReport == true)
+			#expect(fixture.store.sessions["other"]?.isReport == false)
+			// The mark stays after the run, so the ended session stays out of the list.
+			fixture.fake[\.reportPIDs] = []
+			fixture.store.syncWithSessionFiles(archived: [])
+			#expect(fixture.store.sessions["report"]?.isReport == true)
 		}
 
 		@Test(arguments: [(.working, .working), (.asksYou, .asksYou), (.yourTurn, .yourTurn), (nil, .yourTurn)] as [(SessionState?, SessionState)])

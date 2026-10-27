@@ -51,8 +51,9 @@ enum MorningOverview {
 		let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
 		var facts = ["Project folder: \(system.folder.path)"]
 		if exists(report.fileURL) { facts.append("Old overview: \(report.fileURL.path)") }
-		if !system.dailyTasks.isEmpty {
-			facts.append("Daily tasks: \(system.dailyTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
+		let todayTasks = tasks(of: system)
+		if !todayTasks.isEmpty {
+			facts.append("Daily tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
 		}
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
@@ -68,7 +69,12 @@ enum MorningOverview {
 			let reason = (result.error + result.output).split(separator: "\n").last.map(String.init) ?? "no output"
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
-		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(report.system.dailyTasks, in: text))))
+		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(tasks(of: report.system), in: text))))
+	}
+
+	/// The daily tasks, and the tasks of today's weekday.
+	static func tasks(of system: Report.System) -> [String] {
+		system.dailyTasks + (system.weekdayTasks[system.calendar.component(.weekday, from: system.now())] ?? [])
 	}
 
 	/// The overview with an ID for each task and the number of open tasks in each heading.
@@ -234,6 +240,7 @@ enum MorningOverview {
 		let fields = ["id", "title", "draft", "author.display_name", "participants.role", "participants.approved", "participants.state",
 			"participants.user.display_name", "links.html.href", "comment_count", "task_count", "updated_on", "source.branch.name"]
 		var pullRequests = try await bitbucket.values("/pullrequests", query: ["state": "OPEN", "pagelen": "50"], fields: fields)
+			.filter { !isDraftOfOthers($0, me: me) }
 		for index in pullRequests.indices.filter({ concerns(pullRequests[$0], me: me) }).prefix(detailLimit) {
 			guard let id = pullRequests[index]["id"] as? Int else { continue }
 			// A failed detail request costs only the details of this pull request.
@@ -253,6 +260,11 @@ enum MorningOverview {
 			}
 		}
 		return pullRequests
+	}
+
+	/// The pull request is a draft of another author. No section lists it, so the run does not get it.
+	static func isDraftOfOthers(_ pullRequest: [String: Any], me: String) -> Bool {
+		pullRequest["draft"] as? Bool == true && !Bitbucket.isAuthor(of: pullRequest, me: me)
 	}
 
 	/// The user wrote the pull request or reviews it.

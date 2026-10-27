@@ -21,10 +21,9 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 	a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < 0.001 }
 }
 
-/// Measures the card with one session per state, each in a folder named after the project. The store and the setup
-/// use a fake system, and nothing writes to the defaults.
+/// Measures the card with one session per state, each in its own folder, or in the folder of `cwds`. The store and the setup use a fake system, and nothing writes to the defaults.
 @MainActor
-private func cardSize(states: [SessionState], project: String = "project") throws -> NSSize {
+private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> NSSize {
 	let defaults = MemoryDefaults()
 	let system = SessionStore.System(runningSessions: { [] }, archivedSessionIDs: { [] }, shellCommandCounts: { _ in [:] },
 		addNotification: { _ in }, removeNotifications: { _ in }, defaults: defaults)
@@ -33,7 +32,8 @@ private func cardSize(states: [SessionState], project: String = "project") throw
 	let setup = HookSetup(settingsURL: settingsURL, readNotificationsAllowed: { $0(true) })
 	let store = SessionStore(system: system, setup: setup, checksSessions: false)
 	for (index, state) in states.enumerated() {
-		let json = #"{"hook_event_name":"SessionStart","session_id":"session-\#(index)","cwd":"/tmp/\#(project)-\#(index)"}"#
+		let cwd = cwds?[index] ?? "/tmp/project-\(index)"
+		let json = #"{"hook_event_name":"SessionStart","session_id":"session-\#(index)","cwd":"\#(cwd)"}"#
 		store.set(state, for: try JSONDecoder().decode(HookEvent.self, from: Data(json.utf8)), previous: nil)
 	}
 	#expect(store.sessions.count == states.count)
@@ -80,9 +80,26 @@ private func cardSize(states: [SessionState], project: String = "project") throw
 		#expect(all.height > empty.height)
 	}
 
+	@Test func groupsKeepTheOrderOfTheirFirstSession() {
+		let date = Date(timeIntervalSince1970: 1_000_000)
+		let folders: [(String, String?)] = [("a", "/x/one"), ("b", "/x/two"), ("c", "/y/one"), ("d", nil)]
+		let sessions = folders.map { id, cwd in
+			Session(id: id, cwd: cwd, started: date, state: .working, updated: date)
+		}
+		let groups = SessionCard.groups(sessions)
+		#expect(groups.map(\.project) == ["one", "two", "Claude Code"])
+		#expect(groups.map { $0.sessions.map(\.id) } == [["a", "c"], ["b"], ["d"]])
+	}
+
+	@Test func projectHeadlinesOnlyWithMoreThanOneProject() throws {
+		let oneProject = try cardSize(states: [.working, .yourTurn], cwds: ["/tmp/one", "/tmp/one"])
+		let twoProjects = try cardSize(states: [.working, .yourTurn], cwds: ["/tmp/one", "/tmp/two"])
+		#expect(twoProjects.height > oneProject.height)
+	}
+
 	@Test func longNameGetsAtMost300Points() throws {
 		let short = try cardSize(states: [.working])
-		let long = try cardSize(states: [.working], project: String(repeating: "long-name-", count: 50))
+		let long = try cardSize(states: [.working], cwds: ["/tmp/" + String(repeating: "long-name-", count: 50)])
 		#expect(long.width > short.width)
 		#expect(long.width < short.width + 300)
 		#expect(long.height == short.height)

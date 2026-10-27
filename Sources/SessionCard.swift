@@ -11,7 +11,7 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. A button left of each row removes the session from the card, see ``SessionStore/hide(_:)``.
+/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``.
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
 	@ObservedObject var setup: HookSetup
@@ -39,9 +39,13 @@ struct SessionCard: View {
 					.padding(.horizontal, 6)
 					.padding(.vertical, 4)
 			}
-			ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-				if index > 0 { Divider().padding(.horizontal, 6) }
-				row(session)
+			let groups = Self.groups(sessions)
+			ForEach(Array(groups.enumerated()), id: \.element.project) { groupIndex, group in
+				if groups.count > 1 { projectHeadline(group.project, isFirst: groupIndex == 0 && running.isEmpty) }
+				ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, session in
+					if index > 0 { Divider().padding(.horizontal, 6) }
+					row(session)
+				}
 			}
 		}
 		.padding(4)
@@ -76,10 +80,40 @@ struct SessionCard: View {
 		.padding(.bottom, 5)
 	}
 
+	/// The sessions by ``Session/project``. The groups have the order of their first session, and each group keeps
+	/// the order of `sessions`.
+	static func groups(_ sessions: [Session]) -> [(project: String, sessions: [Session])] {
+		var groups: [(project: String, sessions: [Session])] = []
+		for session in sessions {
+			if let index = groups.firstIndex(where: { $0.project == session.project }) {
+				groups[index].sessions.append(session)
+			} else {
+				groups.append((session.project, [session]))
+			}
+		}
+		return groups
+	}
+
+	/// Small like the header. Below the header or a row, it gets more space above.
+	private func projectHeadline(_ project: String, isFirst: Bool) -> some View {
+		Text(project)
+			.font(.system(size: NSFont.smallSystemFontSize, weight: .semibold))
+			.foregroundStyle(.secondary)
+			.lineLimit(1)
+			.truncationMode(.tail)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.padding(.horizontal, 6)
+			.padding(.top, isFirst ? 2 : 8)
+			.padding(.bottom, 2)
+	}
+
 	private func row(_ session: Session) -> some View {
 		HStack(alignment: .center, spacing: 8) {
-			hideButton(session)
-			stateIcon(session)
+			if hoveredID == session.id {
+				hideButton(session)
+			} else {
+				stateIcon(session)
+			}
 			Text(session.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
@@ -109,12 +143,9 @@ struct SessionCard: View {
 	/// A running report, with a purple hourglass like the wave during a report.
 	private func reportRow(_ report: Report) -> some View {
 		HStack(alignment: .center, spacing: 8) {
-			// Keeps the icon in line with the icons of the sessions.
-			Image(systemName: "xmark.circle.fill").hidden()
 			Image(systemName: SessionState.working.symbol)
-				.font(.system(size: 17, weight: .semibold))
+				.rowIcon()
 				.foregroundStyle(Color(nsColor: Spinner.reportColor))
-				.frame(width: 22, height: 22)
 				.help("updating the report")
 			Text(report.kind.title)
 				.lineLimit(1)
@@ -129,16 +160,18 @@ struct SessionCard: View {
 		.padding(.vertical, 3)
 	}
 
-	/// Faint, and clearer while the pointer is on the row.
+	/// Takes the place of the state icon while the pointer is on the row, with the same size.
 	private func hideButton(_ session: Session) -> some View {
 		Button {
 			store.hide(session.id)
 		} label: {
 			Image(systemName: "xmark.circle.fill")
-				.foregroundStyle(hoveredID == session.id ? .secondary : .quaternary)
+				.rowIcon()
+				.foregroundStyle(.red)
+				.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
-		.help("Remove from the list until the state changes")
+		.help("Remove from the list until the state changes (now: \(session.stateTitle))")
 	}
 
 	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a blue
@@ -147,9 +180,8 @@ struct SessionCard: View {
 		let state = session.shownState
 		// Filled and a little heavier: a thin outline in color has too little contrast on the card.
 		return Image(systemName: state.symbol)
-			.font(.system(size: 17, weight: .semibold))
+			.rowIcon()
 			.foregroundStyle(session.hasBackgroundTask ? Color.secondary : state.color)
-			.frame(width: 22, height: 22)
 			.overlay(alignment: .bottomTrailing) {
 				if session.hasBackgroundTask {
 					Circle()
@@ -191,5 +223,12 @@ extension SessionState {
 		case .working: .accentColor
 		case .ended: .secondary
 		}
+	}
+}
+
+private extension Image {
+	/// The icon at the start of a row. All rows use this size, so that their texts line up.
+	func rowIcon() -> some View {
+		font(.system(size: 17, weight: .semibold)).frame(width: 22, height: 22)
 	}
 }

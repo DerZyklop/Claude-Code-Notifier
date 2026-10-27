@@ -21,7 +21,7 @@ final class Spinner {
 	/// The gap in the middle of the still wave for a setup problem.
 	static let gapWidth = 6.0
 	/// One run of the segment from left to right.
-	static let runDuration = 1.4
+	static let runDuration = 1.68
 	/// The length of the segment, as a share of the wave.
 	static let segmentShare = 0.35
 	/// The change between the still and the green wave.

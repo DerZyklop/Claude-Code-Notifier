@@ -460,32 +460,6 @@ private struct Fixture {
 		#expect(session.title == "New title")
 	}
 
-	@Test func aReportPromptMarksTheSession() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		let session = fixture.store.set(.working, for: try hookEvent("UserPromptSubmit", ["prompt": "# Morning overview\n\nYou write"]), previous: nil)
-		#expect(session.isReport)
-		let next = fixture.store.set(.working, for: try hookEvent("PostToolUse"), previous: session)
-		#expect(next.isReport)
-	}
-
-	@Test func aReportRunStaysMarkedThroughItsEvents() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		fixture.handle("SessionStart")
-		fixture.handle("UserPromptSubmit", ["prompt": "# Morning overview\n\nYou write\n## Facts\n{\"x\":1}\n"])
-		fixture.handle("PostToolUse", ["tool_name": "Read"])
-		#expect(fixture.store.sessions["s1"]?.isReport == true)
-		#expect(fixture.store.sessions["s1"]?.shownState == .working)
-	}
-
-	@Test func anOtherPromptDoesNotMarkTheSession() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		let session = fixture.store.set(.working, for: try hookEvent("UserPromptSubmit", ["prompt": "Fix the morning overview"]), previous: nil)
-		#expect(!session.isReport)
-	}
-
 	@Test func toolUseKeepsTheTitle() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
