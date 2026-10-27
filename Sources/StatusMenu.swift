@@ -15,6 +15,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private var timer: Timer?
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
+	/// The update items of the reports in the open menu, see ``refresh(_:)``.
+	private var updateItems: [NSMenuItem] = []
+	/// The item under the mouse, see ``menu(_:willHighlight:)``.
+	private weak var highlighted: NSMenuItem?
 	private lazy var spinner = Spinner(button: statusItem.button!)
 	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
 	private lazy var attention = AttentionBubble(button: statusItem.button!)
@@ -41,6 +45,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
+			.store(in: &subscriptions)
+		// A run that starts or ends while the menu is open changes the update item.
+		Publishers.MergeMany(Report.all.map(\.objectWillChange))
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] _ in
+				guard let self else { return }
+				for item in updateItems { refresh(item) }
+			}
 			.store(in: &subscriptions)
 		// The app colors the number and the still wave itself, see ``textColor(isDark:)``.
 		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
@@ -178,6 +190,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// itself.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
+		updateItems = []
 
 		// A problem gets a clickable item above the card. The card header names the problem too.
 		if let problem = HookSetup.shared.problem {
@@ -237,14 +250,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	static let updatingTitle = "Updating …"
 	static let stopTitle = "Stop It!"
 
-	/// The stop item under the mouse, see ``menu(_:willHighlight:)``.
-	private weak var highlightedStop: NSMenuItem?
-
 	/// The item of a running report says what a click does while the mouse is on it.
 	func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-		highlightedStop?.title = Self.updatingTitle
-		highlightedStop = item?.action == #selector(stopReport(_:)) ? item : nil
-		highlightedStop?.title = Self.stopTitle
+		let previous = highlighted
+		highlighted = item
+		for update in updateItems where update === previous || update === item { refresh(update) }
+	}
+
+	/// Gives the update item of a report the title and the action of the current state. While the report runs, a click
+	/// stops it.
+	private func refresh(_ item: NSMenuItem) {
+		guard let report = item.representedObject as? Report else { return }
+		item.action = report.isRunning ? #selector(stopReport(_:)) : #selector(updateReport(_:))
+		item.title = report.isRunning ? item === highlighted ? Self.stopTitle : Self.updatingTitle
+			: report.failure == nil ? "Update Now" : "Last Update Failed – Try Again"
 	}
 
 	func menuDidClose(_ menu: NSMenu) {
@@ -252,6 +271,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		timer = nil
 		// Only the card of the open menu needs ``fitCard()``.
 		card = nil
+		updateItems = []
+		highlighted = nil
 	}
 
 	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
@@ -276,10 +297,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let kind = report.kind
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader(kind.title))
-		// While the report runs, a click stops it. See ``menu(_:willHighlight:)``.
-		let update = action(report.isRunning ? Self.updatingTitle : report.failure == nil ? "Update Now" : "Last Update Failed – Try Again",
-			report.isRunning ? #selector(stopReport(_:)) : #selector(updateReport(_:)))
+		let update = action("", #selector(updateReport(_:)))
 		update.representedObject = report
+		refresh(update)
+		updateItems.append(update)
 		menu.addItem(update)
 		if let failure = report.failure {
 			// Without an action, the item shows the reason in gray and does nothing on a click.
