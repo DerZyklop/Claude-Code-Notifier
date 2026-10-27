@@ -58,9 +58,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let sessions = SessionStore.shared.sessions.values
 		let hasProblem = HookSetup.shared.hasProblem
 		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
-		// A running report counts once, as its own row in the card, and not also through its headless session.
 		let runningReports = Report.all.filter(\.isRunning).count
-		let working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working && !$0.isReport }.count) + runningReports
+		let working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count) + runningReports
 		let isReporting = runningReports > 0
 		let hasUnread = Report.all.contains { $0.isUnread }
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))

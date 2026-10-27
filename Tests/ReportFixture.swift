@@ -66,7 +66,7 @@ struct ReportFixture {
 			prompt: { $0 == kind.promptResource ? "PROMPT" : nil },
 			run: { command in
 				await MainActor.run { log.commands.append(command) }
-				if command.arguments.count > 2 && command.arguments[2] == "claude" { beforeAnswer() }
+				if command.isClaudeRun { beforeAnswer() }
 				return ReportFixture.answer(command, claudeOutput: claudeOutput, environment: environment)
 			},
 			get: { request in
@@ -89,7 +89,7 @@ struct ReportFixture {
 
 	/// The run of Claude Code, which gets the JSON on stdin.
 	var claudeRun: Report.Command? {
-		log.commands.first { $0.arguments.count > 2 && $0.arguments[2] == "claude" }
+		log.commands.first(where: \.isClaudeRun)
 	}
 
 	var input: [String: Any] {
@@ -145,4 +145,9 @@ func bitbucketPage(_ values: [[String: Any]], next: String? = nil) -> Data {
 	var page: [String: Any] = ["values": values]
 	if let next { page["next"] = next }
 	return try! JSONSerialization.data(withJSONObject: page)
+}
+
+extension Report.Command {
+	/// The run of Claude Code, and not one of the other commands of a report.
+	var isClaudeRun: Bool { arguments.count > 2 && arguments[2] == "claude" }
 }

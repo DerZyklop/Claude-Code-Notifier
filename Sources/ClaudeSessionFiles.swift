@@ -33,8 +33,11 @@ enum ClaudeSessionFiles {
 	/// - Parameters:
 	///   - folder: The folder of the session files.
 	///   - isClaude: Whether the process with the ID runs and is Claude Code.
+	///   - isOwnChild: Whether this app started the process. That is the headless run of a report, and the menu shows
+	///     the report instead.
 	static func running(in folder: URL = claudeConfigDirectory.appendingPathComponent("sessions"),
-		isClaude: (Int32) -> Bool = ClaudeSessionFiles.isClaudeProcess) -> [RunningSession] {
+		isClaude: (Int32) -> Bool = ClaudeSessionFiles.isClaudeProcess,
+		isOwnChild: (Int32) -> Bool = { parent(of: $0) == getpid() }) -> [RunningSession] {
 		guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return [] }
 		return files.filter { $0.pathExtension == "json" }.compactMap { file in
 			guard let data = try? Data(contentsOf: file),
@@ -45,7 +48,7 @@ enum ClaudeSessionFiles {
 				let startedAt = (json["startedAt"] as? NSNumber)?.doubleValue,
 				// A spare process waits for a session that does not exist yet.
 				json["spare"] as? Bool != true,
-				isClaude(pid) else { return nil }
+				isClaude(pid), !isOwnChild(pid) else { return nil }
 			let state: SessionState? = switch json["status"] as? String {
 			case "busy": .working
 			case "waiting": .asksYou
@@ -67,14 +70,19 @@ enum ClaudeSessionFiles {
 		let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size)))
 		var result: [Int32: Int] = [:]
 		for pid in pids.prefix(count) where pid > 0 {
-			var info = proc_bsdinfo()
-			let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-			guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { continue }
-			let parent = Int32(info.pbi_ppid)
-			guard claudePIDs.contains(parent), arguments(of: pid).contains("/.claude/shell-snapshots/") else { continue }
+			guard let parent = parent(of: pid), claudePIDs.contains(parent),
+				arguments(of: pid).contains("/.claude/shell-snapshots/") else { continue }
 			result[parent, default: 0] += 1
 		}
 		return result
+	}
+
+	/// The ID of the parent process, `nil` for a process that does not run.
+	static func parent(of pid: Int32) -> Int32? {
+		var info = proc_bsdinfo()
+		let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+		guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+		return Int32(info.pbi_ppid)
 	}
 
 	/// The command line of a process, with spaces between the arguments.

@@ -127,7 +127,7 @@ import Testing
 			var system = fixture.report.system
 			let run = system.run
 			system.run = { command in
-				command.arguments.count > 2 && command.arguments[2] == "claude" ? .init(status: 127, output: "", error: "zsh: not found") : await run(command)
+				command.isClaudeRun ? .init(status: 127, output: "", error: "zsh: not found") : await run(command)
 			}
 			return system
 		}())
@@ -142,7 +142,7 @@ import Testing
 		var system = fixture.report.system
 		let run = system.run
 		system.run = { command in
-			guard command.arguments.count > 2 && command.arguments[2] == "claude" else { return await run(command) }
+			guard command.isClaudeRun else { return await run(command) }
 			await MainActor.run { shared.update { $0 }?.stop() }
 			return .init(status: 143, output: "", error: "")
 		}

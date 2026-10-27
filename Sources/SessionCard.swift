@@ -21,8 +21,7 @@ struct SessionCard: View {
 	@State private var hoveredID: String?
 
 	var body: some View {
-		// A report has its own row, so its headless session stays out of the list.
-		let sessions = store.sortedSessions.filter { !$0.isReport }
+		let sessions = store.sortedSessions
 		let running = reports.filter(\.isRunning)
 		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 		VStack(spacing: 0) {
@@ -40,8 +39,8 @@ struct SessionCard: View {
 					.padding(.vertical, 4)
 			}
 			let groups = Self.groups(sessions)
-			ForEach(Array(groups.enumerated()), id: \.element.project) { groupIndex, group in
-				if groups.count > 1 { projectHeadline(group.project, isFirst: groupIndex == 0 && running.isEmpty) }
+			ForEach(groups, id: \.project) { group in
+				if groups.count > 1 { projectHeadline(group.project, isFirst: group.project == groups.first?.project && running.isEmpty) }
 				ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, session in
 					if index > 0 { Divider().padding(.horizontal, 6) }
 					row(session)

@@ -112,6 +112,16 @@ private let configDirEnvironment = ProcessInfo.processInfo.environment["CLAUDE_C
 		#expect(ClaudeSessionFiles.running(in: folder, isClaude: { _ in true }).isEmpty)
 	}
 
+	@Test func skipsTheProcessesOfThisApp() throws {
+		let folder = try makeFolder()
+		defer { try? FileManager.default.removeItem(at: folder) }
+		for pid in [5, 6] {
+			try write(["pid": pid, "sessionId": "s\(pid)", "cwd": "/Users/me/project", "startedAt": 1_700_000_000_000], to: folder, as: "\(pid).json")
+		}
+		let sessions = ClaudeSessionFiles.running(in: folder, isClaude: { _ in true }, isOwnChild: { $0 == 5 })
+		#expect(sessions.map(\.pid) == [6])
+	}
+
 	@Test func readsAllFields() throws {
 		let folder = try makeFolder()
 		defer { try? FileManager.default.removeItem(at: folder) }

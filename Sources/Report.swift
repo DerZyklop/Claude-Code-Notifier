@@ -8,10 +8,10 @@ import UserNotifications
 /// ``Kind`` holds what differs between the reports.
 @MainActor
 final class Report: ObservableObject {
-	static let morningOverview: Report = Report(kind: .morningOverview, system: .live)
-	static let didi: Report = Report(kind: .didi, system: .live)
+	static let morningOverview = Report(kind: .morningOverview, system: .live)
+	static let didi = Report(kind: .didi, system: .live)
 	/// All reports, in the order of the menu.
-	static let all: [Report] = [morningOverview, didi]
+	static let all = [morningOverview, didi]
 	/// An automatic run that failed waits this long before the next try, so that each unlock does not start one.
 	static let retryDelay: TimeInterval = 30 * 60
 	/// The tokens that the run of Claude does not get. Only the app uses them.
@@ -121,7 +121,7 @@ final class Report: ObservableObject {
 		/// Opens a file in iA Writer, else in VS Code.
 		var open: @MainActor (URL) -> Void
 
-		static let live: System = System(
+		static let live = System(
 			folder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("S/plano"),
 			supportFolder: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
 				.appendingPathComponent("local.claude-code-notifier.app"),
@@ -151,7 +151,7 @@ final class Report: ObservableObject {
 	@Published private(set) var isRunning = false
 	/// The start of the current run, for its time in the menu.
 	private(set) var runStarted: Date?
-	/// The process of Claude in the current run. The menu shows its session as the report.
+	/// The process of Claude in the current run, for ``stop()``.
 	private(set) var runPID: Int32?
 	/// You stopped the current run. It ends without a new file and without a failure.
 	private(set) var isStopped = false
