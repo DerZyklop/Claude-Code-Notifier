@@ -23,8 +23,6 @@ final class Report: ObservableObject {
 		var directory: URL
 		var input = Data()
 		var timeout: TimeInterval = 30
-		/// Gets the pid of the program right after its start.
-		var started: @Sendable (Int32) -> Void = { _ in }
 	}
 
 	struct CommandResult {
@@ -151,8 +149,8 @@ final class Report: ObservableObject {
 	@Published private(set) var isRunning = false
 	/// The start of the current run, for its time in the menu.
 	private(set) var runStarted: Date?
-	/// The process of Claude in the current run, for ``stop()``.
-	private(set) var runPID: Int32?
+	/// The current run, for ``stop()``.
+	private var runTask: Task<Void, Never>?
 	/// You stopped the current run. It ends without a new file and without a failure.
 	private(set) var isStopped = false
 	/// The reason why the last run failed, `nil` after a run that worked.
@@ -173,6 +171,8 @@ final class Report: ObservableObject {
 
 	/// The key of ``isUnread`` in the defaults.
 	static func unreadKey(of kind: Kind) -> String { kind.notificationID + "-unread" }
+	/// The key of the due moment whose run you stopped. The automatic run skips that moment, also after a restart.
+	static func stoppedKey(of kind: Kind) -> String { kind.notificationID + "-stopped" }
 
 	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
 	var failedNotificationID: String { kind.notificationID + "-failed" }
@@ -191,10 +191,12 @@ final class Report: ObservableObject {
 		for report in reports ?? all { await report.runIfDue() }
 	}
 
-	/// Starts the automatic run, if the setting is on and the run is due.
+	/// Starts the automatic run, if the setting is on, the run is due, and you did not stop a run since the due moment.
 	func runIfDue() async {
 		let now = system.now()
 		guard SettingsKey.isOn(kind.settingsKey, in: system.defaults), isDue(at: now) else { return }
+		let stopped = system.defaults.object(forKey: Self.stoppedKey(of: kind)) as? Date
+		if stopped != nil, stopped == kind.schedule.dueMoment(at: now, calendar: system.calendar) { return }
 		if let lastAutomaticRun, now.timeIntervalSince(lastAutomaticRun) < Self.retryDelay { return }
 		lastAutomaticRun = now
 		await update()
@@ -230,13 +232,24 @@ final class Report: ObservableObject {
 		text.replacingOccurrences(of: #"\[\\?#([^\[\]`\\]+)\]\("#, with: "[`#$1`](", options: .regularExpression)
 	}
 
-	/// Makes a new file.
+	/// Makes a new file. ``stop()`` cancels the run.
 	func update() async {
 		guard !isRunning else { return }
 		runStarted = system.now()
 		isRunning = true
 		isStopped = false
-		defer { isRunning = false }
+		defer {
+			isRunning = false
+			runTask = nil
+		}
+		let task = Task { await run() }
+		runTask = task
+		await task.value
+	}
+
+	/// The steps of ``update()``. A cancel ends the commands and the requests of the run. After each wait, a cancelled run
+	/// ends without a file.
+	private func run() async {
 		guard let prompt = system.prompt(kind.promptResource) else { return fail("The prompt is missing in the app.") }
 
 		let input: Input
@@ -245,23 +258,15 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("\(error)")
 		}
-		if isStopped { return }
-		var command: Command
+		if Task.isCancelled { return }
+		let command: Command
 		do {
 			command = try claudeCommand(prompt: prompt + facts(input.facts), input: input.json)
 		} catch {
 			return fail("The folder of the run could not be made: \(error.localizedDescription)")
 		}
-		command.started = { [weak self] pid in
-			Task { @MainActor in
-				self?.runPID = pid
-				// A stop between the start of the program and this moment did not know the pid yet.
-				if self?.isStopped == true { kill(pid, SIGTERM) }
-			}
-		}
 		let result = await system.run(command)
-		runPID = nil
-		if isStopped { return }
+		if Task.isCancelled { return }
 		if result.timedOut { return fail("Claude did not finish within \(Int(kind.timeout / 60)) minutes.") }
 		if result.status == 127 { return fail("The command »claude« was not found.") }
 
@@ -296,15 +301,18 @@ final class Report: ObservableObject {
 		}
 	}
 
-	/// Ends the current run. Claude gets a `SIGTERM`. Before Claude starts, the run ends after it collected its input.
+	/// Ends the current run. The running command gets a `SIGTERM`. The automatic run then waits for the next due moment.
 	func stop() {
 		guard isRunning else { return }
 		isStopped = true
-		if let runPID { kill(runPID, SIGTERM) }
+		system.defaults.set(kind.schedule.dueMoment(at: system.now(), calendar: system.calendar), forKey: Self.stoppedKey(of: kind))
+		runTask?.cancel()
 	}
 
-	/// Every failure gets a notification, also while the notifications are off. The macOS log keeps the reason.
+	/// Every failure gets a notification, also while the notifications are off. The macOS log keeps the reason. A stopped
+	/// run has no failure, also when the stop makes a step fail.
 	private func fail(_ reason: String) {
+		guard !Task.isCancelled else { return }
 		failure = reason
 		Self.log.error("\(self.kind.title, privacy: .public) failed: \(reason, privacy: .public)")
 		system.post(kind.title, failedNotificationID, "Update failed", reason)
@@ -436,8 +444,17 @@ final class Report: ObservableObject {
 		environment.filter { ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "PATH"].contains($0.key) }
 	}
 
-	/// Runs a program, with a pipe for each stream. The program ends after `timeout`.
+	/// Runs a program, with a pipe for each stream. The program ends after `timeout`, or when its task is cancelled.
 	nonisolated static func execute(_ command: Command) async -> CommandResult {
+		let running = RunningProcess()
+		return await withTaskCancellationHandler {
+			await execute(command, as: running)
+		} onCancel: {
+			running.cancel()
+		}
+	}
+
+	private nonisolated static func execute(_ command: Command, as running: RunningProcess) async -> CommandResult {
 		await withCheckedContinuation { continuation in
 			DispatchQueue.global().async {
 				let process = Process()
@@ -450,11 +467,10 @@ final class Report: ObservableObject {
 				process.standardOutput = output
 				process.standardError = error
 				do {
-					try process.run()
+					try running.start(process)
 				} catch {
 					return continuation.resume(returning: CommandResult(status: 127, output: "", error: error.localizedDescription))
 				}
-				command.started(process.processIdentifier)
 				let timedOut = TimeoutFlag()
 				let timer = DispatchWorkItem {
 					timedOut.isSet = true
@@ -482,6 +498,29 @@ final class Report: ObservableObject {
 				continuation.resume(returning: CommandResult(status: process.terminationStatus, output: String(decoding: outputData, as: UTF8.self),
 					error: String(decoding: errorData, as: UTF8.self), timedOut: timedOut.isSet))
 			}
+		}
+	}
+}
+
+/// The process of a command, so that a cancel of its task can end it.
+private final class RunningProcess: @unchecked Sendable {
+	private let lock = NSLock()
+	private var process: Process?
+	private var isCancelled = false
+
+	/// Starts the process, unless the task is cancelled already.
+	func start(_ process: Process) throws {
+		try lock.withLock {
+			if isCancelled { throw CancellationError() }
+			try process.run()
+			self.process = process
+		}
+	}
+
+	func cancel() {
+		lock.withLock {
+			isCancelled = true
+			process?.terminate()
 		}
 	}
 }

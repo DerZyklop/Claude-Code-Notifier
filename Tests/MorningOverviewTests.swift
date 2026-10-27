@@ -109,6 +109,28 @@ extension ReportFixture {
 		await fixture.report.runIfDue()
 		#expect(fixture.log.commands.count == commands)
 	}
+
+	@Test func runIfDueSkipsTheDueMomentOfAStoppedRun() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let shared = Locked<Report?>(nil)
+		var system = fixture.report.system
+		let run = system.run
+		system.run = { command in
+			guard command.isClaudeRun else { return await run(command) }
+			await MainActor.run { shared.update { $0 }?.stop() }
+			return .init(status: 143, output: "", error: "")
+		}
+		let stopped = Report(kind: .morningOverview, system: system)
+		shared.update { $0 = stopped }
+		await stopped.update()
+		// A new report has no wait from an earlier try, as after a restart.
+		let next = Report(kind: .morningOverview, system: fixture.report.system)
+		let commands = fixture.log.commands.count
+		await next.runIfDue()
+		#expect(fixture.log.commands.count == commands)
+		#expect(next.isDue(at: tuesdayMorning))
+	}
 }
 
 @MainActor @Suite struct MorningOverviewUpdateTests {

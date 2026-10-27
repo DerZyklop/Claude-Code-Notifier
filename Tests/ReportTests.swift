@@ -156,6 +156,25 @@ import Testing
 		#expect(fixture.log.posts.isEmpty)
 	}
 
+	@Test func stopWhileTheInputIsCollectedStartsNoClaude() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let shared = Locked<Report?>(nil)
+		var system = fixture.report.system
+		let run = system.run
+		system.run = { command in
+			if !command.isClaudeRun { await MainActor.run { shared.update { $0 }?.stop() } }
+			return await run(command)
+		}
+		let report = Report(kind: .morningOverview, system: system)
+		shared.update { $0 = report }
+		await report.update()
+		#expect(report.isStopped)
+		#expect(fixture.claudeRun == nil)
+		#expect(report.failure == nil)
+		#expect(fixture.log.posts.isEmpty)
+	}
+
 	@Test func stopDoesNothingWithoutARun() throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
@@ -169,7 +188,6 @@ import Testing
 		#expect(fixture.report.runStarted == nil)
 		await fixture.report.update()
 		#expect(fixture.report.runStarted == fixture.report.system.now())
-		#expect(fixture.report.runPID == nil)
 	}
 
 	@Test func theMarkStaysAfterARestart() async throws {
@@ -229,6 +247,17 @@ import Testing
 	@Test func childGetsOnlyTheBasicVariables() {
 		let environment = ["HOME": "/Users/me", "PATH": "/usr/bin", "CLAUDECODE": "1", "NODE_USE_ENV_PROXY": "1", "LANG": "en_US.UTF-8"]
 		#expect(Report.childEnvironment(of: environment) == ["HOME": "/Users/me", "PATH": "/usr/bin", "LANG": "en_US.UTF-8"])
+	}
+
+	@Test func cancelEndsTheProgram() async {
+		let start = Date()
+		let task = Task { await Report.execute(command("/bin/sleep", ["5"])) }
+		try? await Task.sleep(for: .milliseconds(200))
+		task.cancel()
+		let result = await task.value
+		#expect(result.status == SIGTERM)
+		#expect(!result.timedOut)
+		#expect(Date().timeIntervalSince(start) < 2)
 	}
 
 	@Test func missingProgramGivesStatus127() async {
