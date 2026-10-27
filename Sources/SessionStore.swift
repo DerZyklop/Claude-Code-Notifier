@@ -90,6 +90,8 @@ struct Session: Identifiable, Equatable {
 	var pid: Int32?
 	/// The shell commands of the session that run now. After the turn, these are commands in the background.
 	var shellCommands = 0
+	/// The headless run of a report, see ``Report/isPrompt(_:)``. The menu shows the report instead.
+	var isReport = false
 
 	/// Whether the turn is over, but a shell command still runs in the background.
 	var hasBackgroundTask: Bool { state == .yourTurn && shellCommands > 0 }
@@ -109,6 +111,35 @@ struct Session: Identifiable, Equatable {
 	var name: String { title ?? project }
 }
 
+/// The Claude tab in the front VS Code window, from the extension in `vscode-extension/`.
+struct FocusedTab: Decodable, Equatable {
+	/// The label of the tab: the session title, shortened by the Claude Code extension.
+	let title: String
+	/// The workspace folders of the window.
+	let folders: [String]
+
+	/// Whether the tab shows the session: the same label, and the session runs in a folder of the window.
+	func shows(_ session: Session) -> Bool {
+		guard let cwd = session.cwd, folders.contains(where: { cwd == $0 || cwd.hasPrefix($0 + "/") }) else { return false }
+		return Self.label(of: session.title) == title
+	}
+
+	/// The label of a tab with the title, like the Claude Code extension makes it: at most 25 UTF-16 units.
+	static func label(of title: String?) -> String {
+		guard let title, !title.isEmpty else { return "Claude Code" }
+		let units = Array(title.utf16)
+		return units.count > 25 ? String(decoding: units.prefix(24), as: UTF16.self) + "…" : title
+	}
+}
+
+/// The message of the VS Code extension. `tab` is `nil` while VS Code is in the background or shows no Claude tab.
+private struct TabFocusEvent: Decodable {
+	static let name = "TabFocus"
+
+	let hook_event_name: String
+	let tab: FocusedTab?
+}
+
 /// The fields of the hook input that this app uses.
 struct HookEvent: Decodable {
 	let hook_event_name: String
@@ -121,6 +152,8 @@ struct HookEvent: Decodable {
 	let reason: String?
 	let transcript_path: String?
 	let error: String?
+	/// The text of the prompt, in `UserPromptSubmit`.
+	let prompt: String?
 
 	/// Claude Code also sends a `Notification` when it waits for input for a while after it finished.
 	var isIdleReminder: Bool {
@@ -151,7 +184,17 @@ final class SessionStore: ObservableObject {
 
 	static let shared = SessionStore(system: .live, setup: .shared, checksSessions: true)
 
-	@Published private(set) var sessions: [String: Session] = [:]
+	@Published private(set) var sessions: [String: Session] = [:] {
+		didSet {
+			let kept = hiddenStates.filter { sessions[$0.key]?.shownState == $0.value }
+			if kept.count != hiddenStates.count { hiddenStates = kept }
+		}
+	}
+	/// The sessions that the user removed from the card, with their shown state at that time. A session comes back
+	/// when its shown state changes.
+	@Published private(set) var hiddenStates: [String: SessionState] = [:]
+	/// The Claude tab that the user looks at. Its session gets no notification.
+	private(set) var focusedTab: FocusedTab?
 
 	private let system: System
 	private let setup: HookSetup
@@ -168,11 +211,16 @@ final class SessionStore: ObservableObject {
 		checkSessions()
 	}
 
+	/// The sessions of the card, without the hidden ones.
 	var sortedSessions: [Session] {
-		sessions.values.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
+		sessions.values.filter { hiddenStates[$0.id] == nil }.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
 	}
 
 	func handle(_ data: Data) {
+		if let event = try? JSONDecoder().decode(TabFocusEvent.self, from: data), event.hook_event_name == TabFocusEvent.name {
+			focus(event.tab)
+			return
+		}
 		guard let event = try? JSONDecoder().decode(HookEvent.self, from: data) else { return }
 		if event.hook_event_name == HookSetup.selfTestEventName {
 			setup.selfTestReceived(token: event.session_id)
@@ -228,6 +276,19 @@ final class SessionStore: ObservableObject {
 		}
 	}
 
+	/// Closes the notifications of the sessions that the tab shows.
+	func focus(_ tab: FocusedTab?) {
+		focusedTab = tab
+		guard let tab else { return }
+		let ids = sessions.values.filter(tab.shows).map(\.id)
+		if !ids.isEmpty { system.removeNotifications(ids) }
+	}
+
+	/// Removes the session from the card until its shown state changes.
+	func hide(_ id: String) {
+		hiddenStates[id] = sessions[id]?.shownState
+	}
+
 	func removeEnded() {
 		sessions = sessions.filter { $0.value.state != .ended }
 	}
@@ -245,7 +306,8 @@ final class SessionStore: ObservableObject {
 		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
+		var session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
+		session.isReport = previous?.isReport ?? false || event.prompt.map(Report.isPrompt) ?? false
 		sessions[session.id] = session
 		return session
 	}
@@ -343,7 +405,7 @@ final class SessionStore: ObservableObject {
 	}
 
 	func notify(_ kind: NotificationKind, session: Session, body: String) {
-		if system.defaults.bool(forKey: SettingsKey.muted) { return }
+		if system.defaults.bool(forKey: SettingsKey.muted) || focusedTab?.shows(session) == true { return }
 		// One notification per session: a new one replaces the old one.
 		post(kind, title: session.name, body: body, identifier: session.id)
 	}

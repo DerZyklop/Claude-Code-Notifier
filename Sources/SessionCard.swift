@@ -11,20 +11,29 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. The card only shows information.
+/// the app on the right. A button left of each row removes the session from the card, see ``SessionStore/hide(_:)``.
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
 	@ObservedObject var setup: HookSetup
 	@ObservedObject var clock: MenuClock
+	/// The running ones get a row above the sessions. The card reads them again with each tick of the clock.
+	var reports: [Report] = Report.all
 	@State private var hoveredID: String?
 
 	var body: some View {
-		let sessions = store.sortedSessions
+		// A report has its own row, so its headless session stays out of the list.
+		let sessions = store.sortedSessions.filter { !$0.isReport }
+		let running = reports.filter(\.isRunning)
 		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 		VStack(spacing: 0) {
 			header
-			if sessions.isEmpty {
-				Text("No Claude Code sessions yet")
+			ForEach(Array(running.enumerated()), id: \.element.kind.notificationID) { index, report in
+				if index > 0 { Divider().padding(.horizontal, 6) }
+				reportRow(report)
+			}
+			if !running.isEmpty && !sessions.isEmpty { Divider().padding(.horizontal, 6) }
+			if sessions.isEmpty && running.isEmpty {
+				Text(store.hiddenStates.isEmpty ? "No Claude Code sessions yet" : "No sessions to show")
 					.foregroundStyle(.secondary)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.padding(.horizontal, 6)
@@ -69,6 +78,7 @@ struct SessionCard: View {
 
 	private func row(_ session: Session) -> some View {
 		HStack(alignment: .center, spacing: 8) {
+			hideButton(session)
 			stateIcon(session)
 			Text(session.name)
 				.lineLimit(1)
@@ -94,6 +104,41 @@ struct SessionCard: View {
 				hoveredID = nil
 			}
 		}
+	}
+
+	/// A running report, with a purple hourglass like the wave during a report.
+	private func reportRow(_ report: Report) -> some View {
+		HStack(alignment: .center, spacing: 8) {
+			// Keeps the icon in line with the icons of the sessions.
+			Image(systemName: "xmark.circle.fill").hidden()
+			Image(systemName: SessionState.working.symbol)
+				.font(.system(size: 17, weight: .semibold))
+				.foregroundStyle(Color(nsColor: Spinner.reportColor))
+				.frame(width: 22, height: 22)
+				.help("updating the report")
+			Text(report.kind.title)
+				.lineLimit(1)
+			Spacer(minLength: 16)
+			if let started = report.runStarted {
+				Text(Self.elapsed(from: started, to: clock.now))
+					.monospacedDigit()
+					.foregroundStyle(.secondary)
+			}
+		}
+		.padding(.horizontal, 6)
+		.padding(.vertical, 3)
+	}
+
+	/// Faint, and clearer while the pointer is on the row.
+	private func hideButton(_ session: Session) -> some View {
+		Button {
+			store.hide(session.id)
+		} label: {
+			Image(systemName: "xmark.circle.fill")
+				.foregroundStyle(hoveredID == session.id ? .secondary : .quaternary)
+		}
+		.buttonStyle(.plain)
+		.help("Remove from the list until the state changes")
 	}
 
 	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a blue

@@ -195,7 +195,7 @@ enum DiDi {
 			guard let id = pullRequest["id"] as? Int else { continue }
 			lines.append("- " + titleLine(id: id, url: pullRequest["url"] as? String ?? "", title: pullRequest["title"] as? String ?? "",
 				jiraBrowseURL: jiraBrowseURL))
-			lines += (highlights[id] ?? []).map { "  - " + $0 }
+			lines += (highlights[id] ?? []).map { "    - " + $0 }
 		}
 		lines += ["", "## Slack", ""]
 		if let error = data["slackError"] as? String {

@@ -328,6 +328,23 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 	}
 }
 
+@Suite @MainActor struct SpinnerReportTests {
+	@Test func aReportPaintsTheWavePurple() {
+		let spinner = Spinner(button: makeButton())
+		spinner.show(waveEnd: 26, over: imageFrame, isWorking: true, hasGap: false, stillColor: stillColor, isReport: true)
+		#expect(spinner.track.strokeColor == Spinner.reportColor.withAlphaComponent(0.3).cgColor)
+		let dark = Spinner.reportColor.blended(withFraction: 0.35, of: .black) ?? Spinner.reportColor
+		#expect(spinner.segment.strokeColor == dark.cgColor)
+	}
+
+	@Test func theWaveIsGreenAgainAfterTheReport() {
+		let spinner = Spinner(button: makeButton())
+		spinner.show(waveEnd: 26, over: imageFrame, isWorking: true, hasGap: false, stillColor: stillColor, isReport: true)
+		spinner.show(waveEnd: 26, over: imageFrame, isWorking: true, hasGap: false, stillColor: stillColor)
+		#expect(spinner.track.strokeColor == Spinner.color.withAlphaComponent(0.3).cgColor)
+	}
+}
+
 @Suite @MainActor struct SpinnerShowTests {
 	@Test func showPlacesTheLayersOverTheImage() {
 		let spinner = Spinner(button: makeButton())
@@ -339,6 +356,15 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 			#expect(layer.contentsScale == 2)
 		}
 		#expect(spinner.still.strokeColor == stillColor.cgColor)
+	}
+
+	@Test func waveStartMovesTheLayersAndShortensTheWave() throws {
+		let spinner = Spinner(button: makeButton())
+		spinner.show(waveStart: 9, waveEnd: 26, over: imageFrame, isWorking: false, hasGap: false, stillColor: stillColor)
+		for layer in [spinner.still, spinner.track, spinner.segment] {
+			#expect(layer.position == CGPoint(x: 28, y: 11))
+		}
+		#expect(try #require(spinner.shownShape).end == 17)
 	}
 
 	@Test func showSetsTheWavePaths() {

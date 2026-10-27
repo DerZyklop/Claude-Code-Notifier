@@ -30,12 +30,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		statusItem.button?.imagePosition = .imageOnly
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
-		Publishers.Merge(SessionStore.shared.objectWillChange, HookSetup.shared.objectWillChange)
+		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher(), HookSetup.shared.objectWillChange.eraseToAnyPublisher()]
+			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.updateIcon() }
 			.store(in: &subscriptions)
-		// Only the sessions change the height of the card. Measuring it builds a view, so other changes skip it.
-		SessionStore.shared.objectWillChange
+		// Only the sessions and the running reports change the height of the card. Measuring it builds a view, so other
+		// changes skip it.
+		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher()]
+			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
 			.store(in: &subscriptions)
@@ -47,24 +50,29 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	/// The icon always has the same width, so that the menu bar never shifts. From the right: the bubble of the waiting
-	/// sessions, the number of working sessions, and the wave in the space that is left. Without work, the wave stands
-	/// still in the menu bar color, and a setup problem breaks it in the middle. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
+	/// sessions, the number of working sessions, and the wave in the space that is left. A report file that you did not
+	/// open yet puts a purple dot left of the wave. Without work, the wave stands
+	/// still in the menu bar color, and a setup problem breaks it in the middle. A running report moves the wave in purple. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
 		let hasProblem = HookSetup.shared.hasProblem
 		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
-		let working = hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count
+		// A running report counts once, as its own row in the card, and not also through its headless session.
+		let runningReports = Report.all.filter(\.isRunning).count
+		let working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working && !$0.isReport }.count) + runningReports
+		let isReporting = runningReports > 0
+		let hasUnread = Report.all.contains { $0.isUnread }
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-		let layout = Self.layout(working: working, waiting: waiting)
+		let layout = Self.layout(working: working, waiting: waiting, hasUnread: hasUnread)
 
 		let image = icon(layout: layout, isDark: isDark)
 		if button.image !== image { button.image = image }
 		button.layoutSubtreeIfNeeded()
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
-		spinner.show(waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
-			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark))
+		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
+			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
@@ -74,7 +82,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		spinner.glow(with: attention)
 	}
 
-	static let iconWidth = 58.0
+	static let iconWidth = 70.0
 	static let gap = 2.0
 	/// The number of working sessions reads as »×2«: two times the wave.
 	static let workingPrefix = "×"
@@ -87,10 +95,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		var waveEnd = 0.0
 		var numberCenterX: Double?
 		var bubbleX: Double?
+		/// The wave runs from here to ``waveEnd``.
+		var waveStart = 0.0
+		/// The dot of an unread report.
+		var dotCenterX: Double?
 	}
 
-	static func layout(working: Int, waiting: Int) -> IconLayout {
+	static let dotDiameter = 6.0
+
+	static func layout(working: Int, waiting: Int, hasUnread: Bool = false) -> IconLayout {
 		var layout = IconLayout(working: min(working, 10), waiting: min(waiting, 10))
+		if hasUnread {
+			layout.dotCenterX = 1 + dotDiameter / 2
+			layout.waveStart = 1 + dotDiameter + gap
+		}
 		var right = iconWidth
 		if waiting > 0 {
 			right -= bubbleWidth
@@ -113,7 +131,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
 	}
 
-	/// The number in one image, above which ``Spinner`` draws the wave and ``AttentionBubble`` the bubble. The image
+	/// The number and the dot in one image, above which ``Spinner`` draws the wave and ``AttentionBubble`` the bubble. The image
 	/// keeps the height of the bubble, so the parts stay centered. It cannot be a template image, because the number
 	/// must match the colors of the layers, so it colors the number itself.
 	private func icon(layout: IconLayout, isDark: Bool) -> NSImage {
@@ -124,6 +142,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let image = NSImage(size: NSSize(width: Self.iconWidth, height: height), flipped: false) { rect in
 			if let x = layout.numberCenterX {
 				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color, prefix: Self.workingPrefix)
+			}
+			if let x = layout.dotCenterX {
+				Spinner.reportColor.setFill()
+				NSBezierPath(ovalIn: NSRect(x: x - Self.dotDiameter / 2, y: rect.midY - Self.dotDiameter / 2,
+					width: Self.dotDiameter, height: Self.dotDiameter)).fill()
 			}
 			return true
 		}
@@ -254,7 +277,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		}
 		let open = action("Open \(kind.title)", #selector(openReport(_:)))
 		open.representedObject = report
-		if report.isUnread { open.attributedTitle = Self.withGreenDot(open.title) }
+		if report.isUnread { open.attributedTitle = Self.withUnreadDot(open.title) }
 		if !FileManager.default.fileExists(atPath: report.fileURL.path) { open.action = nil }
 		menu.addItem(open)
 		menu.addItem(toggle(kind.schedule.menuTitle, kind.settingsKey))
@@ -282,11 +305,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return item
 	}
 
-	/// The title with a green dot behind it, in the font of the menu.
-	static func withGreenDot(_ title: String) -> NSAttributedString {
+	/// The title with a purple dot behind it, in the font of the menu.
+	static func withUnreadDot(_ title: String) -> NSAttributedString {
 		let font = NSFont.menuFont(ofSize: 0)
 		let text = NSMutableAttributedString(string: title + " ", attributes: [.font: font])
-		text.append(NSAttributedString(string: "●", attributes: [.font: font, .foregroundColor: NSColor.systemGreen]))
+		text.append(NSAttributedString(string: "●", attributes: [.font: font, .foregroundColor: Spinner.reportColor]))
 		return text
 	}
 

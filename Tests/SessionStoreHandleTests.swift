@@ -460,6 +460,32 @@ private struct Fixture {
 		#expect(session.title == "New title")
 	}
 
+	@Test func aReportPromptMarksTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let session = fixture.store.set(.working, for: try hookEvent("UserPromptSubmit", ["prompt": "# Morning overview\n\nYou write"]), previous: nil)
+		#expect(session.isReport)
+		let next = fixture.store.set(.working, for: try hookEvent("PostToolUse"), previous: session)
+		#expect(next.isReport)
+	}
+
+	@Test func aReportRunStaysMarkedThroughItsEvents() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SessionStart")
+		fixture.handle("UserPromptSubmit", ["prompt": "# Morning overview\n\nYou write\n## Facts\n{\"x\":1}\n"])
+		fixture.handle("PostToolUse", ["tool_name": "Read"])
+		#expect(fixture.store.sessions["s1"]?.isReport == true)
+		#expect(fixture.store.sessions["s1"]?.shownState == .working)
+	}
+
+	@Test func anOtherPromptDoesNotMarkTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let session = fixture.store.set(.working, for: try hookEvent("UserPromptSubmit", ["prompt": "Fix the morning overview"]), previous: nil)
+		#expect(!session.isReport)
+	}
+
 	@Test func toolUseKeepsTheTitle() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
@@ -585,5 +611,105 @@ private struct Fixture {
 		// A shell command in the background shows the turn as working.
 		fixture.store.apply(shellCommands: [7: 1])
 		#expect(fixture.store.sortedSessions.map(\.id) == ["asks", "working new", "background", "working old", "turn", "ended"])
+	}
+
+	@Test func hideRemovesTheSessionFromTheList() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		try fixture.add(.working, id: "s2")
+		fixture.store.hide("s1")
+		#expect(fixture.store.sortedSessions.map(\.id) == ["s2"])
+		#expect(fixture.store.sessions["s1"] != nil)
+	}
+
+	@Test func hiddenSessionComesBackWhenTheStateChanges() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.hide("s1")
+		fixture.store.handle(hookJSON("Stop"))
+		#expect(fixture.store.sortedSessions.isEmpty)
+		fixture.store.handle(hookJSON("UserPromptSubmit"))
+		#expect(fixture.store.sortedSessions.map(\.id) == ["s1"])
+		// The next turn does not hide it again.
+		fixture.store.handle(hookJSON("Stop"))
+		#expect(fixture.store.sortedSessions.map(\.id) == ["s1"])
+		#expect(fixture.store.hiddenStates.isEmpty)
+	}
+
+	@Test func hiddenSessionComesBackWithABackgroundTask() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1", pid: 7)
+		fixture.store.hide("s1")
+		fixture.store.apply(shellCommands: [7: 1])
+		#expect(fixture.store.sortedSessions.map(\.id) == ["s1"])
+	}
+
+	@Test func hideOfAnUnknownSessionDoesNothing() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.store.hide("nope")
+		#expect(fixture.store.hiddenStates.isEmpty)
+	}
+}
+
+/// The JSON that the VS Code extension sends for a Claude tab, or for no tab.
+private func tabFocusJSON(_ title: String?, folders: [String] = ["/work"]) -> Data {
+	let tab: Any = title.map { ["title": $0, "folders": folders] } ?? NSNull()
+	return try! JSONSerialization.data(withJSONObject: ["hook_event_name": "TabFocus", "tab": tab])
+}
+
+@MainActor @Suite struct SessionStoreFocusTests {
+	@Test func focusClosesTheNotificationOfTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.handle(tabFocusJSON("Claude Code"))
+		#expect(fixture.log.removed == ["s1"])
+		#expect(fixture.store.focusedTab == FocusedTab(title: "Claude Code", folders: ["/work"]))
+	}
+
+	@Test(arguments: [("Other title", ["/work"]), ("Claude Code", ["/other"]), ("Claude Code", ["/work/proj"])])
+	func focusKeepsTheNotificationsOfOtherSessions(title: String, folders: [String]) throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.handle(tabFocusJSON(title, folders: folders))
+		#expect(fixture.log.removed.isEmpty)
+	}
+
+	@Test func focusedSessionGetsNoNotification() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.store.handle(tabFocusJSON("Claude Code"))
+		fixture.handle("Stop")
+		#expect(fixture.log.added.isEmpty)
+
+		fixture.store.handle(tabFocusJSON(nil))
+		#expect(fixture.store.focusedTab == nil)
+		fixture.handle("Stop")
+		#expect(fixture.log.added.count == 1)
+	}
+
+	@Test func tabFocusIsNoClaudeEvent() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.store.handle(tabFocusJSON("Claude Code"))
+		#expect(fixture.store.sessions.isEmpty)
+		#expect(fixture.setup.lastClaudeEvent == nil)
+	}
+
+	@Test(arguments: [
+		(nil, "Claude Code"),
+		("", "Claude Code"),
+		("Fix the login page", "Fix the login page"),
+		("1234567890123456789012345", "1234567890123456789012345"),
+		("12345678901234567890123456", "123456789012345678901234…"),
+		("🛎️ Claude Notification App", "🛎️ Claude Notification …"),
+	] as [(String?, String)])
+	func labelShortensLikeTheExtension(title: String?, label: String) {
+		#expect(FocusedTab.label(of: title) == label)
 	}
 }

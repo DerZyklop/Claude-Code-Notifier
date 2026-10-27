@@ -32,7 +32,7 @@ enum MorningOverview {
 	@MainActor
 	static func collect(_ report: Report) async throws -> Report.Input {
 		let me = await report.me()
-		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report)]
+		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": await branches(report)]
 		do {
 			data["pullRequests"] = try await pullRequests(report.bitbucket(), me: me)
 		} catch let error as URLError {
@@ -68,7 +68,78 @@ enum MorningOverview {
 			let reason = (result.error + result.output).split(separator: "\n").last.map(String.init) ?? "no output"
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
-		return Report.hashLinksAsCode(in: withDailyTasks(report.system.dailyTasks, in: text))
+		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(report.system.dailyTasks, in: text))))
+	}
+
+	/// The overview with an ID for each task and the number of open tasks in each heading.
+	static func numbered(_ overview: String) -> String {
+		withSectionCounts(in: withTaskIDs(in: overview))
+	}
+
+	/// The letter of the IDs in each section. Another section gets the first letter of its title.
+	static let sectionLetters = ["Their Open PRs": "R", "My Open PRs": "M", "Draft PRs": "D", "Remaining Tickets in this Sprint": "T",
+		"Open Branches": "B", "Other Work": "O"]
+
+	/// Each task with an ID after its checkbox, e.g. `` `M2` `` for the second task under »My Open PRs«, and each of its next
+	/// actions with a letter, e.g. `` `M2a` ``. Done tasks keep their place in the count, so that a tick changes no ID. An
+	/// ID that the file already has gets replaced. Tasks above the first section get no ID.
+	static func withTaskIDs(in overview: String) -> String {
+		var letter: String?
+		var task = 0
+		var step = 0
+		return overview.components(separatedBy: "\n").map { line in
+			if line.hasPrefix("## ") {
+				let title = line.dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
+				letter = sectionLetters[title] ?? title.first.map { String($0).uppercased() }
+				task = 0
+				return line
+			}
+			let indent = line.prefix { $0 == " " }
+			var body = line.dropFirst(indent.count)
+			guard let letter, body.hasPrefix("- ") else { return line }
+			body = body.dropFirst(2)
+			var box = ""
+			if ["[ ] ", "[x] ", "[X] "].contains(where: { body.hasPrefix($0) }) {
+				box = String(body.prefix(4))
+				body = body.dropFirst(4)
+			}
+			if let old = body.range(of: #"^`[A-Z]\d+[a-z]*` "#, options: .regularExpression) { body = body[old.upperBound...] }
+			let id: String
+			if indent.isEmpty {
+				task += 1
+				step = 0
+				id = "\(letter)\(task)"
+			} else {
+				guard task > 0, step < 26 else { return line }
+				step += 1
+				id = "\(letter)\(task)\(Character(UnicodeScalar(UInt8(96 + step))))"
+			}
+			return "\(indent)- \(box)`\(id)` \(body)"
+		}.joined(separator: "\n")
+	}
+
+	/// Each section heading with the number of its tasks, e.g. `## 3 × My Open PRs`. Only the tasks at the start of a line
+	/// count, not their next actions. A number that Claude already wrote gets replaced.
+	static func withSectionCounts(in overview: String) -> String {
+		var lines = overview.components(separatedBy: "\n")
+		var heading: Int?
+		var count = 0
+		func writeCount() {
+			guard let heading else { return }
+			let title = lines[heading].dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
+			lines[heading] = "## \(count) × \(title)"
+		}
+		for index in lines.indices {
+			if lines[index].hasPrefix("## ") {
+				writeCount()
+				heading = index
+				count = 0
+			} else if lines[index].hasPrefix("- [ ]") {
+				count += 1
+			}
+		}
+		writeCount()
+		return lines.joined(separator: "\n")
 	}
 
 	/// The overview in the output of the run, or `nil` if the output is no overview. Text before the title and a Markdown
@@ -79,6 +150,14 @@ enum MorningOverview {
 		while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty || last.hasPrefix("```") { lines.removeLast() }
 		let text = lines.joined(separator: "\n")
 		return Report.updated(in: text, calendar: .current) == nil ? nil : text + "\n"
+	}
+
+	/// Keeps the counts in the headings right while the user ticks tasks in an editor.
+	@MainActor static let countKeeper = SectionCountKeeper(fileURL: Report.morningOverview.fileURL)
+
+	/// The overview with each sub-item indented by 4 spaces. Claude sometimes writes 2.
+	static func subItemsIndented(in overview: String) -> String {
+		overview.replacingOccurrences(of: "(?m)^  (?=- )", with: "    ", options: .regularExpression)
 	}
 
 	/// The overview with the daily tasks above its first section.
@@ -103,6 +182,38 @@ enum MorningOverview {
 				"commitsOnNoRemote": commits])
 		}
 		return result
+	}
+
+	/// The remote branches that other branches merge into, if the remote has them.
+	static let baseBranches = ["origin/HEAD", "origin/dev", "origin/develop"]
+	/// The most local branches in the input, the newest first.
+	static let branchLimit = 100
+
+	/// The local branches, the newest first, with their upstream state and the base branches that hold all their commits.
+	@MainActor
+	private static func branches(_ report: Report) async -> [[String: Any]] {
+		let format = "%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:short)%09%(subject)"
+		var result = branches(in: await report.git(["for-each-ref", "--sort=-committerdate", "--count=\(branchLimit)", "--format=\(format)", "refs/heads"]))
+		for base in baseBranches {
+			guard !(await report.git(["rev-parse", "--verify", "--quiet", base])).isEmpty else { continue }
+			let merged = Set(await report.git(["branch", "--merged", base, "--format=%(refname:short)"]).split(separator: "\n").map(String.init))
+			for index in result.indices where merged.contains(result[index]["name"] as? String ?? "") {
+				result[index]["mergedInto"] = (result[index]["mergedInto"] as? [String] ?? []) + [base]
+			}
+		}
+		return result
+	}
+
+	/// The branches in the output of `git for-each-ref` with the format of ``branches(_:)``.
+	static func branches(in output: String) -> [[String: Any]] {
+		output.split(separator: "\n").compactMap { line in
+			let fields = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+			guard fields.count == 5 else { return nil }
+			var branch: [String: Any] = ["name": fields[0], "lastCommit": fields[3], "subject": fields[4]]
+			if !fields[1].isEmpty { branch["upstream"] = fields[1] }
+			if !fields[2].isEmpty { branch["track"] = fields[2] }
+			return branch
+		}
 	}
 
 	/// The worktrees in the output of `git worktree list --porcelain`.
@@ -158,5 +269,55 @@ enum MorningOverview {
 		guard let mine = participants.first(where: { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" })
 		else { return false }
 		return mine["approved"] as? Bool != true && pullRequest["draft"] as? Bool != true && (pullRequest["openTasks"] as? [Any])?.isEmpty == true
+	}
+}
+
+/// Counts the tasks in the headings again after the user changes the file, e.g. ticks a task, and gives a new task its ID. It checks the change date
+/// every 2 seconds, which works for each way of saving: in place, or as a new file. It writes only after the file stayed
+/// the same for one check, so that it does not change the file while the user types.
+@MainActor
+final class SectionCountKeeper {
+	static let interval: TimeInterval = 2
+	let fileURL: URL
+	private var timer: Timer?
+	/// The change date at the last check, and whether the file changed since the last count.
+	private var lastDate: Date?
+	private var isChanged = false
+
+	init(fileURL: URL) {
+		self.fileURL = fileURL
+	}
+
+	func start() {
+		timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
+			Task { @MainActor in self?.check() }
+		}
+	}
+
+	/// Counts again when the file stayed the same since a change.
+	func check() {
+		let date = changeDate()
+		if date != lastDate {
+			isChanged = lastDate != nil || isChanged
+			lastDate = date
+			return
+		}
+		guard isChanged else { return }
+		isChanged = false
+		updateCounts()
+	}
+
+	/// Writes the counts, if they changed.
+	func updateCounts() {
+		guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
+		let counted = MorningOverview.numbered(text)
+		guard counted != text else { return }
+		try? counted.write(to: fileURL, atomically: true, encoding: .utf8)
+		lastDate = changeDate()
+	}
+
+	/// Read without a cache: `URL.resourceValues` can give an old date for the same URL.
+	private func changeDate() -> Date? {
+		(try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
 	}
 }

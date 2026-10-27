@@ -40,38 +40,38 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 
 @MainActor @Suite struct StatusMenuLayoutTests {
 	@Test func withoutSessionsTheWaveFillsTheIcon() {
-		#expect(StatusMenu.layout(working: 0, waiting: 0) == StatusMenu.IconLayout(working: 0, waiting: 0, waveEnd: 58))
+		#expect(StatusMenu.layout(working: 0, waiting: 0) == StatusMenu.IconLayout(working: 0, waiting: 0, waveEnd: 70))
 	}
 
 	@Test func oneWorkingSessionHasNoNumber() {
-		#expect(StatusMenu.layout(working: 1, waiting: 0) == StatusMenu.IconLayout(working: 1, waiting: 0, waveEnd: 58))
+		#expect(StatusMenu.layout(working: 1, waiting: 0) == StatusMenu.IconLayout(working: 1, waiting: 0, waveEnd: 70))
 	}
 
 	@Test(arguments: [2, 5, 9, 10])
 	func moreWorkingSessionsGetANumberAtTheRight(working: Int) {
 		let number = Spinner.countWidth(working, prefix: StatusMenu.workingPrefix)
 		#expect(StatusMenu.layout(working: working, waiting: 0)
-			== StatusMenu.IconLayout(working: working, waiting: 0, waveEnd: 58 - (number + 4), numberCenterX: 58 - number / 2))
+			== StatusMenu.IconLayout(working: working, waiting: 0, waveEnd: 70 - (number + 4), numberCenterX: 70 - number / 2))
 	}
 
 	@Test(arguments: [1, 3])
 	func waitingSessionsGetTheBubbleAtTheRight(waiting: Int) {
 		let bubble = StatusMenu.bubbleWidth
 		#expect(StatusMenu.layout(working: 0, waiting: waiting)
-			== StatusMenu.IconLayout(working: 0, waiting: waiting, waveEnd: 58 - bubble - 2, bubbleX: 58 - bubble))
+			== StatusMenu.IconLayout(working: 0, waiting: waiting, waveEnd: 70 - bubble - 2, bubbleX: 70 - bubble))
 	}
 
 	@Test func oneWorkingSessionNextToTheBubbleHasNoNumber() {
 		let bubble = StatusMenu.bubbleWidth
 		#expect(StatusMenu.layout(working: 1, waiting: 1)
-			== StatusMenu.IconLayout(working: 1, waiting: 1, waveEnd: 58 - bubble - 2, bubbleX: 58 - bubble))
+			== StatusMenu.IconLayout(working: 1, waiting: 1, waveEnd: 70 - bubble - 2, bubbleX: 70 - bubble))
 	}
 
 	@Test func numberGoesLeftOfTheBubble() {
 		let bubble = StatusMenu.bubbleWidth
 		let number = Spinner.countWidth(3, prefix: StatusMenu.workingPrefix)
 		#expect(StatusMenu.layout(working: 3, waiting: 2) == StatusMenu.IconLayout(
-			working: 3, waiting: 2, waveEnd: 58 - bubble - 2 - (number + 4), numberCenterX: 58 - bubble - 2 - number / 2, bubbleX: 58 - bubble))
+			working: 3, waiting: 2, waveEnd: 70 - bubble - 2 - (number + 4), numberCenterX: 70 - bubble - 2 - number / 2, bubbleX: 70 - bubble))
 	}
 
 	@Test func partsKeepTheirGaps() throws {
@@ -97,6 +97,20 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 		#expect(StatusMenu.layout(working: 15, waiting: 12) == StatusMenu.layout(working: 10, waiting: 10))
 	}
 
+	@Test func anUnreadReportPutsTheDotLeftOfTheWave() throws {
+		let layout = StatusMenu.layout(working: 0, waiting: 0, hasUnread: true)
+		let dotX = try #require(layout.dotCenterX)
+		#expect(dotX - StatusMenu.dotDiameter / 2 >= 0)
+		#expect(abs(dotX + StatusMenu.dotDiameter / 2 + StatusMenu.gap - layout.waveStart) < 0.001)
+		#expect(layout.waveEnd == 70)
+	}
+
+	@Test func withoutAnUnreadReportTheWaveStartsAtTheLeftEnd() {
+		let layout = StatusMenu.layout(working: 0, waiting: 0)
+		#expect(layout.dotCenterX == nil)
+		#expect(layout.waveStart == 0)
+	}
+
 	@Test func waveHasRoomWithTheMostContent() {
 		#expect(StatusMenu.layout(working: 10, waiting: 10).waveEnd > 2 * Spinner.inset)
 	}
@@ -117,22 +131,24 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 
 	@Test func eachFieldMakesALayoutDifferent() {
 		let layout = StatusMenu.IconLayout(working: 2, waiting: 1, waveEnd: 30, numberCenterX: 40, bubbleX: 50)
-		var others = Array(repeating: layout, count: 5)
+		var others = Array(repeating: layout, count: 7)
 		others[0].working = 3
 		others[1].waiting = 2
 		others[2].waveEnd = 31
 		others[3].numberCenterX = nil
 		others[4].bubbleX = nil
+		others[5].waveStart = 9
+		others[6].dotCenterX = 4
 		for other in others {
 			#expect(layout != other)
 		}
-		#expect(Set(others + [layout]).count == 6)
+		#expect(Set(others + [layout]).count == 8)
 	}
 }
 
 @MainActor @Suite struct StatusMenuIconTests {
 	@Test func iconHasAFixedWidth() {
-		#expect(StatusMenu.iconWidth == 58)
+		#expect(StatusMenu.iconWidth == 70)
 		#expect(StatusMenu.gap == 2)
 	}
 

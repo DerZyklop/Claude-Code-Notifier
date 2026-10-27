@@ -7,7 +7,11 @@ let overviewText = """
 
 	Updated: 2026-10-27 07:00
 
-	## Open PRs
+	## Their Open PRs
+
+	Nothing open.
+
+	## My Open PRs
 
 	- [ ] [#12](https://bitbucket.org/ws/repo/pull-requests/12) Fix: answer 1 task.
 
@@ -113,7 +117,9 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text == Report.hashLinksAsCode(in: MorningOverview.withDailyTasks(["Zeiterfassung"], in: overviewText + "\n")))
+		#expect(text == Report.hashLinksAsCode(in: MorningOverview.numbered(MorningOverview.withDailyTasks(["Zeiterfassung"], in: overviewText + "\n"))))
+		#expect(text.contains("- [ ] `M1` [`#12`]("))
+		#expect(text.contains("## 0 × Their Open PRs\n") && text.contains("## 1 × My Open PRs\n") && text.contains("## 0 × Draft PRs\n"))
 		#expect(text.contains("[`#12`](") && !text.contains("[#"))
 		#expect(fixture.report.isUnread)
 		#expect(fixture.report.failure == nil)
@@ -257,6 +263,17 @@ extension ReportFixture {
 }
 
 @Suite struct MorningOverviewParseTests {
+	@Test func branchesWithUpstreamTrackAndSubject() {
+		let output = "feature/a\torigin/feature/a\t[ahead 2]\t2026-10-26\tFix it\nlocal-only\t\t\t2026-10-20\tTry\tthis\nbroken line\n"
+		let branches = MorningOverview.branches(in: output)
+		#expect(branches.map { $0["name"] as? String } == ["feature/a", "local-only"])
+		#expect(branches[0]["upstream"] as? String == "origin/feature/a")
+		#expect(branches[0]["track"] as? String == "[ahead 2]")
+		#expect(branches[1]["upstream"] == nil && branches[1]["track"] == nil)
+		#expect(branches[1]["subject"] as? String == "Try\tthis")
+		#expect(branches[1]["lastCommit"] as? String == "2026-10-20")
+	}
+
 	@Test func worktreesWithBranchOrDetached() {
 		let worktrees = MorningOverview.worktrees(in: worktreeList)
 		#expect(worktrees.map(\.path) == ["/work/repo", "/work/repo/.claude/worktrees/scratch"])
@@ -273,10 +290,107 @@ extension ReportFixture {
 		#expect(MorningOverview.concerns(pullRequest, me: "Nils") == concerns)
 	}
 
+	@Test func subItemsGetFourSpaces() {
+		#expect(MorningOverview.subItemsIndented(in: "- [ ] Title\n  - Do it.\n    - Done.\n- [ ] Next\n")
+			== "- [ ] Title\n    - Do it.\n    - Done.\n- [ ] Next\n")
+	}
+
+	@Test func sectionHeadingsCountTheirTasks() {
+		let overview = """
+			# Morning overview
+
+			- [ ] Zeiterfassung
+
+			## My Open PRs
+
+			- [ ] [#1](https://x) First
+			    - [ ] A next action
+			- [ ] [#2](https://x) Second
+
+			## 7 × Draft PRs
+
+			Nothing open.
+			"""
+		#expect(MorningOverview.withSectionCounts(in: overview) == """
+			# Morning overview
+
+			- [ ] Zeiterfassung
+
+			## 2 × My Open PRs
+
+			- [ ] [#1](https://x) First
+			    - [ ] A next action
+			- [ ] [#2](https://x) Second
+
+			## 0 × Draft PRs
+
+			Nothing open.
+			""")
+	}
+
+	@MainActor @Test func keeperCountsAgainAfterAChangeOnlyOnceTheFileIsQuiet() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodeNotifierTests-\(UUID().uuidString)")
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let file = folder.appendingPathComponent("overview.md")
+		let keeper = SectionCountKeeper(fileURL: file)
+		try "## 2 × My Open PRs\n\n- [ ] One\n- [ ] Two\n".write(to: file, atomically: true, encoding: .utf8)
+		keeper.check()
+
+		// The user ticks a task. The first check sees the change, and the next one counts.
+		try "## 2 × My Open PRs\n\n- [x] One\n- [ ] Two\n".write(to: file, atomically: true, encoding: .utf8)
+		try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
+		keeper.check()
+		#expect(try String(contentsOf: file, encoding: .utf8).hasPrefix("## 2 × "))
+		keeper.check()
+		#expect(try String(contentsOf: file, encoding: .utf8) == "## 1 × My Open PRs\n\n- [x] `M1` One\n- [ ] `M2` Two\n")
+	}
+
+	@Test func tasksGetSectionIDsAndStepsGetLetters() {
+		let overview = """
+			- [ ] Zeiterfassung
+
+			## 9 × My Open PRs
+
+			- [x] [`#1`](https://x) First
+			    - Review it
+			    - [ ] `Z9z` Approve it
+			- [ ] `P7` Second
+
+			## Open Branches
+
+			- [ ] `feature/a` Old idea
+
+			## Ideas
+
+			Nothing open.
+			- [ ] New
+			"""
+		#expect(MorningOverview.withTaskIDs(in: overview) == """
+			- [ ] Zeiterfassung
+
+			## 9 × My Open PRs
+
+			- [x] `M1` [`#1`](https://x) First
+			    - `M1a` Review it
+			    - [ ] `M1b` Approve it
+			- [ ] `M2` Second
+
+			## Open Branches
+
+			- [ ] `B1` `feature/a` Old idea
+
+			## Ideas
+
+			Nothing open.
+			- [ ] `I1` New
+			""")
+	}
+
 	@Test func dailyTasksComeBeforeTheFirstSection() {
-		let overview = "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## Open PRs\n\nNothing open.\n\n## Other Work\n"
+		let overview = "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n"
 		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], in: overview)
-			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Zeiterfassung\n- [ ] Mail\n\n## Open PRs\n\nNothing open.\n\n## Other Work\n")
+			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Zeiterfassung\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n")
 		#expect(MorningOverview.withDailyTasks([], in: overview) == overview)
 	}
 
@@ -297,6 +411,6 @@ extension ReportFixture {
 		#expect(MorningOverview.overview(in: "\n\(overviewText)\n\n") == overviewText + "\n")
 		#expect(MorningOverview.overview(in: "Here it is:\n```markdown\n\(overviewText)\n```\n") == overviewText + "\n")
 		#expect(MorningOverview.overview(in: "Text about the # Morning overview and \(overviewText)") == nil)
-		#expect(MorningOverview.overview(in: "# Morning overview\n\n## Open PRs\n") == nil)
+		#expect(MorningOverview.overview(in: "# Morning overview\n\n## My Open PRs\n") == nil)
 	}
 }

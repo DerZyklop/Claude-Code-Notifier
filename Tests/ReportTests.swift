@@ -28,6 +28,15 @@ import Testing
 		#expect(Report.hashLinksAsCode(in: "see \\[#5\\](https://x)") == "see \\[#5\\](https://x)")
 	}
 
+	@Test func eachPromptFileStartsWithItsTitle() throws {
+		for report in Report.all {
+			let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../Resources/\(report.kind.promptResource).md")
+			#expect(Report.isPrompt(try String(contentsOf: url, encoding: .utf8)))
+		}
+		#expect(!Report.isPrompt("Morning overview"))
+		#expect(!Report.isPrompt(""))
+	}
+
 	@Test func forNotificationFindsTheReport() {
 		#expect(Report.forNotification("morning-overview") === Report.morningOverview)
 		#expect(Report.forNotification("didi") === Report.didi)
@@ -133,6 +142,23 @@ import Testing
 		}())
 		await report.update()
 		#expect(report.failure == "The command »claude« was not found.")
+	}
+
+	@Test func updateKeepsTheStartOfTheRun() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		#expect(fixture.report.runStarted == nil)
+		await fixture.report.update()
+		#expect(fixture.report.runStarted == fixture.report.system.now())
+	}
+
+	@Test func theMarkStaysAfterARestart() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		#expect(Report(kind: fixture.report.kind, system: fixture.report.system).isUnread)
+		fixture.report.openFile()
+		#expect(!Report(kind: fixture.report.kind, system: fixture.report.system).isUnread)
 	}
 
 	@Test func openFileOpensItAndRemovesTheMark() async throws {

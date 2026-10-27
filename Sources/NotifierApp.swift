@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { _ in
 			Task { @MainActor in await Report.runAllIfDue() }
 		}
+		MorningOverview.countKeeper.start()
 		Task { @MainActor in await Report.runAllIfDue() }
 	}
 

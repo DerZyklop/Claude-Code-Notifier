@@ -98,7 +98,7 @@ private final class Fixture {
 	@discardableResult
 	func add(_ state: SessionState, id: String, transcript: String? = nil, pid: Int32? = nil) -> Session {
 		let event = HookEvent(hook_event_name: "UserPromptSubmit", session_id: id, cwd: "/Users/me/Project", message: nil, notification_type: nil,
-			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil)
+			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil, prompt: nil)
 		let previous = pid.map { Session(id: id, cwd: nil, started: Date(), state: state, updated: Date(), pid: $0) }
 		return store.set(state, for: event, previous: previous)
 	}

@@ -4,7 +4,7 @@ import QuartzCore
 /// The wave of the menu bar icon, as three layers on the same curve above the image of the button.
 ///
 /// - The still wave in the menu bar color, while no session works.
-/// - A pale green wave, while sessions work.
+/// - A pale green wave, while sessions work. It is purple instead while a report runs, also when sessions work too.
 /// - A dark green segment that runs along the pale green wave from left to right, without a jump between rounds.
 ///
 /// When work starts, the green wave grows in from the left and the still wave shrinks back at the same point. When
@@ -27,6 +27,8 @@ final class Spinner {
 	/// The change between the still and the green wave.
 	static let swapDuration = 0.6
 	static let color = NSColor.systemGreen
+	/// The color of the wave while a report runs.
+	static let reportColor = NSColor.systemPurple
 
 	let still = CAShapeLayer()
 	let track = CAShapeLayer()
@@ -42,9 +44,8 @@ final class Spinner {
 	init(button: NSStatusBarButton) {
 		self.button = button
 		button.wantsLayer = true
-		track.strokeColor = Self.color.withAlphaComponent(0.3).cgColor
+		paint(Self.color)
 		track.strokeEnd = 0
-		segment.strokeColor = (Self.color.blended(withFraction: 0.35, of: .black) ?? Self.color).cgColor
 		segment.strokeEnd = 0
 		for layer in [still, track, segment] {
 			layer.fillColor = nil
@@ -62,16 +63,19 @@ final class Spinner {
 		segment.mask = segmentMask
 	}
 
-	/// Shows the waves over the image frame of the button, from its left end to `waveEnd`.
+	/// Shows the waves over the image frame of the button, from `waveStart` to `waveEnd`.
 	/// - Parameters:
 	///   - hasGap: Breaks the still wave in the middle, for a setup problem.
 	///   - stillColor: The menu bar color for the still wave.
-	func show(waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor) {
+	///   - isReport: Paints the moving wave in ``reportColor`` instead of ``color``.
+	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false) {
 		guard let imageFrame else {
 			for layer in [still, track, segment] { layer.isHidden = true }
 			return
 		}
 		let yAxisDown = button?.isFlipped ?? false
+		// The layers move right by `waveStart`, so the paths start at their left end.
+		let waveEnd = waveEnd - waveStart
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
 		let shape = (size: imageFrame.size, end: waveEnd, hasGap: hasGap)
@@ -87,18 +91,25 @@ final class Spinner {
 		}
 		for layer in [still, track, segment] {
 			layer.bounds = CGRect(origin: .zero, size: imageFrame.size)
-			layer.position = CGPoint(x: imageFrame.midX, y: imageFrame.midY)
+			layer.position = CGPoint(x: imageFrame.midX + waveStart, y: imageFrame.midY)
 			layer.contentsScale = button?.window?.backingScaleFactor ?? 2
 			layer.isHidden = false
 		}
 		segmentMask.frame = CGRect(origin: .zero, size: imageFrame.size)
 		segmentMask.contentsScale = segment.contentsScale
 		still.strokeColor = stillColor.cgColor
+		paint(isReport ? Self.reportColor : Self.color)
 		CATransaction.commit()
 
 		guard isWorking != self.isWorking else { return }
 		self.isWorking = isWorking
 		if isWorking { startWork() } else { endWork() }
+	}
+
+	/// The pale wave and the dark segment in `color`.
+	private func paint(_ color: NSColor) {
+		track.strokeColor = color.withAlphaComponent(0.3).cgColor
+		segment.strokeColor = (color.blended(withFraction: 0.35, of: .black) ?? color).cgColor
 	}
 
 	/// Lets the waves glow in dark red together with the bubble of the waiting sessions. Without a shown bubble, the glow

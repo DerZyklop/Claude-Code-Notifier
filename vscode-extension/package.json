@@ -1,0 +1,12 @@
+{
+	"name": "claude-code-pulse-focus",
+	"displayName": "Claude Code Pulse Focus",
+	"description": "Tells Claude Code Pulse which Claude session you look at, so that the app closes its notifications.",
+	"version": "1.0.0",
+	"publisher": "local",
+	"license": "UNLICENSED",
+	"engines": { "vscode": "^1.80.0" },
+	"extensionKind": ["ui"],
+	"main": "extension.js",
+	"activationEvents": ["onStartupFinished"]
+}

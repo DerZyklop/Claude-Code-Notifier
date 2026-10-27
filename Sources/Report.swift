@@ -144,10 +144,14 @@ final class Report: ObservableObject {
 	let kind: Kind
 	let system: System
 	@Published private(set) var isRunning = false
+	/// The start of the current run, for its time in the menu.
+	private(set) var runStarted: Date?
 	/// The reason why the last run failed, `nil` after a run that worked.
 	@Published private(set) var failure: String?
-	/// A new file waits to be opened. The menu marks it.
-	@Published private(set) var isUnread = false
+	/// A new file waits to be opened. The menu marks it. The defaults keep it, so the mark stays after a restart.
+	@Published private(set) var isUnread: Bool {
+		didSet { system.defaults.set(isUnread, forKey: Self.unreadKey(of: kind)) }
+	}
 	private var lastAutomaticRun: Date?
 	/// ``runAllIfDue()`` is going, so a second trigger does not start a report at the same time.
 	private static var isCheckingAll = false
@@ -155,10 +159,20 @@ final class Report: ObservableObject {
 	init(kind: Kind, system: System) {
 		self.kind = kind
 		self.system = system
+		isUnread = system.defaults.bool(forKey: Self.unreadKey(of: kind))
 	}
+
+	/// The key of ``isUnread`` in the defaults.
+	static func unreadKey(of kind: Kind) -> String { kind.notificationID + "-unread" }
 
 	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
 	var failedNotificationID: String { kind.notificationID + "-failed" }
+
+	/// Whether the prompt is the one of a report run. Each prompt file starts with the title of its report as a heading.
+	static func isPrompt(_ prompt: String) -> Bool {
+		guard let firstLine = prompt.split(separator: "\n", maxSplits: 1).first else { return false }
+		return all.map(\.kind.title).contains { firstLine.caseInsensitiveCompare("# " + $0) == .orderedSame }
+	}
 
 	/// The report whose ready notification has this identifier.
 	static func forNotification(_ identifier: String) -> Report? {
@@ -216,6 +230,7 @@ final class Report: ObservableObject {
 	/// Makes a new file.
 	func update() async {
 		guard !isRunning else { return }
+		runStarted = system.now()
 		isRunning = true
 		defer { isRunning = false }
 		guard let prompt = system.prompt(kind.promptResource) else { return fail("The prompt is missing in the app.") }

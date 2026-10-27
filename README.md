@@ -9,11 +9,12 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 | Situation | Menu bar | Notification |
 |---|---|---|
 | Claude works | A green wave with a moving segment | None |
+| A report runs | The wave is purple | None |
 | Claude asks you (permission, question, plan approval) | An orange bubble that rings every 20 s | »Claude asks you« |
 | Claude finished its turn | The wave stops | »Your turn«, with the start of the last message |
 | The setup has a problem | A gap in the wave | None |
 
-- **Menu bar icon:** always 58 pt wide. With two or more sessions, the icon shows their number, for example »×2«.
+- **Menu bar icon:** always 70 pt wide. With two or more sessions, the icon shows their number, for example »×2«.
 - **Card:** one row for each session, with its state, title and running time. Sessions that ask you come first.
   Archived sessions are not in the card.
 - **Notifications:** one for each session. A newer one replaces the older one. A click brings VS Code to the front.
@@ -23,15 +24,16 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 ## Morning overview
 
 The app writes `morning-overview.md` into the project folder `~/S/plano`. The file is a short list of open tasks in
-four sections: open PRs, draft PRs, the tickets of the sprint and other work. In each section, the easiest tasks come
-first. Each task has a title line with the links of the PR and the ticket and a short title, and its next actions as
-sub-items. The app adds the file to `.git/info/exclude`, so git never stages it.
+six sections: the open PRs of others, my open PRs, draft PRs, the tickets of the sprint, open branches and other
+work. »Open branches« lists only the local branches that no listed PR or ticket covers. In each section, the easiest
+tasks come first. Each task has a title line with the links of the PR and the ticket and a short title, and its
+next actions as sub-items. The app adds the file to `.git/info/exclude`, so git never stages it.
 
 - **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
   today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns
   the daily run off.
 - **Done:** a notification says how many tasks are open. A click on it opens the file in iA Writer, or in VS Code without iA Writer. Until you open
-  the file, the menu shows a green dot behind »Open Morning Overview«. A failure always gets a notification, and the menu shows its reason.
+  the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
 - **Sources:**
   - The old file. Done tasks leave it.
   - The open PRs on Bitbucket, with their open tasks and newest comments. The repo comes from the remote `origin`.
@@ -88,6 +90,9 @@ file says »Slack not available«. To get the token:
    never changes this file.
 4. Restart the open Claude Code sessions. Claude Code reads the hooks only at the start of a session.
 5. Optional: select »Launch at Login« in the menu.
+6. Optional: run `npm run install-extension`, and reload VS Code. The extension in `vscode-extension/` tells the app
+   which Claude tab you look at. The app then closes the notifications of that session, and sends none for it while
+   the tab stays in front. This only works for a Claude tab in the editor area, not for Claude in the sidebar.
 
 If the wave shows a gap later, select »Hook Setup …« in the menu. The app honors `CLAUDE_CONFIG_DIR`.
 
