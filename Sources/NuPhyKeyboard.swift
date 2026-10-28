@@ -1,10 +1,10 @@
 import AppKit
 import IOKit.hid
 
-/// The backlight of a NuPhy Air75 V2 on the USB cable. The app talks to its QMK firmware over the VIA protocol, the same
-/// one that the VIA app uses. The app sends only the »get value« and the »set value« commands of the RGB matrix. It
-/// never sends the save command, so every change stays in the working memory of the keyboard: when you unplug it, the
-/// keyboard has its own light again. Over Bluetooth and 2.4 GHz, the keyboard has no VIA channel.
+/// The key lights of a NuPhy Air75 V2 with the `notifier` firmware, on the USB cable. The firmware is a QMK keymap in
+/// the folder `nuphy-qmk-notifier` next to this app. It lets the app color each LED over the VIA custom channel. The
+/// colors stay in the working memory of the keyboard, so they are gone when you unplug it. Over Bluetooth and
+/// 2.4 GHz, the keyboard has no VIA channel. The stock firmware of NuPhy ignores the commands.
 @MainActor
 final class NuPhyKeyboard {
 	static let vendorID = 0x19F5
@@ -14,42 +14,37 @@ final class NuPhyKeyboard {
 	static let usage = 0x61
 	static let reportSize = 32
 
-	/// The light of the keyboard in the values of VIA, each from 0 to 255.
-	struct Lighting: Equatable {
-		var brightness: UInt8
-		var effect: UInt8
-		var speed: UInt8
-		var hue: UInt8
-		var saturation: UInt8
+	/// The LEDs in the order of `rgb_matrix.layout` of NuPhy: the first row from left to right, the second row from
+	/// right to left, then the other keys. LED 84 is always off.
+	static let firstRow = 0..<16
+	static let secondRow = 16..<31
+	static let ledCount = 84
+	/// The keyboard of NuPhy allows LED values up to 128, see `max_brightness` in its `keyboard.json`. All keys at full
+	/// power need more current than many USB ports give.
+	static let maxValue = 128.0
+	/// The brightness of the LED value 255. Only for a few keys.
+	static let fullBrightness = 255 / maxValue
+
+	/// The VIA command »set value« on the custom channel 0, then one of these values.
+	static let setValue: UInt8 = 0x07
+	static let customChannel: UInt8 = 0x00
+	enum Value: UInt8 {
+		/// The first LED, the count of LEDs, then red, green and blue of each.
+		case setColors = 1
+		/// The normal effect of the keyboard shows again on all keys.
+		case clear = 2
 	}
 
-	/// The only VIA commands that the app sends.
-	enum Command: UInt8 {
-		case setValue = 0x07, getValue = 0x08
-	}
+	static let ledsPerReport = 9
 
-	/// The values of the RGB matrix channel.
-	enum Value: UInt8, CaseIterable {
-		case brightness = 1, effect = 2, speed = 3, color = 4
-	}
-
-	static let rgbMatrixChannel: UInt8 = 3
-	/// The effect with one steady color on all keys.
-	static let solidColor: UInt8 = 1
-
-	/// Called when a keyboard is ready, after the app read its own light.
-	var onReady: (() -> Void)?
-	/// The own light of the keyboard from when it connected, `nil` until the app read it.
-	private(set) var ownLighting: Lighting?
-	var isReady: Bool { device != nil && ownLighting != nil }
+	/// Called when a keyboard connects.
+	var onConnect: (() -> Void)?
+	var isConnected: Bool { device != nil }
 
 	private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 	private var device: IOHIDDevice?
-	/// The light that the app sent last, to send only the values that change.
-	private var sent: Lighting?
-	/// The values of the own light that came back so far.
-	private var readValues: [Value: [UInt8]] = [:]
-	private let inputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportSize)
+	/// The color that the app sent last for each LED, `nil` for the normal effect. The app sends only changes.
+	private var sent = [[UInt8]?](repeating: nil, count: ledCount)
 
 	init() {
 		IOHIDManagerSetDeviceMatching(manager, [
@@ -71,91 +66,65 @@ final class NuPhyKeyboard {
 		IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
 	}
 
-	/// Shows `color` steady on all keys, at `brightness` from 0 to 1. Does nothing until the keyboard is ready.
-	func show(_ color: NSColor, brightness: Double) {
-		guard let own = ownLighting else { return }
-		let (hue, saturation) = Self.hueAndSaturation(color)
-		let level = UInt8((min(max(brightness, 0), 1) * 255).rounded())
-		apply(Lighting(brightness: level, effect: Self.solidColor, speed: own.speed, hue: hue, saturation: saturation))
+	/// Shows `color` on the LEDs of `leds`, at `brightness` from 0 to 1, or up to ``fullBrightness``.
+	func show(_ color: NSColor, brightness: Double, on leds: Range<Int>) {
+		let rgb = Self.rgb(color, brightness: brightness)
+		var colors = sent
+		for led in leds { colors[led] = rgb }
+		for report in Self.reports(from: sent, to: colors) { send(report) }
+		sent = colors
 	}
 
-	/// Gives the keyboard its own light back.
-	func restore() {
-		guard let own = ownLighting else { return }
-		apply(own)
+	/// Gives all keys the normal effect of the keyboard back.
+	func clear() {
+		guard sent.contains(where: { $0 != nil }) else { return }
+		send(Self.report(.clear))
+		sent = sent.map { _ in nil }
 	}
 
-	/// The hue and the saturation of `color` in the values of VIA: 256 hue steps make the full circle, so 256 is 0 again.
-	static func hueAndSaturation(_ color: NSColor) -> (UInt8, UInt8) {
-		guard let srgb = color.usingColorSpace(.sRGB) else { return (0, 0) }
-		return (UInt8(Int((srgb.hueComponent * 256).rounded()) % 256), UInt8((srgb.saturationComponent * 255).rounded()))
+	/// The LED values of `color` at `brightness`: ``maxValue`` at 1, and 255 at ``fullBrightness``.
+	static func rgb(_ color: NSColor, brightness: Double) -> [UInt8] {
+		guard let srgb = color.usingColorSpace(.sRGB) else { return [0, 0, 0] }
+		let level = min(max(brightness, 0), fullBrightness) * maxValue
+		return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent].map { UInt8(min(max($0 * level, 0), 255).rounded()) }
 	}
 
-	/// A report of 32 bytes for `command` on `value`.
-	static func report(_ command: Command, _ value: Value, _ data: [UInt8] = []) -> [UInt8] {
-		let bytes = [command.rawValue, rgbMatrixChannel, value.rawValue] + data
+	/// A report of 32 bytes for `value`.
+	static func report(_ value: Value, _ data: [UInt8] = []) -> [UInt8] {
+		let bytes = [setValue, customChannel, value.rawValue] + data
 		return bytes + [UInt8](repeating: 0, count: reportSize - bytes.count)
 	}
 
-	/// The value and its data in a reply to »get value«, `nil` for other replies.
-	static func readReply(_ bytes: [UInt8]) -> (Value, [UInt8])? {
-		guard bytes.count >= 5, bytes[0] == Command.getValue.rawValue, bytes[1] == rgbMatrixChannel,
-			let value = Value(rawValue: bytes[2]) else { return nil }
-		return (value, Array(bytes[3...4]))
-	}
-
-	/// The own light from the replies, `nil` until all values came back.
-	static func lighting(from values: [Value: [UInt8]]) -> Lighting? {
-		guard let brightness = values[.brightness], let effect = values[.effect], let speed = values[.speed],
-			let color = values[.color] else { return nil }
-		return Lighting(brightness: brightness[0], effect: effect[0], speed: speed[0], hue: color[0], saturation: color[1])
-	}
-
-	/// The color first and the brightness last, so that no key shows the old color in the new brightness.
-	private func apply(_ lighting: Lighting) {
-		let old = sent
-		if old?.hue != lighting.hue || old?.saturation != lighting.saturation {
-			send(.setValue, .color, [lighting.hue, lighting.saturation])
+	/// The reports that change the LEDs from `old` to `new`. One report sets a run of at most ``ledsPerReport`` changed
+	/// LEDs in a row.
+	static func reports(from old: [[UInt8]?], to new: [[UInt8]?]) -> [[UInt8]] {
+		var runs: [ClosedRange<Int>] = []
+		var start: Int?
+		for led in 0...new.count {
+			let isChanged = led < new.count && new[led] != nil && new[led] != old[led]
+			let fits = start.map { led - $0 < ledsPerReport } ?? true
+			if isChanged, fits, start == nil { start = led }
+			if let first = start, !isChanged || !fits {
+				runs.append(first...(led - 1))
+				start = isChanged ? led : nil
+			}
 		}
-		if old?.effect != lighting.effect { send(.setValue, .effect, [lighting.effect]) }
-		if old?.speed != lighting.speed { send(.setValue, .speed, [lighting.speed]) }
-		if old?.brightness != lighting.brightness { send(.setValue, .brightness, [lighting.brightness]) }
-		sent = lighting
+		return runs.map { run in report(.setColors, [UInt8(run.lowerBound), UInt8(run.count)] + run.flatMap { new[$0]! }) }
 	}
 
-	/// Reads the own light. The replies come to ``receive(_:)``.
 	private func connect(_ device: IOHIDDevice) {
 		self.device = device
-		ownLighting = nil
-		sent = nil
-		readValues = [:]
-		IOHIDDeviceRegisterInputReportCallback(device, inputBuffer, Self.reportSize, { context, _, _, _, _, report, length in
-			let keyboard = Unmanaged<NuPhyKeyboard>.fromOpaque(context!).takeUnretainedValue()
-			let bytes = Array(UnsafeBufferPointer(start: report, count: length))
-			MainActor.assumeIsolated { keyboard.receive(bytes) }
-		}, Unmanaged.passUnretained(self).toOpaque())
-		for value in Value.allCases { send(.getValue, value) }
-	}
-
-	private func receive(_ bytes: [UInt8]) {
-		guard ownLighting == nil, let (value, data) = Self.readReply(bytes) else { return }
-		readValues[value] = data
-		guard let own = Self.lighting(from: readValues) else { return }
-		ownLighting = own
-		sent = own
-		onReady?()
+		sent = sent.map { _ in nil }
+		onConnect?()
 	}
 
 	private func disconnect(_ device: IOHIDDevice) {
 		guard device == self.device else { return }
 		self.device = nil
-		ownLighting = nil
-		sent = nil
 	}
 
-	private func send(_ command: Command, _ value: Value, _ data: [UInt8] = []) {
+	private func send(_ report: [UInt8]) {
 		guard let device else { return }
-		let report = Self.report(command, value, data)
 		IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0, report, report.count)
 	}
 }
