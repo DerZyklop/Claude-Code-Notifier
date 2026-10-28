@@ -390,6 +390,24 @@ private struct Fixture {
 		#expect(fixture.log.ended == 1)
 	}
 
+	@Test func sessionEndOfAnIdleSessionDoesNotPulse() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn)
+		fixture.handle("SessionEnd")
+		#expect(fixture.store.sessions["s1"]?.state == .ended)
+		#expect(fixture.log.ended == 0)
+	}
+
+	@Test(arguments: [SessionState.asksYou, .working])
+	func sessionEndOfABusySessionPulses(state: SessionState) throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(state)
+		fixture.handle("SessionEnd")
+		#expect(fixture.log.ended == 1)
+	}
+
 	@Test func secondSessionEndDoesNotPulseAgain() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }

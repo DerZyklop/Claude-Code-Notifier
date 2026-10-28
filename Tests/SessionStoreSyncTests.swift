@@ -276,6 +276,17 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			#expect(fixture.fake[\.countedPIDs] == [[1]])
 		}
 
+		@Test func idleSessionEndsWithoutPulse() throws {
+			let fixture = try Fixture()
+			defer { fixture.cleanUp() }
+			fixture.add(.yourTurn, id: "a", pid: 1)
+
+			fixture.store.syncWithSessionFiles(archived: [])
+
+			#expect(fixture.store.sessions["a"]?.state == .ended)
+			#expect(fixture.fake[\.ended] == 0)
+		}
+
 		@Test(arguments: [SessionState.asksYou, .yourTurn, .working])
 		func sessionEndsWhenItsProcessIsGone(state: SessionState) throws {
 			let fixture = try Fixture()

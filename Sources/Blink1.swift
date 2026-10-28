@@ -4,7 +4,7 @@ import IOKit.hid
 /// A blink(1) USB light with two LEDs. Both follow the wave in the menu bar: they breathe in green while sessions work,
 /// in purple while a report runs, and are off without both. LED 1 shows the badge of the icon instead: steady orange
 /// while the bubble shows, steady purple while the dot of an unread report shows. With each round of the bubble, LED 1
-/// rings once in bright red, together with the bubble and its sound. When a session ends, both LEDs blink 3 times in
+/// rings once in bright red, together with the bubble and its sound. When a session ends while it works or asks you, both LEDs blink 3 times in
 /// bright green, and when a report is ready, in bright purple. A light that you plug in later gets the current colors too.
 @MainActor
 final class Blink1 {
@@ -215,7 +215,7 @@ final class Blink1 {
 	/// get the full light.
 	static let badgeBrightness = 0.10
 	static let reportBrightness = 0.04...0.28
-	static let workBrightness = 0.04...0.10
+	static let workBrightness = 0.02...0.04
 	/// The blue LED is stronger than the red and the green one, so blue gets this share.
 	static let blueShare = 0.6
 

@@ -100,6 +100,10 @@ struct Session: Identifiable, Equatable {
 	/// The state to show. A session with a background task is working.
 	var shownState: SessionState { hasBackgroundTask ? .working : state }
 
+	/// True while the session works or asks you. Only the end of a busy session pulses the light: VS Code ends and
+	/// restarts an idle session when you open its tab.
+	var isBusy: Bool { shownState == .working || shownState == .asksYou }
+
 	/// The title of ``shownState``, for the tooltip of its icon. A background task names what runs, e.g. »working in
 	/// the background: 2 agents, 1 shell command«.
 	var stateTitle: String {
@@ -288,7 +292,7 @@ final class SessionStore: ObservableObject {
 			set(.ended, for: event, previous: previous)
 			sessions[id]?.agents = []
 			removeNotification(of: id)
-			if previous?.state != .ended { system.sessionEnded() }
+			if previous?.isBusy == true { system.sessionEnded() }
 		default:
 			return
 		}
@@ -394,7 +398,7 @@ final class SessionStore: ObservableObject {
 			sessions[id]?.state = .ended
 			sessions[id]?.updated = Date()
 			sessions[id]?.agents = []
-			system.sessionEnded()
+			if session.isBusy { system.sessionEnded() }
 		}
 	}
 
