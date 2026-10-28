@@ -128,6 +128,7 @@ final class AttentionBubble {
 			Task { @MainActor in
 				guard let self else { return }
 				Blink1.shared.ring()
+				KeyboardLight.shared.ring()
 				if self.allowsChime() { Self.playChime() }
 			}
 		}

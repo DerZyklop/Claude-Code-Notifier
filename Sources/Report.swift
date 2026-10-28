@@ -142,7 +142,10 @@ final class Report: ObservableObject {
 				SessionStore.shared.post(subtitle: subtitle, title: title, body: body, identifier: identifier)
 			},
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			ready: { Blink1.shared.pulse(Spinner.reportColor) },
+			ready: {
+				Blink1.shared.pulse(Spinner.reportColor)
+				KeyboardLight.shared.pulse(Spinner.reportColor)
+			},
 			open: { openDocument($0, preferring: ["md.obsidian", "com.microsoft.VSCode"]) }
 		)
 	}

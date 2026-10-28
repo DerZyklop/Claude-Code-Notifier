@@ -84,7 +84,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
-		Blink1.shared.show(wave: Blink1.Wave(isReporting: isReporting, working: working), badge: Blink1.Badge(waiting: layout.waiting, hasUnread: hasUnread))
+		let lightWave = Blink1.Wave(isReporting: isReporting, working: working), lightBadge = Blink1.Badge(waiting: layout.waiting, hasUnread: hasUnread)
+		Blink1.shared.show(wave: lightWave, badge: lightBadge)
+		KeyboardLight.shared.show(wave: lightWave, badge: lightBadge)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
