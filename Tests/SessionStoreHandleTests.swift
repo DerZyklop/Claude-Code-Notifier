@@ -34,6 +34,8 @@ private struct Sent: Equatable {
 private final class NotificationLog {
 	var added: [UNNotificationRequest] = []
 	var removed: [String] = []
+	/// The calls that pulse the light for an ended session.
+	var ended = 0
 
 	var sent: [Sent] { added.map { Sent($0) } }
 	var isEmpty: Bool { added.isEmpty && removed.isEmpty }
@@ -87,6 +89,7 @@ private struct Fixture {
 			shellCommandCounts: { _ in [:] },
 			addNotification: { log.added.append($0) },
 			removeNotifications: { log.removed += $0 },
+			sessionEnded: { log.ended += 1 },
 			defaults: defaults
 		), setup: setup, checksSessions: false)
 		self.defaults = defaults
@@ -372,6 +375,7 @@ private struct Fixture {
 		#expect(fixture.store.sessions["s1"] == nil)
 		#expect(fixture.log.removed == ["s1"])
 		#expect(fixture.log.added.isEmpty)
+		#expect(fixture.log.ended == 0)
 	}
 
 	@Test(arguments: ["logout", "prompt_input_exit", nil] as [String?])
@@ -383,6 +387,16 @@ private struct Fixture {
 		#expect(fixture.store.sessions["s1"]?.state == .ended)
 		#expect(fixture.log.removed == ["s1"])
 		#expect(fixture.log.added.isEmpty)
+		#expect(fixture.log.ended == 1)
+	}
+
+	@Test func secondSessionEndDoesNotPulseAgain() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.working)
+		fixture.handle("SessionEnd")
+		fixture.handle("SessionEnd")
+		#expect(fixture.log.ended == 1)
 	}
 
 	@Test func unknownEventChangesNothing() throws {

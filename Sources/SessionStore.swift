@@ -166,6 +166,7 @@ final class SessionStore: ObservableObject {
 		var shellCommandCounts: (Set<Int32>) -> [Int32: Int]
 		var addNotification: (UNNotificationRequest) -> Void
 		var removeNotifications: ([String]) -> Void
+		var sessionEnded: @MainActor () -> Void
 		var defaults: UserDefaults
 
 		static let live = System(
@@ -174,6 +175,7 @@ final class SessionStore: ObservableObject {
 			shellCommandCounts: { ClaudeSessionFiles.shellCommandCounts(of: $0) },
 			addNotification: { UNUserNotificationCenter.current().add($0) },
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
+			sessionEnded: { Blink1.shared.pulse(Spinner.color) },
 			defaults: .standard
 		)
 	}
@@ -267,6 +269,7 @@ final class SessionStore: ObservableObject {
 			// No notification: the user closes a session. An archived one leaves the menu with the next check.
 			set(.ended, for: event, previous: previous)
 			removeNotification(of: id)
+			if previous?.state != .ended { system.sessionEnded() }
 		default:
 			return
 		}
@@ -369,6 +372,7 @@ final class SessionStore: ObservableObject {
 		for (id, session) in sessions where session.pid != nil && session.state != .ended && !runningIDs.contains(id) {
 			sessions[id]?.state = .ended
 			sessions[id]?.updated = Date()
+			system.sessionEnded()
 		}
 	}
 

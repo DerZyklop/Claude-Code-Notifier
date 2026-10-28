@@ -36,6 +36,7 @@ private final class FakeSystem: @unchecked Sendable {
 		var countedPIDs: [Set<Int32>] = []
 		var added: [UNNotificationRequest] = []
 		var removed: [String] = []
+		var ended = 0
 	}
 
 	private let lock = NSLock()
@@ -53,6 +54,7 @@ private final class FakeSystem: @unchecked Sendable {
 			shellCommandCounts: { pids in self.locked { $0.countedPIDs.append(pids); return $0.shellCommands } },
 			addNotification: { request in self.locked { $0.added.append(request) } },
 			removeNotifications: { ids in self.locked { $0.removed += ids } },
+			sessionEnded: { self.locked { $0.ended += 1 } },
 			defaults: defaults
 		)
 	}
@@ -286,6 +288,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			let session = try #require(fixture.store.sessions["a"])
 			#expect(session.state == .ended)
 			#expect(session.updated >= before)
+			#expect(fixture.fake[\.ended] == 1)
 		}
 
 		@Test func endedSessionWithoutProcessKeepsItsTime() throws {
@@ -296,6 +299,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			fixture.store.syncWithSessionFiles(archived: [])
 
 			#expect(fixture.store.sessions["a"] == ended)
+			#expect(fixture.fake[\.ended] == 0)
 		}
 
 		@Test func sessionWithoutPIDStays() throws {

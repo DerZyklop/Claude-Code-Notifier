@@ -288,6 +288,7 @@ extension ReportFixture {
 		#expect(fixture.report.failure == "Claude gave no overview: I could not read the files.")
 		#expect(fixture.log.posts.map(\.identifier) == ["morning-overview-failed"])
 		#expect(!fixture.report.isUnread)
+		#expect(fixture.log.ready == 0)
 		// The old file stays.
 		#expect(try String(contentsOf: fixture.fileURL, encoding: .utf8).contains("2026-10-26"))
 	}

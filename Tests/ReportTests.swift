@@ -118,6 +118,7 @@ import Testing
 		await fixture.report.update()
 		#expect(fixture.log.posts.isEmpty)
 		#expect(fixture.report.isUnread)
+		#expect(fixture.log.ready == 1)
 	}
 
 	@Test func missingClaudeFailsWithAClearReason() async throws {

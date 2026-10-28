@@ -117,12 +117,17 @@ final class AttentionBubble {
 	static let chimeSound = "Pop"
 	static let chimeVolume: Float = 0.35
 
-	/// Plays the chime with each round, from the first one on.
+	/// Plays the chime and rings the blink(1) with each round, from the first one on. The light rings also after the
+	/// chime stops, like the bubble.
 	private func startChime(at start: CFTimeInterval) {
 		chime?.invalidate()
 		let firstFire = Date().addingTimeInterval(start - CACurrentMediaTime())
 		let timer = Timer(fire: firstFire, interval: Self.ringInterval, repeats: true) { [weak self] _ in
-			Task { @MainActor in if self?.allowsChime() == true { Self.playChime() } }
+			Task { @MainActor in
+				guard let self else { return }
+				Blink1.shared.ring()
+				if self.allowsChime() { Self.playChime() }
+			}
 		}
 		// The `common` modes include the one the run loop uses while a menu is open.
 		RunLoop.main.add(timer, forMode: .common)

@@ -26,7 +26,7 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> NSSize {
 	let defaults = MemoryDefaults()
 	let system = SessionStore.System(runningSessions: { [] }, archivedSessionIDs: { [] }, shellCommandCounts: { _ in [:] },
-		addNotification: { _ in }, removeNotifications: { _ in }, defaults: defaults)
+		addNotification: { _ in }, removeNotifications: { _ in }, sessionEnded: {}, defaults: defaults)
 	// The setup never reads this file. It does not exist.
 	let settingsURL = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodeNotifierTests-\(UUID().uuidString)/settings.json")
 	let setup = HookSetup(settingsURL: settingsURL, readNotificationsAllowed: { $0(true) })
