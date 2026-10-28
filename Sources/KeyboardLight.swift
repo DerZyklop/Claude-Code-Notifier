@@ -2,7 +2,7 @@ import AppKit
 
 /// The first two key rows of the NuPhy keyboard show what the blink(1) shows, see ``Blink1``. The second row breathes
 /// in green while sessions work and in purple while a report runs. The first row shows the badge of the icon, or the
-/// wave without a badge. Only Esc, F1 and F2 ring in bright red with each round of the bubble. The 3 blinks of an
+/// wave without a badge. Only the last 3 keys of the first row ring in bright red with each round of the bubble. The 3 blinks of an
 /// ended session or a ready report show on both rows. The other rows, and both rows without anything to show, keep
 /// the normal effect of the keyboard. A keyboard that you plug in later gets the current colors too.
 @MainActor
@@ -21,7 +21,7 @@ final class KeyboardLight {
 
 	/// The groups of keys that show one color each. A smaller group lies on top of a larger one.
 	enum Zone: CaseIterable {
-		/// Esc, F1 and F2: the ring, else like ``icon``.
+		/// The last 3 keys of the first row, up to Del: the ring, else like ``icon``.
 		case alert
 		/// The rest of the first row, like LED 1 of the blink(1): the badge, else the wave.
 		case icon
@@ -31,8 +31,8 @@ final class KeyboardLight {
 		@MainActor var leds: Range<Int> {
 			let firstRow = NuPhyKeyboard.firstRow
 			switch self {
-			case .alert: return firstRow.lowerBound..<firstRow.lowerBound + 3
-			case .icon: return firstRow.lowerBound + 3..<firstRow.upperBound
+			case .alert: return firstRow.upperBound - 3..<firstRow.upperBound
+			case .icon: return firstRow.lowerBound..<firstRow.upperBound - 3
 			case .wave: return NuPhyKeyboard.secondRow
 			}
 		}
@@ -69,7 +69,7 @@ final class KeyboardLight {
 		render()
 	}
 
-	/// Rings Esc, F1 and F2 once in bright red, together with the bubble. Only while the bubble shows.
+	/// Rings the last 3 keys of the first row once in bright red, together with the bubble. Only while the bubble shows.
 	func ring() {
 		let now = CACurrentMediaTime()
 		guard scene.badge == .asksYou, !scene.isPulsing(at: now) else { return }

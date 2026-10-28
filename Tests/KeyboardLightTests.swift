@@ -51,7 +51,7 @@ struct NuPhyKeyboardTests {
 	@Test func zonesCoverTheFirstTwoRowsOnce() {
 		let leds = KeyboardLight.Zone.allCases.flatMap { Array($0.leds) }.sorted()
 		#expect(leds == Array(0..<31))
-		#expect(KeyboardLight.Zone.alert.leds == 0..<3)
+		#expect(KeyboardLight.Zone.alert.leds == 13..<16)
 	}
 }
 
