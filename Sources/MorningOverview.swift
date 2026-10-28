@@ -87,8 +87,9 @@ enum MorningOverview {
 		"Open Branches": "B", "Other Work": "O"]
 
 	/// Each task with an ID after its checkbox, e.g. `` `M2` `` for the second task under »My Open PRs«, and each of its next
-	/// actions with a letter, e.g. `` `M2a` ``. Done tasks keep their place in the count, so that a tick changes no ID. An
-	/// ID that the file already has gets replaced. Tasks above the first section get no ID.
+	/// actions with a letter, e.g. `` `M2a` ``. Only a sub-item with a checkbox is a next action. A sub-item without one is
+	/// no task and gets no ID. Done tasks keep their place in the count, so that a tick changes no ID. An ID that the file
+	/// already has gets replaced. Tasks above the first section get no ID.
 	static func withTaskIDs(in overview: String) -> String {
 		var letter: String?
 		var task = 0
@@ -116,6 +117,7 @@ enum MorningOverview {
 				step = 0
 				id = "\(letter)\(task)"
 			} else {
+				guard !box.isEmpty else { return "\(indent)- \(body)" }
 				guard task > 0, step < 26 else { return line }
 				step += 1
 				id = "\(letter)\(task)\(Character(UnicodeScalar(UInt8(96 + step))))"

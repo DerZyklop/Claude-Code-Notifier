@@ -393,7 +393,8 @@ extension ReportFixture {
 			## 9 × My Open PRs
 
 			- [x] [`#1`](https://x) First
-			    - Review it
+			    - [x] Review it
+			    - `M1c` The pipeline is green.
 			    - [ ] `Z9z` Approve it
 			- [ ] `P7` Second
 
@@ -412,7 +413,8 @@ extension ReportFixture {
 			## 9 × My Open PRs
 
 			- [x] `M1` [`#1`](https://x) First
-			    - `M1a` Review it
+			    - [x] `M1a` Review it
+			    - The pipeline is green.
 			    - [ ] `M1b` Approve it
 			- [ ] `M2` Second
 

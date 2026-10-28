@@ -26,8 +26,8 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 The app writes `morning-overview.md` into the project folder `~/S/plano`. The file is a short list of open tasks in
 six sections: the open PRs of others, my open PRs, draft PRs, the tickets of the sprint, open branches and other
 work. »Open branches« lists only the local branches that no listed PR or ticket covers. In each section, the easiest
-tasks come first. Each task has a title line with the links of the PR and the ticket and a short title, and its
-next actions as sub-items. The app adds the file to `.git/info/exclude`, so git never stages it.
+tasks come first. Each task has a title line with the links of the PR and the ticket and a short title. Below it,
+each next action is a sub-item with a checkbox. A sub-item without a checkbox is no task and gets no ID. The app adds the file to `.git/info/exclude`, so git never stages it.
 
 - **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
   today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns

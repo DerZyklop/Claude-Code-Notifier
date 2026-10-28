@@ -6,7 +6,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
 
 ## Sources
 
-1. The old overview. If the facts name one, read it first. For each old task, find out whether it is still open. Leave out the tasks that are done. Keep the open ones, with new facts where you found them.
+1. The old overview. If the facts name one, read it first. For each old task, find out whether it is still open. Leave out the tasks that are done, and the next actions with `[x]`. Do not copy the open ones: write their next actions again by the rules below, with the new facts that you found.
 2. The pull requests in the JSON. »me« is the git user name. Bitbucket shows the same name as `display_name`.
    - Their Open PRs: the PRs of others where the user is a reviewer and did not approve yet. Give the next action for each PR, for example »review the new commits«.
    - My Open PRs: the user's own PRs that are not drafts. Give the next action for each PR, for example »answer 2 open tasks«.
@@ -47,7 +47,7 @@ Updated: YYYY-MM-DD HH:MM
 ## Their Open PRs
 
 - [ ] [`#1234`](https://…) [PROJ-123](https://…/browse/PROJ-123) Short title of the topic
-    - The next action.
+    - [ ] The next action.
 
 ## My Open PRs
 
@@ -57,13 +57,13 @@ Updated: YYYY-MM-DD HH:MM
 ## Remaining Tickets in this Sprint
 
 - [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic
-    - The next action.
-    - The action after it.
+    - [ ] The next action.
+    - [ ] The action after it.
 
 ## Open Branches
 
 - [ ] `feature/old-idea` Short title of the topic
-    - The next action.
+    - [ ] The next action.
 
 ## Other Work
 ```
@@ -76,7 +76,9 @@ Rules:
 - Each task has a title line and one or more sub-items.
   - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Other Work«. Leave the ticket ID out of the title, because the link shows it.
   - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
-  - Below the title line, write each next action as a sub-item `    - `, indented with 4 spaces, with no checkbox. Each sub-item is one line.
+  - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
+  - A next action is a command that the user can do: »Merge it.«, »Answer Milad's 2 tasks.« A fact alone is no next action. Never write a sub-item that only tells a state, for example »Milad and Rui approved it. The pipeline is green.«
+  - If a fact is necessary, put it into the next action that needs it, as a condition or a reason: »If the visual test stays green, merge it.«, »Pull first, because the local branch is 2 commits behind.«
 - In each section, sort the tasks by these criteria. A task that meets an earlier criterion comes first. Among tasks with the same criteria, the easier task comes first.
   1. The task blocks a colleague. A PR with `waitsForMyReview: true` in the JSON always counts. Other examples: an answer to a colleague's question, or a ticket that a colleague's ticket depends on.
   2. A colleague already reviewed the PR. In the JSON, a reviewer has `approved: true` or a `state`.
@@ -84,6 +86,8 @@ Rules:
   4. The pipeline of the PR already succeeded. In the JSON, the newest entry of `buildStatuses` has the state `SUCCESSFUL`.
   5. The ticket blocks other tickets. Read the links of the ticket with `getJiraIssue`, and look for a »blocks« link.
   6. The plan blocks other plans or tickets. The plan text names them.
+- The criteria decide only the order. Do not write them down as sub-items.
+- The reply rules of a CLAUDE.md file, for example »start with the result«, do not apply to the overview.
 - Write only open tasks. Write »Nothing open.« in an empty section.
 - Write short, plain English. Leave out what is not a task.
 - Use simple tenses and active voice. Use only the modal verbs »can«, »will« and »must«, and no dashes as punctuation.
