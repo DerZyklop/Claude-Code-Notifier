@@ -32,7 +32,7 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
 - **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
   today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns
   the daily run off.
-- **Done:** a notification says how many tasks are open. A click on it opens the file in iA Writer, or in VS Code without iA Writer. Until you open
+- **Done:** a notification says how many tasks are open. A click on it opens the file in Obsidian, or in VS Code without Obsidian. Until you open
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
 - **Sources:**
   - The old file. Done tasks leave it.

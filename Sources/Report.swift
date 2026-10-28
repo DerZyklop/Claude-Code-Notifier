@@ -116,7 +116,7 @@ final class Report: ObservableObject {
 		var get: (URLRequest) async throws -> (Data, Int)
 		var post: @MainActor (_ subtitle: String, _ identifier: String, _ title: String, _ body: String) -> Void
 		var removeNotifications: @MainActor ([String]) -> Void
-		/// Opens a file in iA Writer, else in VS Code.
+		/// Opens a file in Obsidian, else in VS Code.
 		var open: @MainActor (URL) -> Void
 
 		static let live = System(
@@ -140,7 +140,7 @@ final class Report: ObservableObject {
 				SessionStore.shared.post(subtitle: subtitle, title: title, body: body, identifier: identifier)
 			},
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			open: { openDocument($0, preferring: ["pro.writer.mac", "com.microsoft.VSCode"]) }
+			open: { openDocument($0, preferring: ["md.obsidian", "com.microsoft.VSCode"]) }
 		)
 	}
 
