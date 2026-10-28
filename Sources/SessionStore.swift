@@ -90,15 +90,23 @@ struct Session: Identifiable, Equatable {
 	var pid: Int32?
 	/// The shell commands of the session that run now. After the turn, these are commands in the background.
 	var shellCommands = 0
+	/// The ids of the subagents that run now, from `SubagentStart` to `SubagentStop`. After the turn, these are
+	/// subagents in the background.
+	var agents: Set<String> = []
 
-	/// Whether the turn is over, but a shell command still runs in the background.
-	var hasBackgroundTask: Bool { state == .yourTurn && shellCommands > 0 }
+	/// Whether the turn is over, but a shell command or a subagent still runs in the background.
+	var hasBackgroundTask: Bool { state == .yourTurn && (shellCommands > 0 || !agents.isEmpty) }
 
 	/// The state to show. A session with a background task is working.
 	var shownState: SessionState { hasBackgroundTask ? .working : state }
 
-	/// The title of ``shownState``, for the tooltip of its icon.
-	var stateTitle: String { hasBackgroundTask ? "working in the background" : state.title }
+	/// The title of ``shownState``, for the tooltip of its icon. A background task names what runs, e.g. »working in
+	/// the background: 2 agents, 1 shell command«.
+	var stateTitle: String {
+		guard hasBackgroundTask else { return state.title }
+		let parts = [(agents.count, "agent"), (shellCommands, "shell command")].filter { $0.0 > 0 }.map { "\($0.0) \($0.1)\($0.0 == 1 ? "" : "s")" }
+		return "working in the background: " + parts.joined(separator: ", ")
+	}
 
 	var project: String {
 		guard let cwd else { return "Claude Code" }
@@ -150,6 +158,8 @@ struct HookEvent: Decodable {
 	let reason: String?
 	let transcript_path: String?
 	let error: String?
+	/// The subagent of a `SubagentStart` or `SubagentStop`.
+	let agent_id: String?
 
 	/// Claude Code also sends a `Notification` when it waits for input for a while after it finished.
 	var isIdleReminder: Bool {
@@ -261,6 +271,14 @@ final class SessionStore: ObservableObject {
 		case "StopFailure":
 			let session = set(.yourTurn, for: event, previous: previous)
 			notify(.yourTurn, session: session, body: "Claude stopped because of an error: \(event.error ?? "unknown").")
+		case "SubagentStart":
+			set(.working, for: event, previous: previous)
+			removeNotification(of: id)
+			if let agent = event.agent_id { sessions[id]?.agents.insert(agent) }
+		case "SubagentStop":
+			// The state stays: Claude can still work, or its turn is over and other subagents run in the background.
+			guard let agent = event.agent_id, previous?.agents.contains(agent) == true else { return }
+			sessions[id]?.agents.remove(agent)
 		case "SessionEnd" where event.reason == "clear":
 			// `/clear` ends the session too, but only to start the next one at once.
 			sessions[id] = nil
@@ -268,6 +286,7 @@ final class SessionStore: ObservableObject {
 		case "SessionEnd":
 			// No notification: the user closes a session. An archived one leaves the menu with the next check.
 			set(.ended, for: event, previous: previous)
+			sessions[id]?.agents = []
 			removeNotification(of: id)
 			if previous?.state != .ended { system.sessionEnded() }
 		default:
@@ -305,7 +324,7 @@ final class SessionStore: ObservableObject {
 		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid)
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [])
 		sessions[session.id] = session
 		return session
 	}
@@ -326,6 +345,8 @@ final class SessionStore: ObservableObject {
 			guard let path = session.transcriptPath, Self.endsWithInterrupt(transcript: path) else { continue }
 			sessions[session.id]?.state = .yourTurn
 			sessions[session.id]?.updated = Date()
+			// The interrupt stops the subagents too, maybe with no `SubagentStop`.
+			sessions[session.id]?.agents = []
 			removeNotification(of: session.id)
 		}
 
@@ -372,6 +393,7 @@ final class SessionStore: ObservableObject {
 		for (id, session) in sessions where session.pid != nil && session.state != .ended && !runningIDs.contains(id) {
 			sessions[id]?.state = .ended
 			sessions[id]?.updated = Date()
+			sessions[id]?.agents = []
 			system.sessionEnded()
 		}
 	}

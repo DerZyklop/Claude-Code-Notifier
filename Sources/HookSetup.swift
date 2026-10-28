@@ -19,6 +19,8 @@ let requiredHooks: [(event: String, matcher: String?)] = [
 	("Notification", nil),
 	("Stop", nil),
 	("StopFailure", nil),
+	("SubagentStart", nil),
+	("SubagentStop", nil),
 	("SessionEnd", nil),
 ]
 

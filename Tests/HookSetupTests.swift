@@ -196,7 +196,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 
 @Suite struct RequiredHooksTests {
 	@Test func eventsInOrder() {
-		#expect(requiredHookEvents == ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd"])
+		#expect(requiredHookEvents == ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "SessionEnd"])
 	}
 
 	@Test func eventsAreTheEventsOfTheHooks() {
@@ -341,7 +341,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 
 	@Test func missingEventsInTheOrderOfRequiredHooks() throws {
 		let object = settings(hooks: ["Stop": [appCommand], "SessionStart": [appCommand], "PreToolUse": [appCommand]])
-		let missing = ["UserPromptSubmit", "PostToolUse", "Notification", "StopFailure", "SessionEnd"]
+		let missing = ["UserPromptSubmit", "PostToolUse", "Notification", "StopFailure", "SubagentStart", "SubagentStop", "SessionEnd"]
 		#expect(try check(settings: object) == .found(missingEvents: missing, commands: [appCommand]))
 	}
 

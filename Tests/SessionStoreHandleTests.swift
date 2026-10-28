@@ -168,7 +168,7 @@ private struct Fixture {
 		#expect(fixture.setup.lastClaudeEvent == nil)
 	}
 
-	@Test(arguments: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd", "SubagentStop"])
+	@Test(arguments: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SubagentStop", "PreCompact"])
 	func everyClaudeEventIsRecorded(name: String) throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
@@ -399,13 +399,74 @@ private struct Fixture {
 		#expect(fixture.log.ended == 1)
 	}
 
+	@Test func subagentStartIsWorkingAndCountsTheAgent() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.asksYou)
+		fixture.handle("SubagentStart", ["agent_id": "a1"])
+		fixture.handle("SubagentStart", ["agent_id": "a2"])
+		let session = try #require(fixture.store.sessions["s1"])
+		#expect(session.state == .working)
+		#expect(session.agents == ["a1", "a2"])
+		#expect(fixture.log.removed == ["s1", "s1"])
+		#expect(fixture.log.added.isEmpty)
+	}
+
+	@Test func otherEventsKeepTheAgents() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SubagentStart", ["agent_id": "a1"])
+		fixture.handle("PostToolUse")
+		fixture.handle("Stop")
+		#expect(fixture.store.sessions["s1"]?.agents == ["a1"])
+	}
+
+	@Test func subagentStopRemovesTheAgentAndKeepsTheState() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SubagentStart", ["agent_id": "a1"])
+		fixture.handle("SubagentStart", ["agent_id": "a2"])
+		fixture.handle("Stop")
+		#expect(fixture.store.sessions["s1"]?.shownState == .working)
+
+		fixture.handle("SubagentStop", ["agent_id": "a1"])
+		#expect(fixture.store.sessions["s1"]?.agents == ["a2"])
+		#expect(fixture.store.sessions["s1"]?.shownState == .working)
+
+		fixture.handle("SubagentStop", ["agent_id": "a2"])
+		let session = try #require(fixture.store.sessions["s1"])
+		#expect(session.agents.isEmpty)
+		#expect(session.state == .yourTurn)
+		#expect(session.shownState == .yourTurn)
+	}
+
+	@Test func subagentStopOfAnUnknownAgentChangesNothing() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SubagentStart", ["agent_id": "a1"])
+		let before = fixture.store.sessions["s1"]
+		fixture.handle("SubagentStop", ["agent_id": "a2"])
+		fixture.handle("SubagentStop")
+		fixture.handle("SubagentStop", ["agent_id": "a1"], id: "s2")
+		#expect(fixture.store.sessions["s1"] == before)
+		#expect(fixture.store.sessions["s2"] == nil)
+	}
+
+	@Test func sessionEndRemovesTheAgents() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SubagentStart", ["agent_id": "a1"])
+		fixture.handle("SessionEnd")
+		#expect(fixture.store.sessions["s1"]?.agents.isEmpty == true)
+	}
+
 	@Test func unknownEventChangesNothing() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
 		try fixture.add(.working)
 		let before = fixture.store.sessions["s1"]
-		fixture.handle("SubagentStop")
-		fixture.handle("SubagentStop", id: "s2")
+		fixture.handle("PreCompact")
+		fixture.handle("PreCompact", id: "s2")
 		#expect(fixture.store.sessions["s1"] == before)
 		#expect(fixture.store.sessions["s2"] == nil)
 		#expect(fixture.log.isEmpty)

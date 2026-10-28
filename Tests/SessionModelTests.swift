@@ -26,9 +26,9 @@ private func systemLine(_ content: String = "") -> String {
 	try endsWithInterrupt(lines.joined(separator: "\n") + "\n")
 }
 
-private func session(state: SessionState = .yourTurn, shellCommands: Int = 0, cwd: String? = "/Users/me/notifier", title: String? = nil) -> Session {
+private func session(state: SessionState = .yourTurn, shellCommands: Int = 0, agents: Set<String> = [], cwd: String? = "/Users/me/notifier", title: String? = nil) -> Session {
 	let date = Date(timeIntervalSince1970: 1_000_000)
-	return Session(id: "s", cwd: cwd, started: date, state: state, updated: date, title: title, shellCommands: shellCommands)
+	return Session(id: "s", cwd: cwd, started: date, state: state, updated: date, title: title, shellCommands: shellCommands, agents: agents)
 }
 
 private func hookEvent(_ json: String) throws -> HookEvent {
@@ -36,7 +36,7 @@ private func hookEvent(_ json: String) throws -> HookEvent {
 }
 
 private func notification(type: String? = nil, message: String? = nil) -> HookEvent {
-	HookEvent(hook_event_name: "Notification", session_id: "s", cwd: nil, message: message, notification_type: type, tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: nil, error: nil)
+	HookEvent(hook_event_name: "Notification", session_id: "s", cwd: nil, message: message, notification_type: type, tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: nil, error: nil, agent_id: nil)
 }
 
 @Suite struct SettingsKeyTests {
@@ -128,13 +128,35 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 
 	@Test(arguments: [
 		(SessionState.yourTurn, 0, "your turn"),
-		(.yourTurn, 1, "working in the background"),
+		(.yourTurn, 1, "working in the background: 1 shell command"),
+		(.yourTurn, 2, "working in the background: 2 shell commands"),
 		(.working, 1, "working"),
 		(.asksYou, 2, "asks you"),
 		(.ended, 0, "ended"),
 	])
 	func stateTitle(state: SessionState, shellCommands: Int, expected: String) {
 		#expect(session(state: state, shellCommands: shellCommands).stateTitle == expected)
+	}
+
+	@Test(arguments: [
+		(SessionState.yourTurn, true),
+		(.working, false),
+		(.asksYou, false),
+		(.ended, false),
+	])
+	func subagentIsABackgroundTask(state: SessionState, expected: Bool) {
+		let session = session(state: state, agents: ["a1"])
+		#expect(session.hasBackgroundTask == expected)
+		#expect(session.shownState == (expected ? .working : state))
+	}
+
+	@Test(arguments: [
+		(["a1"], 0, "working in the background: 1 agent"),
+		(["a1", "a2"], 0, "working in the background: 2 agents"),
+		(["a1", "a2"], 1, "working in the background: 2 agents, 1 shell command"),
+	])
+	func stateTitleNamesTheBackgroundTasks(agents: [String], shellCommands: Int, expected: String) {
+		#expect(session(shellCommands: shellCommands, agents: Set(agents)).stateTitle == expected)
 	}
 
 	@Test(arguments: [
@@ -165,7 +187,7 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		let event = try hookEvent(#"""
 			{"hook_event_name":"StopFailure","session_id":"abc","cwd":"/Users/me/notifier","message":"Hello",
 			"notification_type":"permission_prompt","tool_name":"Bash","last_assistant_message":"Done.",
-			"reason":"clear","transcript_path":"/path/to/abc.jsonl","error":"rate_limit"}
+			"reason":"clear","transcript_path":"/path/to/abc.jsonl","error":"rate_limit","agent_id":"a1"}
 			"""#)
 		#expect(event.hook_event_name == "StopFailure")
 		#expect(event.session_id == "abc")
@@ -177,6 +199,7 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(event.reason == "clear")
 		#expect(event.transcript_path == "/path/to/abc.jsonl")
 		#expect(event.error == "rate_limit")
+		#expect(event.agent_id == "a1")
 	}
 
 	@Test func missingOptionalFieldsAreNil() throws {
@@ -191,6 +214,7 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(event.reason == nil)
 		#expect(event.transcript_path == nil)
 		#expect(event.error == nil)
+		#expect(event.agent_id == nil)
 	}
 
 	@Test func nullFieldIsNil() throws {

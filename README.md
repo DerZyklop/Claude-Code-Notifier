@@ -108,6 +108,7 @@ fails silently after at most 1 s.
 | `PreToolUse` for `AskUserQuestion\|ExitPlanMode` | asks you |
 | `Notification` | asks you, one notification for each question or plan |
 | `Stop`, `StopFailure` | your turn |
+| `SubagentStart`, `SubagentStop` | working, and the count of subagents in the row |
 | `SessionEnd` | ended, no notification |
 
 Every 3 s, the app also reads these sources:
@@ -117,6 +118,9 @@ Every 3 s, the app also reads these sources:
 - **`~/.claude/sessions`:** the app adds sessions that started before the app, and follows a newer status.
 - **VS Code database:** the app reads `hiddenSessionIds` read-only, and removes archived sessions from the card.
 - **Child processes:** a session with a running background shell command counts as working.
+
+A session with a subagent that runs after the turn also counts as working. The menu bar counts each session once,
+also with more subagents.
 
 The app accepts only requests on the loopback interface with the header `X-Claude-Hook`. It refuses requests from
 web pages.

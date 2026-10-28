@@ -98,10 +98,10 @@ private final class Fixture {
 
 	/// Adds a session the way a hook event does. The pid comes from an earlier state of the session.
 	@discardableResult
-	func add(_ state: SessionState, id: String, transcript: String? = nil, pid: Int32? = nil) -> Session {
+	func add(_ state: SessionState, id: String, transcript: String? = nil, pid: Int32? = nil, agents: Set<String> = []) -> Session {
 		let event = HookEvent(hook_event_name: "UserPromptSubmit", session_id: id, cwd: "/Users/me/Project", message: nil, notification_type: nil,
-			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil)
-		let previous = pid.map { Session(id: id, cwd: nil, started: Date(), state: state, updated: Date(), pid: $0) }
+			tool_name: nil, last_assistant_message: nil, reason: nil, transcript_path: transcript, error: nil, agent_id: nil)
+		let previous = pid == nil && agents.isEmpty ? nil : Session(id: id, cwd: nil, started: Date(), state: state, updated: Date(), pid: pid, agents: agents)
 		return store.set(state, for: event, previous: previous)
 	}
 }
@@ -280,7 +280,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 		func sessionEndsWhenItsProcessIsGone(state: SessionState) throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }
-			fixture.add(state, id: "a", pid: 1)
+			fixture.add(state, id: "a", pid: 1, agents: ["a1"])
 			let before = Date()
 
 			fixture.store.syncWithSessionFiles(archived: [])
@@ -288,6 +288,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			let session = try #require(fixture.store.sessions["a"])
 			#expect(session.state == .ended)
 			#expect(session.updated >= before)
+			#expect(session.agents.isEmpty)
 			#expect(fixture.fake[\.ended] == 1)
 		}
 
@@ -372,7 +373,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 		func interruptMakesItYourTurn(state: SessionState) throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }
-			try fixture.add(state, id: "a", transcript: fixture.transcript([prompt("Fix the bug"), answer, interrupt]))
+			try fixture.add(state, id: "a", transcript: fixture.transcript([prompt("Fix the bug"), answer, interrupt]), agents: ["a1"])
 			let before = Date()
 
 			fixture.store.checkSessions()
@@ -380,6 +381,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			let session = try #require(fixture.store.sessions["a"])
 			#expect(session.state == .yourTurn)
 			#expect(session.updated >= before)
+			#expect(session.agents.isEmpty)
 			#expect(fixture.fake[\.removed] == ["a"])
 		}
 

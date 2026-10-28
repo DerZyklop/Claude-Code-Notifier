@@ -119,6 +119,7 @@ struct SessionCard: View {
 				.frame(maxWidth: 300, alignment: .leading)
 				.help(session.project)
 			Spacer(minLength: 16)
+			if !session.agents.isEmpty { agentCount(session.agents.count) }
 			Text(Self.elapsed(from: session.started, to: clock.now))
 				.monospacedDigit()
 				.foregroundStyle(.secondary)
@@ -157,6 +158,17 @@ struct SessionCard: View {
 		}
 		.padding(.horizontal, 6)
 		.padding(.vertical, 3)
+	}
+
+	/// The subagents that run for the session. The menu bar counts the session only once.
+	private func agentCount(_ count: Int) -> some View {
+		HStack(spacing: 2) {
+			Image(systemName: "person.2.fill")
+			Text("\(count)").monospacedDigit()
+		}
+		.font(.system(size: NSFont.smallSystemFontSize, weight: .semibold))
+		.foregroundStyle(.secondary)
+		.help(count == 1 ? "1 subagent runs" : "\(count) subagents run")
 	}
 
 	/// Takes the place of the state icon while the pointer is on the row, with the same size.
