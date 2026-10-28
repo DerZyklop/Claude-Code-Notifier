@@ -47,6 +47,8 @@ extension ReportFixture {
 			[["content": ["raw": "Looks good"], "user": ["display_name": "Rui"]], ["content": ["raw": "gone"], "deleted": true]]
 		} else if path.hasSuffix("/statuses") {
 			[["state": "SUCCESSFUL", "name": "Pipeline #1"]]
+		} else if path.hasSuffix("/diffstat") {
+			[["status": "modified"], ["status": "merge conflict"]]
 		} else {
 			[
 				["id": 12, "title": "Fix", "draft": false, "author": ["display_name": "Nils"]],
@@ -212,7 +214,7 @@ extension ReportFixture {
 		})
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
-		#expect(fixture.log.requests.count == 8)
+		#expect(fixture.log.requests.count == 10)
 		#expect(fixture.report.failure == nil)
 		#expect(fixture.claudeRun != nil)
 	}
@@ -241,6 +243,7 @@ extension ReportFixture {
 		#expect(task.count == 301 && task.hasSuffix("…"))
 		#expect((pullRequests[0]["newestComments"] as? [Any])?.count == 1)
 		#expect((pullRequests[0]["buildStatuses"] as? [[String: Any]])?.first?["state"] as? String == "SUCCESSFUL")
+		#expect(pullRequests[0]["hasMergeConflict"] as? Bool == true)
 		#expect(pullRequests[1]["openTasks"] == nil)
 
 		let workspaces = try #require(input["workspaces"] as? [[String: Any]])
@@ -257,7 +260,7 @@ extension ReportFixture {
 		let requests = fixture.log.requests
 		#expect(requests.map { $0.url!.path } == ["/2.0/repositories/ws/repo/pullrequests",
 			"/2.0/repositories/ws/repo/pullrequests/12/tasks", "/2.0/repositories/ws/repo/pullrequests/12/comments",
-			"/2.0/repositories/ws/repo/pullrequests/12/statuses"])
+			"/2.0/repositories/ws/repo/pullrequests/12/statuses", "/2.0/repositories/ws/repo/pullrequests/12/diffstat"])
 		let authorization = "Basic " + Data("me@example.com:token".utf8).base64EncodedString()
 		for request in requests {
 			#expect(request.httpMethod == "GET")

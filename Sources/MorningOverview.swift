@@ -236,11 +236,12 @@ enum MorningOverview {
 
 	// MARK: - Pull requests
 
-	/// The open pull requests. The ones of the user, as author or reviewer, also get their open tasks, newest comments and
-	/// newest build states.
+	/// The open pull requests. The ones of the user, as author or reviewer, also get their open tasks, newest comments,
+	/// newest build states and merge conflict.
 	private static func pullRequests(_ bitbucket: Bitbucket, me: String) async throws -> [[String: Any]] {
 		let fields = ["id", "title", "draft", "author.display_name", "participants.role", "participants.approved", "participants.state",
-			"participants.user.display_name", "links.html.href", "comment_count", "task_count", "updated_on", "source.branch.name"]
+			"participants.user.display_name", "links.html.href", "comment_count", "task_count", "updated_on", "source.branch.name",
+			"destination.branch.name"]
 		var pullRequests = try await bitbucket.values("/pullrequests", query: ["state": "OPEN", "pagelen": "50"], fields: fields)
 			.filter { !isDraftOfOthers($0, me: me) }
 		for index in pullRequests.indices.filter({ concerns(pullRequests[$0], me: me) }).prefix(detailLimit) {
@@ -267,6 +268,7 @@ enum MorningOverview {
 	/// The pull request is a draft of another author. No section lists it, so the run does not get it.
 	static func isDraftOfOthers(_ pullRequest: [String: Any], me: String) -> Bool {
 		pullRequest["draft"] as? Bool == true && !Bitbucket.isAuthor(of: pullRequest, me: me)
+				pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
 	}
 
 	/// The user wrote the pull request or reviews it.
@@ -275,6 +277,12 @@ enum MorningOverview {
 		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
 		return participants.contains { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" }
 	}
+	/// A file of the pull request has a merge conflict with the destination branch.
+	private static func hasMergeConflict(_ bitbucket: Bitbucket, id: Int) async throws -> Bool {
+		try await bitbucket.values("/pullrequests/\(id)/diffstat", query: ["pagelen": "500"], fields: ["status"])
+			.contains { $0["status"] as? String == "merge conflict" }
+	}
+
 
 	/// The author waits for the user: the user reviews the pull request and did not approve it yet, and it is no draft
 	/// and has no open task. An open task is for the author, so with one, it is the author's turn.
