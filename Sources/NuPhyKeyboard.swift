@@ -112,8 +112,10 @@ final class NuPhyKeyboard {
 		return runs.map { run in report(.setColors, [UInt8(run.lowerBound), UInt8(run.count)] + run.flatMap { new[$0]! }) }
 	}
 
+	/// Clears all keys first, also the colors of an app that crashed, because ``clear()`` skips keys without a color.
 	private func connect(_ device: IOHIDDevice) {
 		self.device = device
+		send(Self.report(.clear))
 		sent = sent.map { _ in nil }
 		onConnect?()
 	}
