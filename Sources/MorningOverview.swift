@@ -69,7 +69,18 @@ enum MorningOverview {
 			let reason = (result.error + result.output).split(separator: "\n").last.map(String.init) ?? "no output"
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
-		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(tasks(of: report.system), in: text))))
+		let system = report.system
+		let done = old.map { doneDailyTasks(in: $0, now: system.now(), calendar: system.calendar) } ?? []
+		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(tasks(of: system), done: done, in: text))))
+	}
+
+	/// The ticked tasks above the first section of the old overview, if it is of the same day. A new day starts with no tick.
+	static func doneDailyTasks(in old: String, now: Date, calendar: Calendar) -> Set<String> {
+		guard let updated = Report.updated(in: old, calendar: calendar), calendar.isDate(updated, inSameDayAs: now) else { return [] }
+		let top = old.components(separatedBy: "\n## ").first ?? ""
+		return Set(top.components(separatedBy: "\n").compactMap { line in
+			["- [x] ", "- [X] "].contains(where: { line.hasPrefix($0) }) ? String(line.dropFirst(6)) : nil
+		})
 	}
 
 	/// The daily tasks, and the tasks of today's weekday.
@@ -168,10 +179,10 @@ enum MorningOverview {
 		overview.replacingOccurrences(of: "(?m)^  (?=- )", with: "    ", options: .regularExpression)
 	}
 
-	/// The overview with the daily tasks above its first section.
-	static func withDailyTasks(_ tasks: [String], in overview: String) -> String {
+	/// The overview with the daily tasks above its first section. The tasks in `done` get a tick.
+	static func withDailyTasks(_ tasks: [String], done: Set<String> = [], in overview: String) -> String {
 		guard !tasks.isEmpty, let section = overview.range(of: "\n## ") else { return overview }
-		let lines = tasks.map { "- [ ] \($0)\n" }.joined()
+		let lines = tasks.map { "- [\(done.contains($0) ? "x" : " ")] \($0)\n" }.joined()
 		return overview.replacingCharacters(in: section, with: "\n" + lines + "\n## ")
 	}
 
@@ -257,6 +268,7 @@ enum MorningOverview {
 				pullRequests[index]["openTasks"] = tasks.map { Bitbucket.shortened($0) }
 				pullRequests[index]["newestComments"] = comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) }
 				pullRequests[index]["buildStatuses"] = statuses
+				pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
 				pullRequests[index]["waitsForMyReview"] = waitsForReview(pullRequests[index], me: me)
 			} catch {
 				pullRequests[index]["detailError"] = "\(error)"
@@ -265,10 +277,15 @@ enum MorningOverview {
 		return pullRequests
 	}
 
+	/// A file of the pull request has a merge conflict with the destination branch.
+	private static func hasMergeConflict(_ bitbucket: Bitbucket, id: Int) async throws -> Bool {
+		try await bitbucket.values("/pullrequests/\(id)/diffstat", query: ["pagelen": "500"], fields: ["status"])
+			.contains { $0["status"] as? String == "merge conflict" }
+	}
+
 	/// The pull request is a draft of another author. No section lists it, so the run does not get it.
 	static func isDraftOfOthers(_ pullRequest: [String: Any], me: String) -> Bool {
 		pullRequest["draft"] as? Bool == true && !Bitbucket.isAuthor(of: pullRequest, me: me)
-				pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
 	}
 
 	/// The user wrote the pull request or reviews it.
@@ -277,12 +294,6 @@ enum MorningOverview {
 		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
 		return participants.contains { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" }
 	}
-	/// A file of the pull request has a merge conflict with the destination branch.
-	private static func hasMergeConflict(_ bitbucket: Bitbucket, id: Int) async throws -> Bool {
-		try await bitbucket.values("/pullrequests/\(id)/diffstat", query: ["pagelen": "500"], fields: ["status"])
-			.contains { $0["status"] as? String == "merge conflict" }
-	}
-
 
 	/// The author waits for the user: the user reviews the pull request and did not approve it yet, and it is no draft
 	/// and has no open task. An open task is for the author, so with one, it is the author's turn.

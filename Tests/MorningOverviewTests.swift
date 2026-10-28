@@ -438,6 +438,15 @@ extension ReportFixture {
 		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], in: overview)
 			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Zeiterfassung\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n")
 		#expect(MorningOverview.withDailyTasks([], in: overview) == overview)
+		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], done: ["Mail"], in: overview)
+			.contains("- [ ] Zeiterfassung\n- [x] Mail\n\n## "))
+	}
+
+	@Test func dailyTasksKeepTheirTickOnTheSameDay() {
+		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n- [x] Zeiterfassung\n- [ ] Mail\n\n## Other Work\n\n- [x] `O1` Done\n"
+		#expect(MorningOverview.doneDailyTasks(in: old, now: tuesdayMorning, calendar: utcCalendar) == ["Zeiterfassung"])
+		let nextDay = tuesdayMorning.addingTimeInterval(24 * 60 * 60)
+		#expect(MorningOverview.doneDailyTasks(in: old, now: nextDay, calendar: utcCalendar).isEmpty)
 	}
 
 	@Test(arguments: [
