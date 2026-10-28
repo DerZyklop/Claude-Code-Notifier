@@ -33,4 +33,13 @@ struct Blink1StateTests {
 		#expect(Blink1.Badge(waiting: 0, hasUnread: true) == .unread)
 		#expect(Blink1.Badge(waiting: 0, hasUnread: false) == nil)
 	}
+
+	@Test func bubbleIsOrangeOnTheLEDs() {
+		#expect(Blink1.Badge.asksYou.color == Blink1.orange)
+		#expect(Blink1.rgb(Blink1.orange, brightness: 1) == [255, 48, 0])
+	}
+
+	@Test func ringIsPureRed() {
+		#expect(Blink1.rgb(Blink1.ringColor, brightness: 1) == [255, 0, 0])
+	}
 }

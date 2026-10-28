@@ -18,8 +18,10 @@ final class Blink1 {
 	/// The time of one blink step: the fade, then the color stays a moment.
 	static let pulseStep = 0.3
 	static let pulseCount = 3
-	/// The color at the peak of a ring.
-	static let ringColor = NSColor.systemRed
+	/// The color at the peak of a ring: only the red LED. The red of the screen has green and blue, so it looks pink on the LEDs.
+	static let ringColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+	/// The orange of the badge on the LEDs. The orange of the screen looks yellow on them, so this one has less green.
+	static let orange = NSColor(srgbRed: 1, green: 48 / 255, blue: 0, alpha: 1)
 	/// One breath, from bright to dim and back, takes as long as one run of the wave segment.
 	static let breathDuration = Spinner.runDuration
 	/// The steps of one half breath. The light fades in a straight line between two steps, so the steps make the curve.
@@ -95,7 +97,7 @@ final class Blink1 {
 			self = badge
 		}
 
-		var color: NSColor { self == .asksYou ? AttentionBubble.color : Spinner.reportColor }
+		var color: NSColor { self == .asksYou ? Blink1.orange : Spinner.reportColor }
 	}
 
 	/// The LEDs that a command changes. LED 1 shows the badge.
