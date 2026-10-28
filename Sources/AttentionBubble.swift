@@ -3,15 +3,18 @@ import Intents
 import QuartzCore
 
 /// The orange bubble of the waiting sessions, as a layer above the image of the button, so that it can move. It has the
-/// highest priority in the icon: it pops in when it appears, and then it rings twice every ``ringInterval`` seconds
+/// highest priority in the icon: it pops in when it appears, and then it rings once every ``ringInterval`` seconds
 /// until no session asks you anymore. With each ring, it glows from orange to dark red and back, and a halo grows out
 /// from behind it and fades. The wave glows with it, see ``glow(_:normal:peak:)``. A calm sound plays with each round. Core Animation runs it in the window server, so the app does no work per frame.
 @MainActor
 final class AttentionBubble {
 	static let popDuration = 0.45
 	static let ringInterval = 20.0
-	/// How long the two rings of a round move. The rest of ``ringInterval``, the bubble rests.
+	/// How long the ring of a round moves. The rest of ``ringInterval``, the bubble rests.
 	static let ringLength = 1.6
+	/// The animations of a round start this many seconds after its sound and its LED ring are sent, because those
+	/// come out later.
+	static let syncDelay = 0.1
 	static let color = NSColor.systemOrange
 	/// The color at the peak of a ring.
 	static let glowColor = NSColor.systemRed.blended(withFraction: 0.35, of: .black) ?? NSColor.systemRed
@@ -76,7 +79,7 @@ final class AttentionBubble {
 		shownCount = count
 	}
 
-	/// Pops in, then rings twice per round: it grows and swings to both sides while it glows red and the halo pings,
+	/// Pops in, then rings once per round: it grows and swings to both sides while it glows red and the halo pings,
 	/// and then it rests until the next round.
 	/// - Parameter isNew: Pops the bubble in first, when it appears.
 	private func attract(isNew: Bool) {
@@ -90,24 +93,23 @@ final class AttentionBubble {
 			layer.add(pop, forKey: "pop")
 			start += Self.popDuration
 		}
-		ringStart = start
 		startChime(at: start)
+		// The sound and the LED of the round come a little later than the start, so the animations wait for them.
+		start += Self.syncDelay
+		ringStart = start
 
-		let swingOnce: [(Double, Any)] = [(0, 0), (0.06, -0.55), (0.12, 0.55), (0.18, -0.45), (0.24, 0.35), (0.3, -0.2), (0.36, 0)]
-		let swing = Self.keyframes("transform.rotation.z", swingOnce + swingOnce.map { ($0.0 + 0.5, $0.1) })
-		let grow = Self.keyframes("transform.scale", Self.twice(rest: 1, peak: 1.25))
+		let swing = Self.keyframes("transform.rotation.z", [(0, 0), (0.12, -0.55), (0.24, 0.55), (0.36, -0.45), (0.48, 0.35), (0.6, -0.2), (0.72, 0)])
+		let grow = Self.keyframes("transform.scale", Self.once(rest: 1, peak: 1.25))
 		var bubbleAnimations: [CAAnimation] = [swing, grow]
 		if let contents {
 			// Core Animation blends between the two pictures, so the white number stays white.
-			bubbleAnimations.append(Self.keyframes("contents", Self.twice(rest: contents.normal, peak: contents.glow)))
+			bubbleAnimations.append(Self.keyframes("contents", Self.once(rest: contents.normal, peak: contents.glow)))
 		}
 		layer.add(Self.repeating(bubbleAnimations, from: start), forKey: "ring")
 
-		let ping: [(Double, Any)] = [(0, 0.9), (0.4, 1.6), (0.5, 1.6)]
-		let spread = Self.keyframes("transform.scale", ping + [(0.5, 0.9), (0.9, 1.6)])
-		let fade = Self.keyframes("opacity", [(0, 0.9), (0.4, 0), (0.5, 0), (0.5, 0.9), (0.9, 0)])
-		let haloColor = Self.keyframes("fillColor", [(0, Self.glowColor.cgColor), (0.4, Self.color.cgColor), (0.5, Self.color.cgColor),
-			(0.5, Self.glowColor.cgColor), (0.9, Self.color.cgColor)])
+		let spread = Self.keyframes("transform.scale", [(0, 0.9), (0.8, 1.6)])
+		let fade = Self.keyframes("opacity", [(0, 0.9), (0.8, 0)])
+		let haloColor = Self.keyframes("fillColor", [(0, Self.glowColor.cgColor), (0.8, Self.color.cgColor)])
 		halo.add(Self.repeating([spread, fade, haloColor], from: start), forKey: "ring")
 	}
 
@@ -165,12 +167,15 @@ final class AttentionBubble {
 	/// bubble is hidden.
 	func glow(_ keyPath: String, normal: CGColor, peak: CGColor) -> CAAnimation? {
 		guard shownCount > 0, let ringStart else { return nil }
-		return Self.repeating([Self.keyframes(keyPath, Self.twice(rest: normal, peak: peak))], from: ringStart)
+		return Self.repeating([Self.keyframes(keyPath, Self.once(rest: normal, peak: peak))], from: ringStart)
 	}
 
-	/// Two pulses per round: up at the start of each half of the ring, back down at its end.
-	private static func twice(rest: Any, peak: Any) -> [(Double, Any)] {
-		[(0, rest), (0.06, peak), (0.3, peak), (0.36, rest), (0.5, rest), (0.56, peak), (0.8, peak), (0.86, rest)]
+	/// The glow of a round: up at once, a long peak, then back down. ``Blink1/ring()`` follows these times.
+	static let glowTimes = (up: 0.06, down: 0.6, rest: 0.72)
+
+	/// One pulse per round, at the ``glowTimes``.
+	private static func once(rest: Any, peak: Any) -> [(Double, Any)] {
+		[(0, rest), (glowTimes.up, peak), (glowTimes.down, peak), (glowTimes.rest, rest)]
 	}
 
 	/// A keyframe animation over one round. The times are shares of ``ringLength``. The last value lasts until the end of

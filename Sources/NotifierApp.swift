@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {
-		MainActor.assumeIsolated { Blink1.shared.show(.off) }
+		MainActor.assumeIsolated { Blink1.shared.turnOff() }
 	}
 
 	/// `kill` and `npm run restart` send `SIGTERM`, and Ctrl-C in a terminal sends `SIGINT`. The app then quits the normal

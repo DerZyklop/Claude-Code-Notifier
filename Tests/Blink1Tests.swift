@@ -19,3 +19,18 @@ struct Blink1Tests {
 		#expect(changes.last! < changes[4])
 	}
 }
+
+@MainActor
+struct Blink1StateTests {
+	@Test func waveIsPurpleWhileAReportRuns() {
+		#expect(Blink1.Wave(isReporting: true, working: 2) == .report)
+		#expect(Blink1.Wave(isReporting: false, working: 1) == .work)
+		#expect(Blink1.Wave(isReporting: false, working: 0) == .off)
+	}
+
+	@Test func bubbleWinsOverTheDot() {
+		#expect(Blink1.Badge(waiting: 1, hasUnread: true) == .asksYou)
+		#expect(Blink1.Badge(waiting: 0, hasUnread: true) == .unread)
+		#expect(Blink1.Badge(waiting: 0, hasUnread: false) == nil)
+	}
+}
