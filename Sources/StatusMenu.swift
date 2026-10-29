@@ -66,15 +66,22 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// sessions, the number of working sessions, and the wave in the space that is left. A report file that you did not
 	/// open yet puts a purple dot left of the wave. Without work, the wave stands
 	/// still in the menu bar color, and a setup problem breaks it in the middle. A running report moves the wave in purple. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
+	/// The simulation of the setup window adds its signals to the icon and the lights, see ``LightSimulation``.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
 		let hasProblem = HookSetup.shared.hasProblem
-		let waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
+		let simulation = LightSimulation.shared
+		var waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
+		if simulation.waiting { waiting = max(waiting, 1) }
 		let runningReports = Report.all.filter(\.isRunning).count
-		let working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count) + runningReports
-		let isReporting = runningReports > 0
-		let hasUnread = Report.all.contains { $0.isUnread }
+		var working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count) + runningReports
+		var isReporting = runningReports > 0
+		if simulation.work != .off {
+			working = max(working, 1)
+			isReporting = simulation.work == .report
+		}
+		let hasUnread = Report.all.contains { $0.isUnread } || simulation.unread
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 		let layout = Self.layout(working: working, waiting: waiting, hasUnread: hasUnread)
@@ -85,12 +92,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
-		// The simulation of the setup window adds its signals. A simulated ring needs the bubble state on the blink(1).
-		let simulation = LightSimulation.shared
-		let lightWave = simulation.work != .off ? simulation.work : Blink1.Wave(isReporting: isReporting, working: working)
-		let lightWaiting = layout.waiting > 0 || simulation.waiting, lightUnread = hasUnread || simulation.unread
-		Blink1.shared.show(wave: lightWave, badge: Blink1.Badge(waiting: lightWaiting || simulation.ring ? 1 : 0, hasUnread: lightUnread))
-		KeyboardLight.shared.show(wave: lightWave, isWaiting: lightWaiting, hasUnread: lightUnread)
+		let lightWave = Blink1.Wave(isReporting: isReporting, working: working)
+		Blink1.shared.show(wave: lightWave, badge: Blink1.Badge(waiting: layout.waiting, hasUnread: hasUnread))
+		KeyboardLight.shared.show(wave: lightWave, isWaiting: layout.waiting > 0, hasUnread: hasUnread)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in

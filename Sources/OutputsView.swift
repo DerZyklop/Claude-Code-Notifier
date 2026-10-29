@@ -50,7 +50,7 @@ final class SettingsStore: ObservableObject {
 }
 
 /// The tab »Outputs« of the setup window: which outputs show the state, and how the keyboard shows it. Each signal of
-/// the keyboard has a switch that simulates it on the blink(1) and the keyboard.
+/// the keyboard has a switch that simulates it in the menu bar, on the blink(1) and on the keyboard.
 struct OutputsView: View {
 	@EnvironmentObject private var settings: SettingsStore
 	@EnvironmentObject private var simulation: LightSimulation
@@ -98,7 +98,7 @@ struct OutputsView: View {
 					signalRow(signal, isEnabled: usesKeyboard)
 				}
 			} footer: {
-				Text("Where the areas of two signals overlap, the upper one wins. Simulate shows a signal on the blink(1) and the keyboard while this tab is open.")
+				Text("Where the areas of two signals overlap, the upper one wins. Simulate shows a signal in the menu bar, on the blink(1) and on the keyboard while this tab is open.")
 					.font(.caption).foregroundStyle(.secondary)
 					.fixedSize(horizontal: false, vertical: true)
 			}
@@ -136,7 +136,8 @@ struct OutputsView: View {
 		case .waiting:
 			Toggle("Simulate", isOn: $simulation.waiting)
 		case .ring:
-			Toggle("Simulate", isOn: $simulation.ring)
+			// The bubble always rings, so the simulation of »Waiting« shows the ring too.
+			Text("Rings with Waiting").foregroundStyle(.secondary)
 		case .unread:
 			Toggle("Simulate", isOn: $simulation.unread)
 		}
