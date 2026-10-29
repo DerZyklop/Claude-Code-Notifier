@@ -18,7 +18,16 @@ final class NuPhyKeyboard {
 	/// right to left, then the other keys. LED 84 is always off.
 	static let firstRow = 0..<16
 	static let secondRow = 16..<31
-	static let ledCount = 84
+	/// The left edge of each key of the first two rows, by LED, from `rgb_matrix.layout`. Backspace is two keys wide.
+	static let keyX: [Double] = Array(stride(from: 0.0, through: 150, by: 10))
+		+ [150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+	static let keyWidth = 10.0
+	static let rowWidth = 160.0
+	/// The side lights, from the bottom of the left bar to the top, then from the top of the right bar to the bottom.
+	/// LED 84 to 99 do not exist.
+	static let sideLights = 100..<112
+	static let leftBar = 100..<106
+	static let ledCount = 112
 	/// The keyboard of NuPhy allows LED values up to 128, see `max_brightness` in its `keyboard.json`. All keys at full
 	/// power need more current than many USB ports give.
 	static let maxValue = 128.0
@@ -66,13 +75,22 @@ final class NuPhyKeyboard {
 		IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
 	}
 
-	/// Shows `color` on the LEDs of `leds`, at `brightness` from 0 to 1, or up to ``fullBrightness``.
-	func show(_ color: NSColor, brightness: Double, on leds: Range<Int>) {
-		let rgb = Self.rgb(color, brightness: brightness)
-		var colors = sent
-		for led in leds { colors[led] = rgb }
+	/// Shows each LED of `lights` in its color, at its brightness from 0 to 1, or up to ``fullBrightness``. The LEDs
+	/// that are not in `lights` show the normal effect of the keyboard.
+	func show(_ lights: [Int: (color: NSColor, brightness: Double)]) {
+		var colors = [[UInt8]?](repeating: nil, count: Self.ledCount)
+		for (led, light) in lights { colors[led] = Self.rgb(light.color, brightness: light.brightness) }
+		if Self.releases(from: sent, to: colors) {
+			send(Self.report(.clear))
+			sent = sent.map { _ in nil }
+		}
 		for report in Self.reports(from: sent, to: colors) { send(report) }
 		sent = colors
+	}
+
+	/// Whether an LED goes back to the normal effect. The only way is the clear command, which clears all LEDs.
+	static func releases(from old: [[UInt8]?], to new: [[UInt8]?]) -> Bool {
+		zip(old, new).contains { $0 != nil && $1 == nil }
 	}
 
 	/// Gives all keys the normal effect of the keyboard back.

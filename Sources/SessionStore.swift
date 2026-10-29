@@ -189,10 +189,7 @@ final class SessionStore: ObservableObject {
 			shellCommandCounts: { ClaudeSessionFiles.shellCommandCounts(of: $0) },
 			addNotification: { UNUserNotificationCenter.current().add($0) },
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			sessionEnded: {
-				Blink1.shared.pulse(Spinner.color)
-				KeyboardLight.shared.pulse(Spinner.color)
-			},
+			sessionEnded: { Blink1.shared.pulse(Spinner.color) },
 			defaults: .standard
 		)
 	}
