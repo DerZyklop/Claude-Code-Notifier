@@ -20,6 +20,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - Find the cloud ID and the site URL with `getAccessibleAtlassianResources`.
    - Search with `sprint in openSprints() AND assignee = currentUser() AND statusCategory != Done`.
    - Leave out tickets that a PR in the JSON already covers. Name the ticket in the task of that PR instead.
+   - The Jira state »Untested« means that the PR is not merged yet. So »Untested« asks for no other action. Never write a next action for it.
    - If the Jira tools are missing or fail, write »Jira not available« in this section.
 4. Open branches: the `branches` in the JSON.
    - Leave out the base branches, for example `master`, `main` and `dev`.
