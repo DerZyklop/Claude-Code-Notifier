@@ -32,7 +32,8 @@ enum MorningOverview {
 	@MainActor
 	static func collect(_ report: Report) async throws -> Report.Input {
 		let me = await report.me()
-		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": await branches(report)]
+		let branches = await branches(report)
+		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches]
 		do {
 			data["pullRequests"] = try await pullRequests(report.bitbucket(), me: me)
 		} catch let error as URLError {
@@ -40,6 +41,13 @@ enum MorningOverview {
 			throw Report.Failure("No connection to Bitbucket: \(error.localizedDescription)")
 		} catch {
 			data["pullRequestError"] = "\(error)"
+		}
+		if FileManager.default.fileExists(atPath: plansFolder.path) {
+			let known = Set(await report.git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"])
+				.split(separator: "\n").map { $0.replacingOccurrences(of: #"^origin/"#, with: "", options: .regularExpression) })
+			data["plans"] = plans(in: plansFolder, old: try? String(contentsOf: report.fileURL, encoding: .utf8), now: report.system.now(),
+				calendar: report.system.calendar, branches: branches, knownBranches: known,
+				pullRequests: data["pullRequests"] as? [[String: Any]] ?? [])
 		}
 		return Report.Input(data: data, facts: facts(report))
 	}
@@ -61,6 +69,70 @@ enum MorningOverview {
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
 		if exists(projectFolder) { facts.append("Transcripts folder: \(projectFolder.path)") }
 		return facts
+	}
+
+	/// The days of the plans that Optional Work reads.
+	static let recentDays = 14
+
+	/// The facts of each plan in `folder` that the app can find without Claude, sorted by name:
+	/// - `recent`: the plan changed in the last 14 days.
+	/// - `changedAfterOldOverview`: the plan changed at or after the `Updated:` time of `old`. Only with such a time.
+	/// - `oldSections`: the sections of `old` that name the plan file.
+	/// - `tickets`: the ticket IDs in the name and the text, with a project key that a branch or a pull request also has.
+	/// - `branches`: the local branches that the text names, with their `mergedInto`.
+	/// - `unknownBranches`: the branch names in the text that git does not know.
+	/// - `openPullRequests`: the IDs of the open pull requests that the text names, by number or by source branch.
+	/// - `openSteps` and `doneSteps`: the number of checkboxes without and with a tick.
+	static func plans(in folder: URL, old: String?, now: Date, calendar: Calendar, branches: [[String: Any]], knownBranches: Set<String>,
+		pullRequests: [[String: Any]]) -> [[String: Any]] {
+		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
+		let since = old.flatMap { Report.updated(in: $0, calendar: calendar) }
+		let oldSections = old.map(sections) ?? [:]
+		let projectKeys = Set((branches.compactMap { $0["name"] as? String }
+			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } })
+			.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.map { String($0.prefix { $0 != "-" }) })
+		let day = DateFormatter()
+		day.calendar = calendar
+		day.timeZone = calendar.timeZone
+		day.locale = Locale(identifier: "en_US_POSIX")
+		day.dateFormat = "yyyy-MM-dd"
+		return names.compactMap { name in
+			let file = folder.appendingPathComponent(name)
+			guard let text = try? String(contentsOf: file, encoding: .utf8),
+				let date = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date else { return nil }
+			var plan: [String: Any] = ["name": name, "url": file.absoluteString, "changedOn": day.string(from: date),
+				"recent": date >= now.addingTimeInterval(-Double(recentDays) * 24 * 60 * 60)]
+			if let since { plan["changedAfterOldOverview"] = date >= since }
+			plan["oldSections"] = oldSections.filter { $0.value.contains(name) }.keys.sorted()
+			plan["tickets"] = Array(Set(matches(of: ticketPattern, in: name.uppercased() + "\n" + text.uppercased())
+				.filter { projectKeys.contains(String($0.prefix { $0 != "-" })) })).sorted()
+			plan["branches"] = branches.filter { ($0["name"] as? String).map { text.contains($0) } ?? false }
+				.map { ["name": $0["name"] as Any, "mergedInto": $0["mergedInto"] as? [String] ?? []] }
+			plan["unknownBranches"] = Array(Set(matches(of: branchPattern, in: text).filter { !knownBranches.contains($0) })).sorted()
+			plan["openPullRequests"] = pullRequests.compactMap { pullRequest -> Int? in
+				guard let id = pullRequest["id"] as? Int else { return nil }
+				let byNumber = text.range(of: #"(#|PR |pull-requests/)\#(id)\b"#, options: .regularExpression) != nil
+				let byBranch = sourceBranch(of: pullRequest).map { text.contains($0) } ?? false
+				return byNumber || byBranch ? id : nil
+			}
+			plan["openSteps"] = matches(of: #"(?m)^\s*- \[ \]"#, in: text).count
+			plan["doneSteps"] = matches(of: #"(?m)^\s*- \[[xX]\]"#, in: text).count
+			return plan
+		}
+	}
+
+	/// A ticket ID, e.g. `PROJ-123`, in upper case.
+	static let ticketPattern = #"\b[A-Z][A-Z0-9]+-\d+\b"#
+	/// A branch name with a usual prefix, e.g. `feature/PROJ-123-fix`.
+	static let branchPattern = #"\b(?:feature|bugfix|hotfix|fix|release|chore)/[A-Za-z0-9._/-]*[A-Za-z0-9]"#
+
+	private static func sourceBranch(of pullRequest: [String: Any]) -> String? {
+		((pullRequest["source"] as? [String: Any])?["branch"] as? [String: Any])?["name"] as? String
+	}
+
+	private static func matches(of pattern: String, in text: String) -> [String] {
+		guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+		return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
 	}
 
 	/// The overview in the output, with the weekday tasks and the kept sections of the old overview.

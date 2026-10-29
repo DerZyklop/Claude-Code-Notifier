@@ -448,6 +448,47 @@ extension ReportFixture {
 			""")
 	}
 
+	@Test func plansGetTheFactsThatTheAppFinds() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let now = tuesdayMorning
+		let day: TimeInterval = 24 * 60 * 60
+		let texts = [
+			"plan-proj-7-new.md": "Fix `feature/PROJ-1-a` and `feature/gone-b`, see #42 and UTF-8.\n- [x] One\n  - [ ] Two\n",
+			"old.md": "Uses `bugfix/PROJ-2-c`.\n",
+			"notes.txt": "x",
+		]
+		for (name, text) in texts {
+			let file = folder.appendingPathComponent(name)
+			try text.write(to: file, atomically: true, encoding: .utf8)
+			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval((name == "old.md" ? -20 : -0.5) * day)], ofItemAtPath: file.path)
+		}
+		let old = "# Morning overview\n\nUpdated: \(Report.timestampFormatter(utcCalendar).string(from: now.addingTimeInterval(-day)))\n\n"
+			+ "## 1 × Cleanup Work\n\n- [ ] `C1` Delete [old.md](file:///old.md)\n"
+		let branches: [[String: Any]] = [["name": "feature/PROJ-1-a", "mergedInto": ["origin/dev"]]]
+		let pullRequests: [[String: Any]] = [["id": 42, "title": "PROJ-1 A"], ["id": 43, "source": ["branch": ["name": "bugfix/PROJ-2-c"]]]]
+		let plans = MorningOverview.plans(in: folder, old: old, now: now, calendar: utcCalendar, branches: branches,
+			knownBranches: ["feature/PROJ-1-a", "bugfix/PROJ-2-c"], pullRequests: pullRequests)
+		#expect(plans.map { $0["name"] as? String } == ["old.md", "plan-proj-7-new.md"])
+		let (oldPlan, newPlan) = (plans[0], plans[1])
+		#expect(oldPlan["recent"] as? Bool == false)
+		#expect(oldPlan["changedAfterOldOverview"] as? Bool == false)
+		#expect(oldPlan["oldSections"] as? [String] == ["Cleanup Work"])
+		#expect(oldPlan["openPullRequests"] as? [Int] == [43])
+		#expect(newPlan["recent"] as? Bool == true)
+		#expect(newPlan["changedAfterOldOverview"] as? Bool == true)
+		#expect(newPlan["oldSections"] as? [String] == [])
+		#expect(newPlan["tickets"] as? [String] == ["PROJ-1", "PROJ-7"])
+		#expect((newPlan["branches"] as? [[String: Any]])?.first?["mergedInto"] as? [String] == ["origin/dev"])
+		#expect(newPlan["unknownBranches"] as? [String] == ["feature/gone-b"])
+		#expect(newPlan["openPullRequests"] as? [Int] == [42])
+		#expect(newPlan["openSteps"] as? Int == 1)
+		#expect(newPlan["doneSteps"] as? Int == 1)
+		#expect(MorningOverview.plans(in: folder, old: nil, now: now, calendar: utcCalendar, branches: [], knownBranches: [], pullRequests: [])
+			.allSatisfy { $0["changedAfterOldOverview"] == nil })
+	}
+
 	@Test func eachSectionGetsItsOwnLetter() {
 		let overview = """
 			## Reviews
