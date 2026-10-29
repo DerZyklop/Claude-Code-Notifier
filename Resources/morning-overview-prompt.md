@@ -30,12 +30,18 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
      - If `track` is `[gone]`, the remote branch is deleted. If the local branch has new work, push it again. Else delete it.
      - If the branch has no `upstream` and has commits, push it and open a PR.
      - If it is `ahead`, push it.
-5. Other work:
+5. Optional work:
    - The plan, review and handover files in the project folder that git does not track. Use `git status --short`, then read the files. Name only the open steps.
    - The git workspaces in the JSON: uncommitted changes and unpushed commits in the main folder and in each worktree.
    - If the facts name the plans folder, read the plans of the last 14 days. Use only the plans that belong to the project folder. Name each open step that no PR, ticket or other task already covers.
    - If the facts name the memory folder of the project, read its open follow-ups.
    - If the facts name the folder of the transcripts, look at the sessions of the last 3 days. Use Grep for `"ai-title"` and `"custom-title"` in the newest `.jsonl` files, and read only these lines. If the work of a session is not done, name the session.
+6. Cleanup work: if the facts name the plans folder, find the outdated plans of the project folder, of all dates. An outdated plan is a plan with done work:
+   - Its ticket has the Jira state »Done«. Read the state with `getJiraIssue`.
+   - Its branch has `mergedInto` in the JSON, or git does not know the branch anymore.
+   - All its steps are done.
+   - A plan with an open PR in the JSON is never outdated.
+   - Write one task »Delete the outdated plans«. Give each outdated plan one sub-item: »Delete [<file name>](<file URL>), because <reason>.«
 
 ## Output
 
@@ -67,16 +73,27 @@ Updated: YYYY-MM-DD HH:MM
 - [ ] `feature/old-idea` Short title of the topic
     - [ ] The next action.
 
-## Other Work
+## Optional Work
+
+Open work that no PR, ticket or branch covers: uncommitted changes, unpushed commits, plan files that are not yet mentioned and handover files, follow-ups in the memory, and unfinished sessions of the last 3 days.
+
+- [ ] Short title of the topic
+    - [ ] The next action.
+
+## Cleanup Work
+
+- [ ] Delete the outdated plans
+    - [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done«.
 ```
 
 Rules:
 
 - Use the time from the facts for the `Updated:` line.
 - Write the section headings exactly as shown, without a number. The app adds the number of tasks to each heading.
+- Copy the description line below »Optional Work« exactly as shown.
 - Write no IDs for the tasks. The app adds an ID like `M2` or `M2a` to each task and each next action.
 - Each task has a title line and one or more sub-items.
-  - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Other Work«. Leave the ticket ID out of the title, because the link shows it.
+  - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
   - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
   - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
   - A next action is a command that the user can do: »Merge it.«, »Answer Milad's 2 tasks.« A fact alone is no next action. Never write a sub-item that only tells a state, for example »Milad and Rui approved it. The pipeline is green.«

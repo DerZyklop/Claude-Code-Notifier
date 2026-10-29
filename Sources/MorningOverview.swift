@@ -55,7 +55,7 @@ enum MorningOverview {
 		if !todayTasks.isEmpty {
 			facts.append("Weekday tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
 		}
-		facts.append("The app copies the sections »My Notes« and »Daily« from the old overview. Leave them out, and also the tasks in them.")
+		facts.append("The app writes the sections »My Notes«, »Daily« and »Notifier App«. Leave them out, and also the tasks in them.")
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
@@ -74,8 +74,9 @@ enum MorningOverview {
 		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
 		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
 		let text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(tasks(of: system), done: done,
-			in: withoutKeptSections(output)))))
+			in: withoutAppSections(output)))))
 		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
+			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
 	}
 
 	/// The old overview is of the same day as `now`.
@@ -99,37 +100,64 @@ enum MorningOverview {
 	/// The sections that the user writes. A new overview copies them from the old one, and the app gives their tasks no ID
 	/// and their headings no count.
 	static let keptSections = ["My Notes", "Daily"]
+	/// The sections that the app writes, not Claude. Their tasks get no ID and their headings get no count.
+	static let appSections = keptSections + ["Notifier App"]
 
-	/// The text of each section in `overview`, by its title, from its heading to the next heading.
+	/// The text of each section in `overview`, by its title without a count, from its heading to the next heading.
 	static func sections(in overview: String) -> [String: String] {
 		var result: [String: String] = [:]
 		for part in overview.components(separatedBy: "\n## ").dropFirst() {
-			let title = String(part.prefix { $0 != "\n" })
-			result[title] = result[title] ?? "## " + part
+			let name = title(of: part)
+			result[name] = result[name] ?? "## " + part
 		}
 		return result
 	}
 
-	/// The overview without the kept sections.
-	static func withoutKeptSections(_ overview: String) -> String {
+	/// The overview without the app sections.
+	static func withoutAppSections(_ overview: String) -> String {
 		var parts = overview.components(separatedBy: "\n## ")
-		parts = [parts[0]] + parts.dropFirst().filter { part in !keptSections.contains(String(part.prefix { $0 != "\n" })) }
+		parts = [parts[0]] + parts.dropFirst().filter { part in !appSections.contains(title(of: part)) }
 		return parts.joined(separator: "\n## ")
 	}
 
-	/// The overview with the kept sections of `old` above its first section. »My Notes« stays as it is. The tasks in »Daily«
-	/// lose their tick on a new day. A section that `old` does not have starts empty.
+	/// The title of a section part after `"\n## "`, without the count of the app.
+	private static func title(of part: String) -> String {
+		String(part.prefix { $0 != "\n" }).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
+	}
+
+	/// The section that Claude writes and the app moves below »My Notes«.
+	static let cleanupSection = "Cleanup Work"
+
+	/// The overview with the kept sections of `old` above its first section, and »Cleanup Work« below »My Notes«. »My Notes«
+	/// stays as it is. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.
 	static func withKeptSections(from old: String, keepingTicks: Bool, in overview: String) -> String {
 		let oldSections = sections(in: old)
+		var parts = overview.components(separatedBy: "\n## ")
+		var cleanup = ""
+		if let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == cleanupSection }) {
+			cleanup = "## " + parts.remove(at: index).trimmingCharacters(in: .newlines) + "\n\n"
+		}
+		let overview = parts.joined(separator: "\n## ")
 		let kept = keptSections.map { title in
-			var text = (oldSections[title] ?? "## \(title)\n").trimmingCharacters(in: .newlines)
+			// The heading loses an old count, so that the section keeps no wrong number.
+			let body = oldSections[title].map { $0.drop { $0 != "\n" } } ?? "\n"
+			var text = ("## \(title)" + body).trimmingCharacters(in: .newlines)
 			if title == "Daily", !keepingTicks {
 				text = text.replacingOccurrences(of: #"(?m)^(\s*- )\[[xX]\] "#, with: "$1[ ] ", options: .regularExpression)
 			}
-			return text + "\n\n"
+			return text + "\n\n" + (title == "My Notes" ? cleanup : "")
 		}.joined()
 		guard let section = overview.range(of: "\n## ") else { return overview + "\n" + kept }
 		return overview.replacingCharacters(in: section, with: "\n" + kept + "## ")
+	}
+
+	/// The last section: a link to each plan of this app in `folder`, by name. Its `README.md` is no plan. `nil` without
+	/// the folder.
+	static func notifierSection(plansIn folder: URL) -> String? {
+		guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+		let plans = names.filter { $0.hasSuffix(".md") && $0 != "README.md" }.sorted().map(folder.appendingPathComponent)
+		let lines = plans.isEmpty ? "No plans.\n" : plans.map { "- [\($0.deletingPathExtension().lastPathComponent)](\($0.absoluteString))\n" }.joined()
+		return "\n## Notifier App\n\n" + lines
 	}
 
 	/// The overview with an ID for each task and the number of open tasks in each heading.
@@ -137,22 +165,48 @@ enum MorningOverview {
 		withSectionCounts(in: withTaskIDs(in: overview))
 	}
 
-	/// The letter of the IDs in each section. Another section gets the first letter of its title.
+	/// The letter of the IDs in each section. Another section gets the first letter of its title that no other section has.
 	static let sectionLetters = ["Their Open PRs": "R", "My Open PRs": "M", "Draft PRs": "D", "Remaining Tickets in this Sprint": "T",
-		"Open Branches": "B", "Other Work": "O"]
+		"Open Branches": "B", "Optional Work": "O", "Cleanup Work": "C"]
+
+	/// The letter of each section heading in `overview`, in order. Each letter is unique, so that each ID is unique. The
+	/// letters in `sectionLetters` stay free for their sections, also when a section is missing, so that the letters stay the
+	/// same from run to run. A section without a free letter, a second section with the same title and an app section get
+	/// `nil`.
+	static func letters(in overview: String) -> [String?] {
+		let alphabet = (UnicodeScalar("A").value...UnicodeScalar("Z").value).map { String(UnicodeScalar($0)!) }
+		var used = Set(sectionLetters.values)
+		var letters: [String?] = []
+		var titles = Set<String>()
+		for line in overview.components(separatedBy: "\n") where line.hasPrefix("## ") {
+			let title = line.dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
+			guard titles.insert(title).inserted, !appSections.contains(title) else {
+				letters.append(nil)
+				continue
+			}
+			if let letter = sectionLetters[title] {
+				letters.append(letter)
+				continue
+			}
+			let letter = (title.uppercased().map(String.init) + alphabet).first { alphabet.contains($0) && !used.contains($0) }
+			if let letter { used.insert(letter) }
+			letters.append(letter)
+		}
+		return letters
+	}
 
 	/// Each task with an ID after its checkbox, e.g. `` `M2` `` for the second task under »My Open PRs«, and each of its next
 	/// actions with a letter, e.g. `` `M2a` ``. Only a sub-item with a checkbox is a next action. A sub-item without one is
 	/// no task and gets no ID. Done tasks keep their place in the count, so that a tick changes no ID. An ID that the file
-	/// already has gets replaced. Tasks above the first section and in the kept sections get no ID.
+	/// already has gets replaced. Tasks above the first section and in the app sections get no ID.
 	static func withTaskIDs(in overview: String) -> String {
+		var letters = letters(in: overview)[...]
 		var letter: String?
 		var task = 0
 		var step = 0
 		return overview.components(separatedBy: "\n").map { line in
 			if line.hasPrefix("## ") {
-				let title = line.dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
-				letter = keptSections.contains(title) ? nil : sectionLetters[title] ?? title.first.map { String($0).uppercased() }
+				letter = letters.popFirst() ?? nil
 				task = 0
 				return line
 			}
@@ -182,7 +236,7 @@ enum MorningOverview {
 	}
 
 	/// Each section heading with the number of its tasks, e.g. `## 3 × My Open PRs`. Only the tasks at the start of a line
-	/// count, not their next actions. A number that Claude already wrote gets replaced. The kept sections get no number.
+	/// count, not their next actions. A number that Claude already wrote gets replaced. The app sections get no number.
 	static func withSectionCounts(in overview: String) -> String {
 		var lines = overview.components(separatedBy: "\n")
 		var heading: Int?
@@ -195,7 +249,7 @@ enum MorningOverview {
 		for index in lines.indices {
 			if lines[index].hasPrefix("## ") {
 				writeCount()
-				heading = keptSections.contains(String(lines[index].dropFirst(3))) ? nil : index
+				heading = appSections.contains(title(of: String(lines[index].dropFirst(3)))) ? nil : index
 				count = 0
 			} else if lines[index].hasPrefix("- [ ]") {
 				count += 1

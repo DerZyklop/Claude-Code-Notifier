@@ -23,7 +23,7 @@ let overviewText = """
 
 	- [ ] [PROJ-1](https://x.atlassian.net/browse/PROJ-1) Do it.
 
-	## Other Work
+	## Optional Work
 
 	Nothing open.
 	"""
@@ -171,12 +171,12 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		let notes = "## My Notes\n\nAsk [#7](https://x) about it.\n- [x] Keep\n    - [ ] this\n"
 		let daily = "## Daily\n\n- [x] Mail\n    - [X] Inbox\n- [ ] Slack\n"
-		try "# Morning overview\n\nUpdated: 2026-10-26 07:00\n\n\(daily)\n## 1 × Other Work\n\n- [ ] `O1` Old\n\n\(notes)"
+		try "# Morning overview\n\nUpdated: 2026-10-26 07:00\n\n\(daily)\n## 1 × Optional Work\n\n- [ ] `O1` Old\n\n\(notes)"
 			.write(to: fixture.fileURL, atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
 		#expect(text.contains("Updated: 2026-10-27 07:00\n\n\(notes)\n## Daily\n\n- [ ] Mail\n    - [ ] Inbox\n- [ ] Slack\n\n## 0 × Their"))
-		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes« and »Daily«"))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes«, »Daily« and »Notifier App«"))
 	}
 
 	@Test func claudeGetsOnlyReadTools() async throws {
@@ -448,34 +448,102 @@ extension ReportFixture {
 			""")
 	}
 
+	@Test func eachSectionGetsItsOwnLetter() {
+		let overview = """
+			## Reviews
+
+			- [ ] A
+
+			## Ideas
+
+			- [ ] B
+
+			## Issues
+
+			- [ ] C
+
+			## 2026
+
+			- [ ] D
+
+			## Ideas
+
+			- [ ] E
+
+			## Daily
+
+			- [ ] F
+
+			## Their Open PRs
+
+			- [ ] G
+			"""
+		#expect(MorningOverview.letters(in: overview) == ["E", "I", "S", "A", nil, nil, "R"])
+		#expect(MorningOverview.withTaskIDs(in: overview).contains("## 2026\n\n- [ ] `A1` D\n\n## Ideas\n\n- [ ] E\n"))
+	}
+
 	@Test func weekdayTasksComeBeforeTheFirstSection() {
-		let overview = "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n"
+		let overview = "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## My Open PRs\n\nNothing open.\n\n## Optional Work\n"
 		#expect(MorningOverview.withWeekdayTasks(["Reflect", "Mail"], in: overview)
-			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Reflect\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n")
+			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Reflect\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Optional Work\n")
 		#expect(MorningOverview.withWeekdayTasks([], in: overview) == overview)
 		#expect(MorningOverview.withWeekdayTasks(["Reflect", "Mail"], done: ["Mail"], in: overview)
 			.contains("- [ ] Reflect\n- [x] Mail\n\n## "))
 	}
 
 	@Test func weekdayTasksKeepTheirTickOnTheSameDay() {
-		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n- [x] Reflect\n- [ ] Mail\n\n## Other Work\n\n- [x] `O1` Done\n"
+		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n- [x] Reflect\n- [ ] Mail\n\n## Optional Work\n\n- [x] `O1` Done\n"
 		#expect(MorningOverview.doneWeekdayTasks(in: old) == ["Reflect"])
 		#expect(MorningOverview.isSameDay(old, now: tuesdayMorning, calendar: utcCalendar))
 		#expect(!MorningOverview.isSameDay(old, now: tuesdayMorning.addingTimeInterval(24 * 60 * 60), calendar: utcCalendar))
 	}
 
 	@Test func keptSectionsReplaceTheOnesOfClaude() {
-		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n## Daily\n\n- [x] Mail\n\n## Other Work\n"
-		let overview = MorningOverview.withoutKeptSections("# Morning overview\n\n## My Notes\n\nNew\n\n## Other Work\n\n## Daily\n\n- [ ] X\n")
-		#expect(overview == "# Morning overview\n\n## Other Work\n")
+		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n## Daily\n\n- [x] Mail\n\n## Optional Work\n"
+		let overview = MorningOverview.withoutAppSections("# Morning overview\n\n## My Notes\n\nNew\n\n## Optional Work\n\n## Daily\n\n- [ ] X\n\n## Notifier App\n\n- Y\n")
+		#expect(overview == "# Morning overview\n\n## Optional Work\n")
 		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: overview)
-			== "# Morning overview\n\n## My Notes\n\n## Daily\n\n- [x] Mail\n\n## Other Work\n")
+			== "# Morning overview\n\n## My Notes\n\n## Daily\n\n- [x] Mail\n\n## Optional Work\n")
 	}
 
-	@Test func keptSectionsGetNoIDsAndNoCounts() {
-		let overview = "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## Other Work\n\n- [ ] Work\n"
+	@Test func keptSectionsWithACountInTheHeadingKeepTheirText() {
+		let old = "# Morning overview\n\n## 2 × My Notes\n(Mine)\n\n- [ ] `M1` Note\n\n## 0 × Daily\n- [x] `D1` Mail\n\n## 0 × Optional Work\n"
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: "# Morning overview\n\n## Optional Work\n")
+			== "# Morning overview\n\n## My Notes\n(Mine)\n\n- [ ] `M1` Note\n\n## Daily\n- [x] `D1` Mail\n\n## Optional Work\n")
+		#expect(MorningOverview.numbered("## 2 × My Notes\n\n- [ ] Note\n") == "## 2 × My Notes\n\n- [ ] Note\n")
+	}
+
+	@Test func cleanupWorkComesBelowMyNotes() {
+		let old = "# Morning overview\n\n## My Notes\n\nNote\n\n## Daily\n\n- [ ] Mail\n"
+		let overview = "# Morning overview\n\n## 0 × My Open PRs\n\nNothing open.\n\n## 1 × Cleanup Work\n\n- [ ] `C1` Delete\n\n## 0 × Optional Work\n"
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: overview)
+			== "# Morning overview\n\n## My Notes\n\nNote\n\n## 1 × Cleanup Work\n\n- [ ] `C1` Delete\n\n## Daily\n\n- [ ] Mail\n\n"
+			+ "## 0 × My Open PRs\n\nNothing open.\n\n## 0 × Optional Work\n")
+	}
+
+	@Test func appSectionsGetNoIDsAndNoCounts() {
+		let overview = "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## Optional Work\n\n- [ ] Work\n\n## Notifier App\n\n- [a](file:///a.md)\n"
 		#expect(MorningOverview.numbered(overview)
-			== "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## 1 × Other Work\n\n- [ ] `O1` Work\n")
+			== "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## 1 × Optional Work\n\n- [ ] `O1` Work\n\n## Notifier App\n\n- [a](file:///a.md)\n")
+	}
+
+	@MainActor @Test func notifierAppSectionLinksThePlansAtTheEnd() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let plans = fixture.folder.appendingPathComponent("notifier plans")
+		try FileManager.default.createDirectory(at: plans, withIntermediateDirectories: true)
+		for name in ["b.md", "a plan.md", "README.md", "notes.txt"] { try "x".write(to: plans.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+		var system = fixture.report.system
+		system.notifierPlansFolder = plans
+		await Report(kind: .morningOverview, system: system).update()
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		let link = plans.appendingPathComponent("a plan.md").absoluteString
+		#expect(link.contains("%20"))
+		#expect(text.hasSuffix("Nothing open.\n\n## Notifier App\n\n- [a plan](\(link))\n- [b](\(plans.appendingPathComponent("b.md").absoluteString))\n"))
+		#expect(MorningOverview.notifierSection(plansIn: fixture.folder.appendingPathComponent("missing")) == nil)
+		try FileManager.default.removeItem(at: plans)
+		try FileManager.default.createDirectory(at: plans, withIntermediateDirectories: true)
+		#expect(MorningOverview.notifierSection(plansIn: plans) == "\n## Notifier App\n\nNo plans.\n")
 	}
 
 	@Test(arguments: [
