@@ -192,22 +192,47 @@ final class HookSetup: ObservableObject {
 	}
 }
 
+enum SetupTab: Hashable {
+	case hooks, outputs
+}
+
+/// The tab that the setup window shows.
+@MainActor
+final class SetupNavigation: ObservableObject {
+	static let shared = SetupNavigation()
+	@Published var tab = SetupTab.hooks
+}
+
 /// The setup window. An app without a Dock icon has to bring its window to the front itself.
 @MainActor
 enum SetupWindow {
 	private static var window: NSWindow?
+	private static let delegate = Delegate()
 
-	static func show() {
+	/// Ends the simulation of the lights when the window closes.
+	private final class Delegate: NSObject, NSWindowDelegate {
+		func windowWillClose(_ notification: Notification) {
+			MainActor.assumeIsolated { LightSimulation.shared.stopAll() }
+		}
+	}
+
+	static func show(tab: SetupTab = .hooks) {
 		if window == nil {
-			let hosting = NSHostingController(rootView: SetupView().environmentObject(HookSetup.shared))
-			let newWindow = NSWindow(contentViewController: hosting)
+			let view = SetupView()
+				.environmentObject(HookSetup.shared)
+				.environmentObject(SetupNavigation.shared)
+				.environmentObject(LightSimulation.shared)
+				.environmentObject(SettingsStore.shared)
+			let newWindow = NSWindow(contentViewController: NSHostingController(rootView: view))
 			newWindow.title = "Claude Code Pulse Setup"
 			newWindow.styleMask = [.titled, .closable]
 			newWindow.isReleasedWhenClosed = false
 			newWindow.isRestorable = false
+			newWindow.delegate = delegate
 			newWindow.center()
 			window = newWindow
 		}
+		SetupNavigation.shared.tab = tab
 		HookSetup.shared.refresh()
 		NSApp.activate(ignoringOtherApps: true)
 		window?.makeKeyAndOrderFront(nil)
@@ -256,7 +281,27 @@ struct CheckRow: View {
 	}
 }
 
+/// The tabs of the setup window. A change of the tab ends the simulation of the lights.
 struct SetupView: View {
+	@EnvironmentObject private var navigation: SetupNavigation
+
+	var body: some View {
+		TabView(selection: $navigation.tab) {
+			HooksView()
+				.tabItem { Text("Hooks") }
+				.tag(SetupTab.hooks)
+			OutputsView()
+				.tabItem { Text("Outputs") }
+				.tag(SetupTab.outputs)
+		}
+		.padding(.top, 8)
+		.onChange(of: navigation.tab) { _ in LightSimulation.shared.stopAll() }
+		.onDisappear { LightSimulation.shared.stopAll() }
+	}
+}
+
+/// The checks of the hooks.
+struct HooksView: View {
 	@EnvironmentObject private var setup: HookSetup
 	private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -272,14 +317,6 @@ struct SetupView: View {
 			claudeRow
 
 			if !setup.hooksConfigured { instructions }
-
-			HStack {
-				Text("Send a test notification:")
-				ForEach(NotificationKind.allCases, id: \.self) { kind in
-					Button("»\(kind.subtitle)«") { SessionStore.shared.sendTestNotification(kind) }
-				}
-			}
-			.disabled(setup.notificationsAllowed != true)
 
 			HStack {
 				Text("The checks update by themselves while this window is open.")

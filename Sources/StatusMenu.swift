@@ -34,7 +34,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		statusItem.button?.imagePosition = .imageOnly
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
-		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher(), HookSetup.shared.objectWillChange.eraseToAnyPublisher()]
+		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher(), HookSetup.shared.objectWillChange.eraseToAnyPublisher(),
+			LightSimulation.shared.objectWillChange.eraseToAnyPublisher()]
 			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.updateIcon() }
@@ -84,9 +85,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
-		let lightWave = Blink1.Wave(isReporting: isReporting, working: working), lightBadge = Blink1.Badge(waiting: layout.waiting, hasUnread: hasUnread)
-		Blink1.shared.show(wave: lightWave, badge: lightBadge)
-		KeyboardLight.shared.show(wave: lightWave, badge: lightBadge)
+		// The simulation of the setup window adds its signals. A simulated ring needs the bubble state on the blink(1).
+		let simulation = LightSimulation.shared
+		let lightWave = simulation.work != .off ? simulation.work : Blink1.Wave(isReporting: isReporting, working: working)
+		let lightWaiting = layout.waiting > 0 || simulation.waiting, lightUnread = hasUnread || simulation.unread
+		Blink1.shared.show(wave: lightWave, badge: Blink1.Badge(waiting: lightWaiting || simulation.ring ? 1 : 0, hasUnread: lightUnread))
+		KeyboardLight.shared.show(wave: lightWave, isWaiting: lightWaiting, hasUnread: lightUnread)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
@@ -187,8 +191,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	// MARK: - Menu
 
-	/// The groups: the sessions with the status of the app, one for each report, the notification settings, and the app
-	/// itself.
+	/// The groups: the sessions with the status of the app, one for each report, and the app itself. The setup window
+	/// holds the settings of the outputs.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
 		updateItems = []
@@ -214,26 +218,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		for report in Report.all { addGroup(for: report, to: menu) }
 
 		menu.addItem(.separator())
-		menu.addItem(sectionHeader("Notifications"))
-		menu.addItem(toggle("Show Notifications", SettingsKey.muted, isInverted: true))
-		menu.addItem(toggle("When It Is Your Turn", SettingsKey.notifyOnDone))
-		let tests = NSMenu()
-		for kind in NotificationKind.allCases {
-			let item = action(kind.subtitle, #selector(sendTestNotification(_:)))
-			item.representedObject = kind
-			tests.addItem(item)
-		}
-		let testsItem = NSMenuItem(title: "Send Test", action: nil, keyEquivalent: "")
-		testsItem.submenu = tests
-		menu.addItem(testsItem)
-		menu.addItem(sectionHeader("Sounds"))
-		menu.addItem(toggle("Play Sounds", SettingsKey.playsSound))
-
-		menu.addItem(.separator())
 		let launchAtLogin = action("Launch at Login", #selector(toggleLaunchAtLogin))
 		launchAtLogin.state = SMAppService.mainApp.status == .enabled ? .on : .off
 		menu.addItem(launchAtLogin)
-		menu.addItem(action("Hook Setup …", #selector(showSetup)))
+		menu.addItem(action("Setup …", #selector(showOutputs)))
 		let quit = action("Quit Claude Code Pulse", #selector(quit))
 		quit.keyEquivalent = "q"
 		menu.addItem(quit)
@@ -331,12 +319,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
 	}
 
-	/// - Parameter isInverted: Shows a check mark while the setting is off.
-	private func toggle(_ title: String, _ key: String, isInverted: Bool = false) -> NSMenuItem {
+	private func toggle(_ title: String, _ key: String) -> NSMenuItem {
 		let item = action(title, #selector(toggleSetting(_:)))
-		let defaultValue = SettingsKey.defaultValues[key] ?? true
-		item.representedObject = (key, defaultValue)
-		item.state = (UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue) != isInverted ? .on : .off
+		item.representedObject = key
+		item.state = SettingsKey.isOn(key) ? .on : .off
 		return item
 	}
 
@@ -374,16 +360,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	@objc private func toggleSetting(_ sender: NSMenuItem) {
-		guard let (key, defaultValue) = sender.representedObject as? (String, Bool) else { return }
-		let defaults = UserDefaults.standard
-		let value = !(defaults.object(forKey: key) as? Bool ?? defaultValue)
-		// Only a changed setting is stored, so that the app has no settings file while the user changes nothing.
-		if value == defaultValue { defaults.removeObject(forKey: key) } else { defaults.set(value, forKey: key) }
-	}
-
-	@objc private func sendTestNotification(_ sender: NSMenuItem) {
-		guard let kind = sender.representedObject as? NotificationKind else { return }
-		SessionStore.shared.sendTestNotification(kind)
+		guard let key = sender.representedObject as? String else { return }
+		SettingsKey.set(key, to: !SettingsKey.isOn(key))
 	}
 
 	@objc private func toggleLaunchAtLogin() {
@@ -395,7 +373,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	@objc private func showSetup() {
-		SetupWindow.show()
+		SetupWindow.show(tab: .hooks)
+	}
+
+	@objc private func showOutputs() {
+		SetupWindow.show(tab: .outputs)
 	}
 
 	@objc private func quit() {

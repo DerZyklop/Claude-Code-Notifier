@@ -931,7 +931,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 }
 
 /// Renders the views without a window. The setups in these tests do not listen or have no command, so a refresh
-/// from the timer of ``SetupView`` starts no command.
+/// from the timer of ``HooksView`` starts no command.
 @MainActor @Suite struct SetupViewTests {
 	@Test(arguments: [CheckStatus.ok, .waiting, .failed, .inactive])
 	func checkRowRenders(status: CheckStatus) {
@@ -940,10 +940,20 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		#expect(ImageRenderer(content: row).nsImage != nil)
 	}
 
+	@Test func outputsViewRenders() throws {
+		let sandbox = try Sandbox()
+		defer { sandbox.remove() }
+		let view = OutputsView()
+			.environmentObject(SettingsStore(defaults: MemoryDefaults()))
+			.environmentObject(LightSimulation.shared)
+			.environmentObject(sandbox.makeSetup())
+		#expect(ImageRenderer(content: view).nsImage != nil)
+	}
+
 	@Test func setupViewRendersANewSetup() throws {
 		let sandbox = try Sandbox()
 		defer { sandbox.remove() }
-		let image = ImageRenderer(content: SetupView().environmentObject(sandbox.makeSetup())).nsImage
+		let image = ImageRenderer(content: HooksView().environmentObject(sandbox.makeSetup())).nsImage
 		#expect(image?.size.width == 600)
 	}
 
@@ -961,7 +971,7 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		setup.listenerError = .some("Port in use")
 		setup.refresh()
 		#expect(await waitUntil { setup.notificationsAllowed == false })
-		#expect(ImageRenderer(content: SetupView().environmentObject(setup)).nsImage != nil)
+		#expect(ImageRenderer(content: HooksView().environmentObject(setup)).nsImage != nil)
 	}
 
 	@Test func setupViewRendersAPassedSetup() async throws {
@@ -973,6 +983,6 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		setup.runCommandTest()
 		setup.selfTestReceived(token: try await sandbox.token())
 		#expect(await waitUntil { setup.notificationsAllowed == true })
-		#expect(ImageRenderer(content: SetupView().environmentObject(setup)).nsImage != nil)
+		#expect(ImageRenderer(content: HooksView().environmentObject(setup)).nsImage != nil)
 	}
 }

@@ -14,20 +14,35 @@ final class NuPhyKeyboard {
 	static let usage = 0x61
 	static let reportSize = 32
 
-	/// The LEDs in the order of `rgb_matrix.layout` of NuPhy: the first row from left to right, the second row from
-	/// right to left, then the other keys. LED 84 is always off.
-	static let firstRow = 0..<16
-	static let secondRow = 16..<31
-	/// The left edge of each key of the first two rows, by LED, from `rgb_matrix.layout`. Backspace is two keys wide.
-	static let keyX: [Double] = Array(stride(from: 0.0, through: 150, by: 10))
-		+ [150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
+	/// The LEDs of the keys in the order of `rgb_matrix.layout` of NuPhy: row by row from the top, the first row from
+	/// left to right, the next from right to left, and so on. LED 84 is always off.
+	static let rows = [0..<16, 16..<31, 31..<46, 46..<60, 60..<74, 74..<84]
+	static let keyCount = 84
+	static let firstRow = rows[0]
+	static let secondRow = rows[1]
+	/// The key at the right end of each row.
+	static let rightEnds = rows.enumerated().map { index, row in index.isMultiple(of: 2) ? row.upperBound - 1 : row.lowerBound }
+	/// The left edge of each key, by LED, from `rgb_matrix.layout`.
+	static let layoutX: [Double] = [
+		0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+		150, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0,
+		0, 15, 25, 35, 45, 55, 65, 75, 85, 95, 105, 115, 125, 135, 150,
+		150, 127.5, 117.5, 107.5, 97.5, 87.5, 77.5, 67.5, 57.5, 47.5, 37.5, 27.5, 17.5, 0,
+		0, 22.5, 32.5, 42.5, 52.5, 62.5, 72.5, 82.5, 92.5, 102.5, 112.5, 122.5, 140, 150,
+		150, 140, 130, 120, 110, 100, 37.5, 25, 12.5, 0,
+	]
 	static let keyWidth = 10.0
 	static let rowWidth = 160.0
 	/// The side lights, from the bottom of the left bar to the top, then from the top of the right bar to the bottom.
 	/// LED 84 to 99 do not exist.
 	static let sideLights = 100..<112
 	static let leftBar = 100..<106
+	static let rightBar = 106..<112
 	static let ledCount = 112
+	/// The left edge of each LED: the left bar at the left end, the right bar at the right end.
+	static let keyX: [Double] = (0..<ledCount).map { led in
+		led < keyCount ? layoutX[led] : rightBar.contains(led) ? rowWidth - keyWidth : 0
+	}
 	/// The keyboard of NuPhy allows LED values up to 128, see `max_brightness` in its `keyboard.json`. All keys at full
 	/// power need more current than many USB ports give.
 	static let maxValue = 128.0

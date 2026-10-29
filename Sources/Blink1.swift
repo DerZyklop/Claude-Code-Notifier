@@ -5,7 +5,8 @@ import IOKit.hid
 /// in purple while a report runs, and are off without both. LED 1 shows the badge of the icon instead: steady orange
 /// while the bubble shows, steady purple while the dot of an unread report shows. With each round of the bubble, LED 1
 /// rings once in bright red, together with the bubble and its sound. When a session ends while it works or asks you, both LEDs blink 3 times in
-/// bright green, and when a report is ready, in bright purple. A light that you plug in later gets the current colors too.
+/// bright green. A light that you plug in later gets the current colors too.
+/// The switch in the setup window turns the light off, see ``SettingsKey/usesBlink1``.
 @MainActor
 final class Blink1 {
 	static let shared = Blink1()
@@ -54,12 +55,17 @@ final class Blink1 {
 	private var ringTask: Task<Void, Never>?
 	/// The blinks of both LEDs that run. Then the LEDs show the wave and the badge again.
 	private var pulseTask: Task<Void, Never>?
+	private var isEnabled = SettingsKey.isOn(SettingsKey.usesBlink1)
+
+	/// Whether a light is connected and shows the state.
+	var isShowing: Bool { isEnabled && !(IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? []).isEmpty }
 
 	private init() {
 		IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: Self.vendorID, kIOHIDProductIDKey: Self.productID] as CFDictionary)
 		IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
 			let blink1 = Unmanaged<Blink1>.fromOpaque(context!).takeUnretainedValue()
 			MainActor.assumeIsolated {
+				guard blink1.isEnabled else { return }
 				let wave = blink1.wave
 				blink1.send(Blink1.rgb(wave.color, brightness: wave.brightness.upperBound), fadeTime: Blink1.fadeTime, led: .both, to: device)
 				if let badge = blink1.badge { blink1.send(Blink1.rgb(badge), fadeTime: Blink1.fadeTime, led: .one, to: device) }
@@ -67,6 +73,30 @@ final class Blink1 {
 		}, Unmanaged.passUnretained(self).toOpaque())
 		IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
 		IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+		NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+			MainActor.assumeIsolated { self?.settingsChanged() }
+		}
+	}
+
+	/// Turns the LEDs off when the switch goes off, and shows the current state when it goes on again.
+	private func settingsChanged() {
+		let isEnabled = SettingsKey.isOn(SettingsKey.usesBlink1)
+		guard isEnabled != self.isEnabled else { return }
+		self.isEnabled = isEnabled
+		if isEnabled {
+			breathe()
+			showBadge()
+		} else {
+			stopTasks()
+			sendToAll([0, 0, 0], fadeTime: 0, led: .both)
+		}
+	}
+
+	private func stopTasks() {
+		for task in [breathTask, ringTask, pulseTask] { task?.cancel() }
+		breathTask = nil
+		ringTask = nil
+		pulseTask = nil
 	}
 
 	/// The state of the wave in the menu bar.
@@ -111,7 +141,7 @@ final class Blink1 {
 		let waveChanged = breath != self.wave, badgeChanged = badge != self.badge
 		self.wave = breath
 		self.badge = badge
-		guard pulseTask == nil else { return }
+		guard isEnabled, pulseTask == nil else { return }
 		if badgeChanged {
 			ringTask?.cancel()
 			ringTask = nil
@@ -122,10 +152,7 @@ final class Blink1 {
 
 	/// Stops every animation and turns both LEDs off, e.g. when the app quits.
 	func turnOff() {
-		for task in [breathTask, ringTask, pulseTask] { task?.cancel() }
-		breathTask = nil
-		ringTask = nil
-		pulseTask = nil
+		stopTasks()
 		wave = .off
 		badge = nil
 		sendToAll([0, 0, 0], fadeTime: 0, led: .both)
@@ -134,6 +161,7 @@ final class Blink1 {
 	/// Blinks both LEDs 3 times in `color` at full brightness, then shows the wave and the badge again. A new blink
 	/// starts again.
 	func pulse(_ color: NSColor) {
+		guard isEnabled else { return }
 		breathTask?.cancel()
 		breathTask = nil
 		ringTask?.cancel()
@@ -151,7 +179,7 @@ final class Blink1 {
 	/// Rings LED 1 once in bright red at the times of the bubble's glow, see ``AttentionBubble/glowTimes``: up fast, a
 	/// long hold, back to the steady orange. Only while the bubble shows.
 	func ring() {
-		guard badge == .asksYou, pulseTask == nil else { return }
+		guard isEnabled, badge == .asksYou, pulseTask == nil else { return }
 		let length = AttentionBubble.ringLength
 		let red = Self.rgb(Self.ringColor, brightness: 1)
 		let rest = Self.rgb(.asksYou)

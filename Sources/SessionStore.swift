@@ -11,11 +11,23 @@ enum SettingsKey {
 	static let updatesMorningOverview = "updatesMorningOverview"
 	/// Updates DiDi on each Tuesday, see ``Report/runIfDue()``.
 	static let updatesDiDi = "updatesDiDi"
+	/// Keeps the sound off while a light shows the state, see ``SoundMode``.
+	static let mutesSoundWithLights = "mutesSoundWithLights"
+	/// Lets the blink(1) show the state, see ``Blink1``.
+	static let usesBlink1 = "usesBlink1"
+	/// Lets the NuPhy keyboard show the state, see ``KeyboardLight``.
+	static let usesKeyboard = "usesKeyboard"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
-	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true]
+	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
+		mutesSoundWithLights: false, usesBlink1: true, usesKeyboard: true]
 
 	static func isOn(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
 		defaults.object(forKey: key) as? Bool ?? defaultValues[key] ?? false
+	}
+
+	/// Only a changed setting is stored, so that the app has no settings file while the user changes nothing.
+	static func set(_ key: String, to value: Bool, in defaults: UserDefaults = .standard) {
+		if value == defaultValues[key] ?? false { defaults.removeObject(forKey: key) } else { defaults.set(value, forKey: key) }
 	}
 }
 

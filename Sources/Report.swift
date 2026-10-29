@@ -116,8 +116,6 @@ final class Report: ObservableObject {
 		var get: (URLRequest) async throws -> (Data, Int)
 		var post: @MainActor (_ subtitle: String, _ identifier: String, _ title: String, _ body: String) -> Void
 		var removeNotifications: @MainActor ([String]) -> Void
-		/// A run wrote a new file.
-		var ready: @MainActor () -> Void
 		/// Opens a file in Obsidian, else in VS Code.
 		var open: @MainActor (URL) -> Void
 
@@ -143,7 +141,6 @@ final class Report: ObservableObject {
 				SessionStore.shared.post(subtitle: subtitle, title: title, body: body, identifier: identifier)
 			},
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			ready: { Blink1.shared.pulse(Spinner.reportColor) },
 			open: { openDocument($0, preferring: ["md.obsidian", "com.microsoft.VSCode"]) }
 		)
 	}
@@ -299,7 +296,6 @@ final class Report: ObservableObject {
 		}
 		failure = nil
 		isUnread = true
-		system.ready()
 		system.removeNotifications([failedNotificationID])
 		if !system.defaults.bool(forKey: SettingsKey.muted) {
 			system.post(kind.title, kind.notificationID, "Ready", kind.readyBody(text, input))

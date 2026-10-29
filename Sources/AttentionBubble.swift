@@ -154,9 +154,15 @@ final class AttentionBubble {
 		askedSince.values.contains { now.timeIntervalSince($0) < Self.chimeLimit }
 	}
 
-	/// Follows the setting »Play Sounds« in the menu, and stays silent while a Focus of macOS is on.
+	/// Follows the sound setting of the setup window, see ``SoundMode``, and stays silent while a Focus of macOS is on.
 	private static func playChime() {
-		guard SettingsKey.isOn(SettingsKey.playsSound), INFocusStatusCenter.default.focusStatus.isFocused != true, let sound = NSSound(named: chimeSound)?.copy() as? NSSound else { return }
+		guard SoundMode.current().allowsSound, INFocusStatusCenter.default.focusStatus.isFocused != true else { return }
+		playChimeSound()
+	}
+
+	/// Plays the chime without a check of the settings, e.g. for the »Play« button of the setup window.
+	static func playChimeSound() {
+		guard let sound = NSSound(named: chimeSound)?.copy() as? NSSound else { return }
 		sound.volume = chimeVolume
 		sound.play()
 	}
@@ -195,5 +201,40 @@ final class AttentionBubble {
 		group.repeatCount = .infinity
 		group.beginTime = start
 		return group
+	}
+}
+
+/// When the chime plays. It is stored in two settings, ``SettingsKey/playsSound`` and
+/// ``SettingsKey/mutesSoundWithLights``, so that the old setting »Play Sounds« keeps its value.
+enum SoundMode: CaseIterable {
+	case on
+	/// Off while the blink(1) or the keyboard shows the state.
+	case withoutLights
+	case off
+
+	var title: String {
+		switch self {
+		case .on: "On"
+		case .withoutLights: "Off While a Light Is Connected"
+		case .off: "Off"
+		}
+	}
+
+	static func current(in defaults: UserDefaults = .standard) -> SoundMode {
+		!SettingsKey.isOn(SettingsKey.playsSound, in: defaults) ? .off
+			: SettingsKey.isOn(SettingsKey.mutesSoundWithLights, in: defaults) ? .withoutLights : .on
+	}
+
+	func store(in defaults: UserDefaults = .standard) {
+		SettingsKey.set(SettingsKey.playsSound, to: self != .off, in: defaults)
+		SettingsKey.set(SettingsKey.mutesSoundWithLights, to: self == .withoutLights, in: defaults)
+	}
+
+	@MainActor var allowsSound: Bool {
+		switch self {
+		case .on: true
+		case .withoutLights: !Blink1.shared.isShowing && !KeyboardLight.shared.isShowing
+		case .off: false
+		}
 	}
 }

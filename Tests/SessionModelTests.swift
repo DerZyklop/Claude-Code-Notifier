@@ -46,11 +46,38 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(SettingsKey.playsSound == "playsSound")
 		#expect(SettingsKey.updatesMorningOverview == "updatesMorningOverview")
 		#expect(SettingsKey.updatesDiDi == "updatesDiDi")
+		#expect(SettingsKey.mutesSoundWithLights == "mutesSoundWithLights")
+		#expect(SettingsKey.usesBlink1 == "usesBlink1")
+		#expect(SettingsKey.usesKeyboard == "usesKeyboard")
 	}
 
-	@Test func onlyMuteIsOffByDefault() {
+	@Test func onlyMuteAndTheSoundWithLightsAreOffByDefault() {
 		#expect(SettingsKey.defaultValues == [SettingsKey.notifyOnDone: true, SettingsKey.muted: false, SettingsKey.playsSound: true,
-			SettingsKey.updatesMorningOverview: true, SettingsKey.updatesDiDi: true])
+			SettingsKey.updatesMorningOverview: true, SettingsKey.updatesDiDi: true, SettingsKey.mutesSoundWithLights: false,
+			SettingsKey.usesBlink1: true, SettingsKey.usesKeyboard: true])
+	}
+
+	@Test func onlyAChangedSettingIsStored() {
+		let defaults = MemoryDefaults()
+		SettingsKey.set(SettingsKey.usesBlink1, to: false, in: defaults)
+		#expect(defaults.object(forKey: SettingsKey.usesBlink1) as? Bool == false)
+		SettingsKey.set(SettingsKey.usesBlink1, to: true, in: defaults)
+		#expect(defaults.dictionaryRepresentation().isEmpty)
+	}
+
+	@Test(arguments: [SoundMode.on, .withoutLights, .off])
+	func soundModeRoundTrip(mode: SoundMode) {
+		let defaults = MemoryDefaults()
+		mode.store(in: defaults)
+		#expect(SoundMode.current(in: defaults) == mode)
+		SoundMode.on.store(in: defaults)
+		#expect(defaults.dictionaryRepresentation().isEmpty)
+	}
+
+	@Test func oldSoundSettingStaysOff() {
+		let defaults = MemoryDefaults()
+		defaults.set(false, forKey: SettingsKey.playsSound)
+		#expect(SoundMode.current(in: defaults) == .off)
 	}
 }
 
