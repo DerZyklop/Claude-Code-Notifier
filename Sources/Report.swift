@@ -102,9 +102,7 @@ final class Report: ObservableObject {
 		var folder: URL
 		/// The folder of the app's own files: the backups, and the empty folder of a run that reads only its input.
 		var supportFolder: URL
-		/// The tasks of every morning. They come first in the morning overview.
-		var dailyTasks: [String]
-		/// The tasks of one weekday, by its number in `Calendar`, e.g. 2 for Monday. They come after the daily tasks.
+		/// The tasks of one weekday, by its number in `Calendar`, e.g. 2 for Monday. They come first in the morning overview.
 		var weekdayTasks: [Int: [String]]
 		var now: () -> Date
 		var calendar: Calendar
@@ -125,7 +123,6 @@ final class Report: ObservableObject {
 			folder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("S/plano"),
 			supportFolder: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
 				.appendingPathComponent("local.claude-code-notifier.app"),
-			dailyTasks: ["⏲️ Zeiterfassung"],
 			weekdayTasks: [2: ["🧠 Reflect ticket"]],
 			now: Date.init,
 			calendar: .current,

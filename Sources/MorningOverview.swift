@@ -53,8 +53,9 @@ enum MorningOverview {
 		if exists(report.fileURL) { facts.append("Old overview: \(report.fileURL.path)") }
 		let todayTasks = tasks(of: system)
 		if !todayTasks.isEmpty {
-			facts.append("Daily tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
+			facts.append("Weekday tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
 		}
+		facts.append("The app copies the sections »My Notes« and »Daily« from the old overview. Leave them out, and also the tasks in them.")
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
@@ -62,30 +63,73 @@ enum MorningOverview {
 		return facts
 	}
 
-	/// The overview in the output, with the daily tasks.
+	/// The overview in the output, with the weekday tasks and the kept sections of the old overview.
 	@MainActor
 	static func render(_ report: Report, _ result: Report.CommandResult, _ input: Report.Input, _ old: String?) throws -> String {
-		guard let text = overview(in: result.output) else {
+		guard let output = overview(in: result.output) else {
 			let reason = (result.error + result.output).split(separator: "\n").last.map(String.init) ?? "no output"
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
 		let system = report.system
-		let done = old.map { doneDailyTasks(in: $0, now: system.now(), calendar: system.calendar) } ?? []
-		return Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withDailyTasks(tasks(of: system), done: done, in: text))))
+		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
+		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
+		let text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(tasks(of: system), done: done,
+			in: withoutKeptSections(output)))))
+		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
 	}
 
-	/// The ticked tasks above the first section of the old overview, if it is of the same day. A new day starts with no tick.
-	static func doneDailyTasks(in old: String, now: Date, calendar: Calendar) -> Set<String> {
-		guard let updated = Report.updated(in: old, calendar: calendar), calendar.isDate(updated, inSameDayAs: now) else { return [] }
+	/// The old overview is of the same day as `now`.
+	static func isSameDay(_ old: String, now: Date, calendar: Calendar) -> Bool {
+		Report.updated(in: old, calendar: calendar).map { calendar.isDate($0, inSameDayAs: now) } ?? false
+	}
+
+	/// The ticked tasks above the first section of the old overview.
+	static func doneWeekdayTasks(in old: String) -> Set<String> {
 		let top = old.components(separatedBy: "\n## ").first ?? ""
 		return Set(top.components(separatedBy: "\n").compactMap { line in
 			["- [x] ", "- [X] "].contains(where: { line.hasPrefix($0) }) ? String(line.dropFirst(6)) : nil
 		})
 	}
 
-	/// The daily tasks, and the tasks of today's weekday.
+	/// The tasks of today's weekday.
 	static func tasks(of system: Report.System) -> [String] {
-		system.dailyTasks + (system.weekdayTasks[system.calendar.component(.weekday, from: system.now())] ?? [])
+		system.weekdayTasks[system.calendar.component(.weekday, from: system.now())] ?? []
+	}
+
+	/// The sections that the user writes. A new overview copies them from the old one, and the app gives their tasks no ID
+	/// and their headings no count.
+	static let keptSections = ["My Notes", "Daily"]
+
+	/// The text of each section in `overview`, by its title, from its heading to the next heading.
+	static func sections(in overview: String) -> [String: String] {
+		var result: [String: String] = [:]
+		for part in overview.components(separatedBy: "\n## ").dropFirst() {
+			let title = String(part.prefix { $0 != "\n" })
+			result[title] = result[title] ?? "## " + part
+		}
+		return result
+	}
+
+	/// The overview without the kept sections.
+	static func withoutKeptSections(_ overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		parts = [parts[0]] + parts.dropFirst().filter { part in !keptSections.contains(String(part.prefix { $0 != "\n" })) }
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The overview with the kept sections of `old` above its first section. »My Notes« stays as it is. The tasks in »Daily«
+	/// lose their tick on a new day. A section that `old` does not have starts empty.
+	static func withKeptSections(from old: String, keepingTicks: Bool, in overview: String) -> String {
+		let oldSections = sections(in: old)
+		let kept = keptSections.map { title in
+			var text = (oldSections[title] ?? "## \(title)\n").trimmingCharacters(in: .newlines)
+			if title == "Daily", !keepingTicks {
+				text = text.replacingOccurrences(of: #"(?m)^(\s*- )\[[xX]\] "#, with: "$1[ ] ", options: .regularExpression)
+			}
+			return text + "\n\n"
+		}.joined()
+		guard let section = overview.range(of: "\n## ") else { return overview + "\n" + kept }
+		return overview.replacingCharacters(in: section, with: "\n" + kept + "## ")
 	}
 
 	/// The overview with an ID for each task and the number of open tasks in each heading.
@@ -100,7 +144,7 @@ enum MorningOverview {
 	/// Each task with an ID after its checkbox, e.g. `` `M2` `` for the second task under »My Open PRs«, and each of its next
 	/// actions with a letter, e.g. `` `M2a` ``. Only a sub-item with a checkbox is a next action. A sub-item without one is
 	/// no task and gets no ID. Done tasks keep their place in the count, so that a tick changes no ID. An ID that the file
-	/// already has gets replaced. Tasks above the first section get no ID.
+	/// already has gets replaced. Tasks above the first section and in the kept sections get no ID.
 	static func withTaskIDs(in overview: String) -> String {
 		var letter: String?
 		var task = 0
@@ -108,7 +152,7 @@ enum MorningOverview {
 		return overview.components(separatedBy: "\n").map { line in
 			if line.hasPrefix("## ") {
 				let title = line.dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
-				letter = sectionLetters[title] ?? title.first.map { String($0).uppercased() }
+				letter = keptSections.contains(title) ? nil : sectionLetters[title] ?? title.first.map { String($0).uppercased() }
 				task = 0
 				return line
 			}
@@ -138,7 +182,7 @@ enum MorningOverview {
 	}
 
 	/// Each section heading with the number of its tasks, e.g. `## 3 × My Open PRs`. Only the tasks at the start of a line
-	/// count, not their next actions. A number that Claude already wrote gets replaced.
+	/// count, not their next actions. A number that Claude already wrote gets replaced. The kept sections get no number.
 	static func withSectionCounts(in overview: String) -> String {
 		var lines = overview.components(separatedBy: "\n")
 		var heading: Int?
@@ -151,7 +195,7 @@ enum MorningOverview {
 		for index in lines.indices {
 			if lines[index].hasPrefix("## ") {
 				writeCount()
-				heading = index
+				heading = keptSections.contains(String(lines[index].dropFirst(3))) ? nil : index
 				count = 0
 			} else if lines[index].hasPrefix("- [ ]") {
 				count += 1
@@ -179,8 +223,8 @@ enum MorningOverview {
 		overview.replacingOccurrences(of: "(?m)^  (?=- )", with: "    ", options: .regularExpression)
 	}
 
-	/// The overview with the daily tasks above its first section. The tasks in `done` get a tick.
-	static func withDailyTasks(_ tasks: [String], done: Set<String> = [], in overview: String) -> String {
+	/// The overview with the weekday tasks above its first section. The tasks in `done` get a tick.
+	static func withWeekdayTasks(_ tasks: [String], done: Set<String> = [], in overview: String) -> String {
 		guard !tasks.isEmpty, let section = overview.range(of: "\n## ") else { return overview }
 		let lines = tasks.map { "- [\(done.contains($0) ? "x" : " ")] \($0)\n" }.joined()
 		return overview.replacingCharacters(in: section, with: "\n" + lines + "\n## ")

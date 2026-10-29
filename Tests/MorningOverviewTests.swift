@@ -141,7 +141,9 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text == Report.hashLinksAsCode(in: MorningOverview.numbered(MorningOverview.withDailyTasks(["Zeiterfassung"], in: overviewText + "\n"))))
+		#expect(text == MorningOverview.withKeptSections(from: "", keepingTicks: false,
+			in: Report.hashLinksAsCode(in: MorningOverview.numbered(overviewText + "\n"))))
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\n## My Notes\n\n## Daily\n\n## 0 × Their Open PRs\n"))
 		#expect(text.contains("- [ ] `M1` [`#12`]("))
 		#expect(text.contains("## 0 × Their Open PRs\n") && text.contains("## 1 × My Open PRs\n") && text.contains("## 0 × Draft PRs\n"))
 		#expect(text.contains("[`#12`](") && !text.contains("[#"))
@@ -150,8 +152,8 @@ extension ReportFixture {
 		#expect(!fixture.report.isRunning)
 		#expect(fixture.log.posts.map(\.identifier) == ["morning-overview"])
 		#expect(fixture.log.posts.first?.subtitle == "Morning Overview")
-		#expect(fixture.log.posts.first?.body == "3 open tasks. Click to open the file.")
-		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Daily tasks: Zeiterfassung."))
+		#expect(fixture.log.posts.first?.body == "2 open tasks. Click to open the file.")
+		#expect(!(try #require(fixture.claudeRun?.arguments[4]).contains("Weekday tasks")))
 		#expect(fixture.log.removed == ["morning-overview-failed"])
 	}
 
@@ -160,8 +162,21 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text.contains("- [ ] Zeiterfassung\n- [ ] Reflect\n\n## "))
-		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Daily tasks: Zeiterfassung, Reflect."))
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\n- [ ] Reflect\n\n## My Notes\n"))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Weekday tasks: Reflect."))
+	}
+
+	@Test func updateKeepsMyNotesAndUnticksDailyOnANewDay() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let notes = "## My Notes\n\nAsk [#7](https://x) about it.\n- [x] Keep\n    - [ ] this\n"
+		let daily = "## Daily\n\n- [x] Mail\n    - [X] Inbox\n- [ ] Slack\n"
+		try "# Morning overview\n\nUpdated: 2026-10-26 07:00\n\n\(daily)\n## 1 × Other Work\n\n- [ ] `O1` Old\n\n\(notes)"
+			.write(to: fixture.fileURL, atomically: true, encoding: .utf8)
+		await fixture.report.update()
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\n\(notes)\n## Daily\n\n- [ ] Mail\n    - [ ] Inbox\n- [ ] Slack\n\n## 0 × Their"))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes« and »Daily«"))
 	}
 
 	@Test func claudeGetsOnlyReadTools() async throws {
@@ -343,7 +358,7 @@ extension ReportFixture {
 		let overview = """
 			# Morning overview
 
-			- [ ] Zeiterfassung
+			- [ ] Reflect
 
 			## My Open PRs
 
@@ -358,7 +373,7 @@ extension ReportFixture {
 		#expect(MorningOverview.withSectionCounts(in: overview) == """
 			# Morning overview
 
-			- [ ] Zeiterfassung
+			- [ ] Reflect
 
 			## 2 × My Open PRs
 
@@ -392,7 +407,7 @@ extension ReportFixture {
 
 	@Test func tasksGetSectionIDsAndStepsGetLetters() {
 		let overview = """
-			- [ ] Zeiterfassung
+			- [ ] Reflect
 
 			## 9 × My Open PRs
 
@@ -412,7 +427,7 @@ extension ReportFixture {
 			- [ ] New
 			"""
 		#expect(MorningOverview.withTaskIDs(in: overview) == """
-			- [ ] Zeiterfassung
+			- [ ] Reflect
 
 			## 9 × My Open PRs
 
@@ -433,20 +448,34 @@ extension ReportFixture {
 			""")
 	}
 
-	@Test func dailyTasksComeBeforeTheFirstSection() {
+	@Test func weekdayTasksComeBeforeTheFirstSection() {
 		let overview = "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n"
-		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], in: overview)
-			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Zeiterfassung\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n")
-		#expect(MorningOverview.withDailyTasks([], in: overview) == overview)
-		#expect(MorningOverview.withDailyTasks(["Zeiterfassung", "Mail"], done: ["Mail"], in: overview)
-			.contains("- [ ] Zeiterfassung\n- [x] Mail\n\n## "))
+		#expect(MorningOverview.withWeekdayTasks(["Reflect", "Mail"], in: overview)
+			== "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n- [ ] Reflect\n- [ ] Mail\n\n## My Open PRs\n\nNothing open.\n\n## Other Work\n")
+		#expect(MorningOverview.withWeekdayTasks([], in: overview) == overview)
+		#expect(MorningOverview.withWeekdayTasks(["Reflect", "Mail"], done: ["Mail"], in: overview)
+			.contains("- [ ] Reflect\n- [x] Mail\n\n## "))
 	}
 
-	@Test func dailyTasksKeepTheirTickOnTheSameDay() {
-		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n- [x] Zeiterfassung\n- [ ] Mail\n\n## Other Work\n\n- [x] `O1` Done\n"
-		#expect(MorningOverview.doneDailyTasks(in: old, now: tuesdayMorning, calendar: utcCalendar) == ["Zeiterfassung"])
-		let nextDay = tuesdayMorning.addingTimeInterval(24 * 60 * 60)
-		#expect(MorningOverview.doneDailyTasks(in: old, now: nextDay, calendar: utcCalendar).isEmpty)
+	@Test func weekdayTasksKeepTheirTickOnTheSameDay() {
+		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n- [x] Reflect\n- [ ] Mail\n\n## Other Work\n\n- [x] `O1` Done\n"
+		#expect(MorningOverview.doneWeekdayTasks(in: old) == ["Reflect"])
+		#expect(MorningOverview.isSameDay(old, now: tuesdayMorning, calendar: utcCalendar))
+		#expect(!MorningOverview.isSameDay(old, now: tuesdayMorning.addingTimeInterval(24 * 60 * 60), calendar: utcCalendar))
+	}
+
+	@Test func keptSectionsReplaceTheOnesOfClaude() {
+		let old = "# Morning overview\n\nUpdated: 2026-10-27 06:00\n\n## Daily\n\n- [x] Mail\n\n## Other Work\n"
+		let overview = MorningOverview.withoutKeptSections("# Morning overview\n\n## My Notes\n\nNew\n\n## Other Work\n\n## Daily\n\n- [ ] X\n")
+		#expect(overview == "# Morning overview\n\n## Other Work\n")
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: overview)
+			== "# Morning overview\n\n## My Notes\n\n## Daily\n\n- [x] Mail\n\n## Other Work\n")
+	}
+
+	@Test func keptSectionsGetNoIDsAndNoCounts() {
+		let overview = "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## Other Work\n\n- [ ] Work\n"
+		#expect(MorningOverview.numbered(overview)
+			== "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## 1 × Other Work\n\n- [ ] `O1` Work\n")
 	}
 
 	@Test(arguments: [

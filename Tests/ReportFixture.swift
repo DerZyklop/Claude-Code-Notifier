@@ -63,7 +63,7 @@ struct ReportFixture {
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 		let log = log
 		report = Report(kind: kind, system: Report.System(
-			folder: folder, supportFolder: root.appendingPathComponent("support"), dailyTasks: ["Zeiterfassung"], weekdayTasks: [2: ["Reflect"]], now: { now },
+			folder: folder, supportFolder: root.appendingPathComponent("support"), weekdayTasks: [2: ["Reflect"]], now: { now },
 			calendar: utcCalendar, defaults: defaults,
 			prompt: { $0 == kind.promptResource ? "PROMPT" : nil },
 			run: { command in
