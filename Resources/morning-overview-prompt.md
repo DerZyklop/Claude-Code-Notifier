@@ -39,7 +39,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - If the facts name the memory folder of the project, read its open follow-ups.
    - If the facts name the folder of the transcripts, look at the sessions of the last 3 days. Use Grep for `"ai-title"` and `"custom-title"` in the newest `.jsonl` files, and read only these lines. If the work of a session is not done, name the session.
 6. Cleanup work: find the outdated plans of the project folder, of all dates. Use the `plans` in the JSON. The app found their facts, so do not read a plan to find them.
-   - First copy all tasks and sub-items of »Cleanup Work« from the old overview, with no change. Keep their ticks.
+   - First copy all tasks of »Cleanup Work« from the old overview, with no change. Keep their ticks. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
    - Skip each plan with »Cleanup Work« in `oldSections`, and each plan that an old »Solve the open findings« task names.
    - Skip each plan with an entry in `openPullRequests`.
    - Check only the other plans. A plan is outdated if one of these facts is true:
@@ -48,7 +48,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
      - `openSteps` is 0 and `doneSteps` is more than 0.
    - Read only the outdated plans. Leave out the plans that do not belong to the project folder.
    - Read the findings of each outdated plan, for example the findings of a review. For each finding, read the code of the project folder, and find out whether the finding still holds.
-   - If no finding of the plan holds, the plan is ready to delete. Write one task »Delete the outdated plans«. If the old overview has this task, add the new sub-items to it. Give each of these plans one sub-item: »Delete [<file name>](<file URL>), because <reason>.«
+   - If no finding of the plan holds, the plan is ready to delete. Write one task for each of these plans, with no sub-items: »Delete [<file name>](<file URL>), because <reason>.«
    - If findings of the plan still hold, the plan is no cleanup work. Put it in »Optional Work« instead, as one task »Solve the open findings of [<file name>](<file URL>)«. Give each finding that still holds one sub-item with the next action, for example »Move the null check in `foo.ts` above the loop.«
 7. Read each plan only once. Sections 5 and 6 can need the same plan. Keep what you read in mind, and use it for both sections.
 
@@ -63,7 +63,8 @@ Updated: YYYY-MM-DD HH:MM
 
 ## Their Open PRs
 
-- [ ] [`#1234`](https://…) [PROJ-123](https://…/browse/PROJ-123) Short title of the topic
+- [ ] [`#1234`](https://…) 
+    - Ticket: [PROJ-123](https://…/browse/PROJ-123) Short title of the topic
     - [ ] The next action.
 
 ## My Open PRs
@@ -93,8 +94,7 @@ Open work that no PR, ticket or branch covers: uncommitted changes, unpushed com
 
 ## Cleanup Work
 
-- [ ] Delete the outdated plans
-    - [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done« and no finding holds.
+- [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done« and no finding holds.
 ```
 
 Rules:
@@ -103,7 +103,7 @@ Rules:
 - Write the section headings exactly as shown, without a number. The app adds the number of tasks to each heading.
 - Copy the description line below »Optional Work« exactly as shown.
 - Write no IDs for the tasks. The app adds an ID like `M2` or `M2a` to each task and each next action.
-- Each task has a title line and one or more sub-items.
+- Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items.
   - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
   - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
   - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
