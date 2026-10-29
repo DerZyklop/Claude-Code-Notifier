@@ -19,6 +19,8 @@ final class ReportLog {
 	var posts: [(subtitle: String, identifier: String, title: String, body: String)] = []
 	var removed: [String] = []
 	var opened: [URL] = []
+	/// The runs that wrote a new file, for the blink of the light.
+	var ready = 0
 }
 
 /// A value that the fake requests change from other threads.
@@ -76,6 +78,7 @@ struct ReportFixture {
 			},
 			post: { log.posts.append(($0, $1, $2, $3)) },
 			removeNotifications: { log.removed += $0 },
+			ready: { log.ready += 1 },
 			open: { log.opened.append($0) }
 		))
 	}

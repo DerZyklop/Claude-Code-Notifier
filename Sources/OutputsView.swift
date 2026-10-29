@@ -62,6 +62,9 @@ struct OutputsView: View {
 		Form {
 			Section {
 				Toggle("blink(1)", isOn: settings.binding(SettingsKey.usesBlink1))
+				Toggle("Blink When a Session or a Report Ends", isOn: settings.binding(SettingsKey.blinksAtEnd))
+					.padding(.leading, 16)
+					.disabled(!SettingsKey.isOn(SettingsKey.usesBlink1, in: settings.defaults))
 			}
 			Section {
 				LabeledContent("Push Notifications") {

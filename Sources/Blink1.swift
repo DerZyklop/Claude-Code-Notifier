@@ -5,7 +5,7 @@ import IOKit.hid
 /// in purple while a report runs, and are off without both. LED 1 shows the badge of the icon instead: steady orange
 /// while the bubble shows, steady purple while the dot of an unread report shows. With each round of the bubble, LED 1
 /// rings once in bright red, together with the bubble and its sound. When a session ends while it works or asks you, both LEDs blink 3 times in
-/// bright green. A light that you plug in later gets the current colors too.
+/// bright green, and when a report is ready, in bright purple, see ``SettingsKey/blinksAtEnd``. A light that you plug in later gets the current colors too.
 /// The switch in the setup window turns the light off, see ``SettingsKey/usesBlink1``.
 @MainActor
 final class Blink1 {
@@ -161,7 +161,7 @@ final class Blink1 {
 	/// Blinks both LEDs 3 times in `color` at full brightness, then shows the wave and the badge again. A new blink
 	/// starts again.
 	func pulse(_ color: NSColor) {
-		guard isEnabled else { return }
+		guard isEnabled, SettingsKey.isOn(SettingsKey.blinksAtEnd) else { return }
 		breathTask?.cancel()
 		breathTask = nil
 		ringTask?.cancel()
