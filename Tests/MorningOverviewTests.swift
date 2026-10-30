@@ -489,6 +489,31 @@ extension ReportFixture {
 			.allSatisfy { $0["changedAfterOldOverview"] == nil })
 	}
 
+	@Test func sessionsGetTheirNewestTitle() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let now = tuesdayMorning
+		let day: TimeInterval = 24 * 60 * 60
+		let texts = [
+			"a.jsonl": #"{"type":"ai-title","aiTitle":"Old"}"# + "\n" + #"{"type":"custom-title","customTitle":"Mine"}"# + "\n"
+				+ #"{"type":"ai-title","aiTitle":"New"}"# + "\n",
+			"b.jsonl": #"{"type":"ai-title","aiTitle":"First"}"# + "\n" + #"{"type":"ai-title","aiTitle":"Second"}"# + "\n",
+			"c.jsonl": "{}\n",
+			"old.jsonl": #"{"type":"ai-title","aiTitle":"Gone"}"# + "\n",
+		]
+		let ages = ["a.jsonl": 0.5, "b.jsonl": 0.1, "c.jsonl": 1, "old.jsonl": 4]
+		for (name, text) in texts {
+			let file = folder.appendingPathComponent(name)
+			try text.write(to: file, atomically: true, encoding: .utf8)
+			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-ages[name]! * day)], ofItemAtPath: file.path)
+		}
+		let sessions = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar)
+		#expect(sessions.map { $0["id"] as? String } == ["b", "a", "c"])
+		#expect(sessions.map { $0["title"] as? String } == ["Second", "Mine", nil])
+		#expect(sessions[0]["lastChange"] as? String == Report.timestampFormatter(utcCalendar).string(from: now.addingTimeInterval(-0.1 * day)))
+	}
+
 	@Test func eachSectionGetsItsOwnLetter() {
 		let overview = """
 			## Reviews

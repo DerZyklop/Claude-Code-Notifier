@@ -193,7 +193,7 @@ final class HookSetup: ObservableObject {
 }
 
 enum SetupTab: Hashable {
-	case hooks, outputs
+	case hooks, outputs, schedules
 }
 
 /// The tab that the setup window shows.
@@ -293,6 +293,9 @@ struct SetupView: View {
 			OutputsView()
 				.tabItem { Text("Outputs") }
 				.tag(SetupTab.outputs)
+			SchedulesView()
+				.tabItem { Text("Schedules") }
+				.tag(SetupTab.schedules)
 		}
 		.padding(.top, 8)
 		.onChange(of: navigation.tab) { _ in LightSimulation.shared.stopAll() }

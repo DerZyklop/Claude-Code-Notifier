@@ -26,9 +26,9 @@ final class Spinner {
 	static let segmentShare = 0.35
 	/// The change between the still and the green wave.
 	static let swapDuration = 0.6
-	static let color = NSColor.systemGreen
+	nonisolated static let color = NSColor.systemGreen
 	/// The color of the wave while a report runs.
-	static let reportColor = NSColor.systemPurple
+	nonisolated static let reportColor = NSColor.systemPurple
 
 	let still = CAShapeLayer()
 	let track = CAShapeLayer()

@@ -41,7 +41,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 
 @Suite struct SettingsKeyTests {
 	@Test func keysKeepTheSavedSettings() {
-		#expect(SettingsKey.notifyOnDone == "notifyOnDone")
 		#expect(SettingsKey.muted == "muted")
 		#expect(SettingsKey.playsSound == "playsSound")
 		#expect(SettingsKey.updatesMorningOverview == "updatesMorningOverview")
@@ -53,7 +52,7 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 	}
 
 	@Test func onlyMuteAndTheSoundWithLightsAreOffByDefault() {
-		#expect(SettingsKey.defaultValues == [SettingsKey.notifyOnDone: true, SettingsKey.muted: false, SettingsKey.playsSound: true,
+		#expect(SettingsKey.defaultValues == [SettingsKey.muted: false, SettingsKey.playsSound: true,
 			SettingsKey.updatesMorningOverview: true, SettingsKey.updatesDiDi: true, SettingsKey.mutesSoundWithLights: false,
 			SettingsKey.usesBlink1: true, SettingsKey.blinksAtEnd: true, SettingsKey.usesKeyboard: true])
 	}

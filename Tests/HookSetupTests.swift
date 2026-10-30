@@ -950,6 +950,10 @@ private func runShell(_ command: String, input: Data) async throws -> Int32 {
 		#expect(ImageRenderer(content: view).nsImage != nil)
 	}
 
+	@Test func schedulesViewRenders() {
+		#expect(ImageRenderer(content: SchedulesView().environmentObject(SettingsStore(defaults: MemoryDefaults()))).nsImage != nil)
+	}
+
 	@Test func setupViewRendersANewSetup() throws {
 		let sandbox = try Sandbox()
 		defer { sandbox.remove() }

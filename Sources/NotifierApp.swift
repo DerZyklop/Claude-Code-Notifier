@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		Self.migrateSettings()
 		quitOnSignals()
 		statusMenu = StatusMenu()
+		LightSimulation.shared.showAll()
 		let center = UNUserNotificationCenter.current()
 		center.delegate = self
 		center.requestAuthorization(options: [.alert]) { _, _ in }
@@ -56,8 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 	func applicationWillTerminate(_ notification: Notification) {
 		MainActor.assumeIsolated {
-			Blink1.shared.turnOff()
-			KeyboardLight.shared.turnOff()
+			Lights.turnOff()
 		}
 	}
 
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 	/// versions stored but the app does not need.
 	static func migrateSettings(from oldFile: URL = oldSettingsFile, to current: UserDefaults = .standard) {
 		// Only existing keys: removing a missing key creates an empty settings file.
-		for key in ["lastClaudeEvent", "migratedSettings"] where current.object(forKey: key) != nil {
+		for key in ["lastClaudeEvent", "migratedSettings", "notifyOnDone"] where current.object(forKey: key) != nil {
 			current.removeObject(forKey: key)
 		}
 		for (key, value) in SettingsKey.defaultValues where current.object(forKey: key) as? Bool == value {

@@ -15,10 +15,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	private var timer: Timer?
 	private let clock = MenuClock()
 	private var card: NSHostingView<SessionCard>?
-	/// The update items of the reports in the open menu, see ``refresh(_:)``.
-	private var updateItems: [NSMenuItem] = []
-	/// The item under the mouse, see ``menu(_:willHighlight:)``.
-	private weak var highlighted: NSMenuItem?
 	private lazy var spinner = Spinner(button: statusItem.button!)
 	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
 	private lazy var attention = AttentionBubble(button: statusItem.button!)
@@ -46,14 +42,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
-			.store(in: &subscriptions)
-		// A run that starts or ends while the menu is open changes the update item.
-		Publishers.MergeMany(Report.all.map(\.objectWillChange))
-			.receive(on: DispatchQueue.main)
-			.sink { [weak self] _ in
-				guard let self else { return }
-				for item in updateItems { refresh(item) }
-			}
 			.store(in: &subscriptions)
 		// The app colors the number and the still wave itself, see ``textColor(isDark:)``.
 		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
@@ -92,9 +80,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
-		let lightWave = Blink1.Wave(isReporting: isReporting, working: working)
-		Blink1.shared.show(wave: lightWave, badge: Blink1.Badge(waiting: layout.waiting, hasUnread: hasUnread))
-		KeyboardLight.shared.show(wave: lightWave, isWaiting: layout.waiting > 0, hasUnread: hasUnread)
+		Lights.show(wave: LightWave(isReporting: isReporting, working: working), isWaiting: layout.waiting > 0, hasUnread: hasUnread)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
@@ -199,7 +185,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// holds the settings of the outputs.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
-		updateItems = []
 
 		// A problem gets a clickable item above the card. The card header names the problem too.
 		if let problem = HookSetup.shared.problem {
@@ -240,32 +225,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		self.timer = timer
 	}
 
-	static let updatingTitle = "Updating …"
-	static let stopTitle = "Stop It!"
-
-	/// The item of a running report says what a click does while the mouse is on it.
-	func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-		let previous = highlighted
-		highlighted = item
-		for update in updateItems where update === previous || update === item { refresh(update) }
-	}
-
-	/// Gives the update item of a report the title and the action of the current state. While the report runs, a click
-	/// stops it.
-	private func refresh(_ item: NSMenuItem) {
-		guard let report = item.representedObject as? Report else { return }
-		item.action = report.isRunning ? #selector(stopReport(_:)) : #selector(updateReport(_:))
-		item.title = report.isRunning ? item === highlighted ? Self.stopTitle : Self.updatingTitle
-			: report.failure == nil ? "Update Now" : "Last Update Failed – Try Again"
-	}
-
 	func menuDidClose(_ menu: NSMenu) {
 		timer?.invalidate()
 		timer = nil
 		// Only the card of the open menu needs ``fitCard()``.
 		card = nil
-		updateItems = []
-		highlighted = nil
 	}
 
 	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
@@ -285,16 +249,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		if card.frame.height != height { card.frame.size.height = height }
 	}
 
-	/// The group of a report: update, the reason of a failure, open, and the setting of the automatic run.
+	/// The group of a report: the buttons to update and to open, and the reason of a failure. The setup window holds the setting of the
+	/// automatic run.
 	private func addGroup(for report: Report, to menu: NSMenu) {
 		let kind = report.kind
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader(kind.title))
-		let update = action("", #selector(updateReport(_:)))
-		update.representedObject = report
-		refresh(update)
-		updateItems.append(update)
-		menu.addItem(update)
+		let buttons = NSHostingView(rootView: ReportButtons(report: report) { [weak menu] in menu?.cancelTracking() })
+		// The menu sets the width.
+		buttons.frame.size = buttons.fittingSize
+		buttons.autoresizingMask = [.width]
+		let buttonsItem = NSMenuItem()
+		buttonsItem.view = buttons
+		menu.addItem(buttonsItem)
 		if let failure = report.failure {
 			// Without an action, the item shows the reason in gray and does nothing on a click.
 			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
@@ -302,12 +269,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			reason.indentationLevel = 1
 			menu.addItem(reason)
 		}
-		let open = action("Open \(kind.title)", #selector(openReport(_:)))
-		open.representedObject = report
-		if report.isUnread { open.attributedTitle = Self.withUnreadDot(open.title) }
-		if !FileManager.default.fileExists(atPath: report.fileURL.path) { open.action = nil }
-		menu.addItem(open)
-		menu.addItem(toggle(kind.schedule.menuTitle, kind.settingsKey))
 	}
 
 	// MARK: - Items
@@ -323,21 +284,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
 	}
 
-	private func toggle(_ title: String, _ key: String) -> NSMenuItem {
-		let item = action(title, #selector(toggleSetting(_:)))
-		item.representedObject = key
-		item.state = SettingsKey.isOn(key) ? .on : .off
-		return item
-	}
-
-	/// The title with a purple dot behind it, in the font of the menu.
-	static func withUnreadDot(_ title: String) -> NSAttributedString {
-		let font = NSFont.menuFont(ofSize: 0)
-		let text = NSMutableAttributedString(string: title + " ", attributes: [.font: font])
-		text.append(NSAttributedString(string: "●", attributes: [.font: font, .foregroundColor: Spinner.reportColor]))
-		return text
-	}
-
 	static func symbol(_ name: String) -> NSImage? {
 		let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
 		image?.isTemplate = true
@@ -348,24 +294,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	@objc private func removeEnded() {
 		SessionStore.shared.removeEnded()
-	}
-
-	@objc private func updateReport(_ sender: NSMenuItem) {
-		guard let report = sender.representedObject as? Report else { return }
-		Task { await report.update() }
-	}
-
-	@objc private func stopReport(_ sender: NSMenuItem) {
-		(sender.representedObject as? Report)?.stop()
-	}
-
-	@objc private func openReport(_ sender: NSMenuItem) {
-		(sender.representedObject as? Report)?.openFile()
-	}
-
-	@objc private func toggleSetting(_ sender: NSMenuItem) {
-		guard let key = sender.representedObject as? String else { return }
-		SettingsKey.set(key, to: !SettingsKey.isOn(key))
 	}
 
 	@objc private func toggleLaunchAtLogin() {

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import ClaudeCodeNotifier
 
@@ -13,12 +14,19 @@ import Testing
 	}
 
 	@Test func dueMomentOnlyOnTheDaysOfTheScheduleFromItsHourOn() {
-		let schedule = Report.Schedule(weekdays: [3], hour: 6, menuTitle: "")
+		let schedule = Report.Schedule(weekdays: [3], hour: 6, title: "")
 		let sixOClock = tuesdayMorning.addingTimeInterval(-3_600)
 		#expect(schedule.dueMoment(at: tuesdayMorning, calendar: utcCalendar) == sixOClock)
 		#expect(schedule.dueMoment(at: sixOClock, calendar: utcCalendar) == sixOClock)
 		#expect(schedule.dueMoment(at: sixOClock.addingTimeInterval(-1), calendar: utcCalendar) == nil)
 		#expect(schedule.dueMoment(at: tuesdayMorning.addingTimeInterval(86_400), calendar: utcCalendar) == nil)
+	}
+
+	@Test func buttonsRenderSideBySide() throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let image = ImageRenderer(content: ReportButtons(report: fixture.report) {}).nsImage
+		#expect(image.map { $0.size.width > $0.size.height * 3 } == true)
 	}
 
 	@Test func hashLinksBecomeCode() {

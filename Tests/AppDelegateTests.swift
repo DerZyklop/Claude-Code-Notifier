@@ -21,19 +21,19 @@ private func exists(_ file: URL) -> Bool {
 	}
 
 	@Test func copiesChangedSettingsAndDeletesTheOldFile() throws {
-		let file = try oldSettingsFile([SettingsKey.notifyOnDone: false, SettingsKey.playsSound: false, SettingsKey.muted: true,
+		let file = try oldSettingsFile([SettingsKey.updatesDiDi: false, SettingsKey.playsSound: false, SettingsKey.muted: true,
 			"lastClaudeEvent": Date(timeIntervalSince1970: 1_800_000_000)])
 		defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
 		let current = MemoryDefaults()
 
 		AppDelegate.migrateSettings(from: file, to: current)
 
-		#expect(current.dictionaryRepresentation() as NSDictionary == [SettingsKey.notifyOnDone: false, SettingsKey.playsSound: false, SettingsKey.muted: true] as NSDictionary)
+		#expect(current.dictionaryRepresentation() as NSDictionary == [SettingsKey.updatesDiDi: false, SettingsKey.playsSound: false, SettingsKey.muted: true] as NSDictionary)
 		#expect(!exists(file))
 	}
 
 	@Test func defaultValuesAndOtherTypesAreNotCopied() throws {
-		let file = try oldSettingsFile([SettingsKey.notifyOnDone: true, SettingsKey.playsSound: "no", SettingsKey.muted: false, "otherKey": "value"])
+		let file = try oldSettingsFile([SettingsKey.updatesDiDi: true, SettingsKey.playsSound: "no", SettingsKey.muted: false, "otherKey": "value"])
 		defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
 		let current = MemoryDefaults()
 
@@ -81,7 +81,7 @@ private func exists(_ file: URL) -> Bool {
 		current.set(Date(), forKey: "lastClaudeEvent")
 		current.set(true, forKey: "migratedSettings")
 		current.set(false, forKey: SettingsKey.muted)
-		current.set(true, forKey: SettingsKey.notifyOnDone)
+		current.set(false, forKey: "notifyOnDone")
 		current.set(false, forKey: SettingsKey.playsSound)
 		current.set(225.0, forKey: "NSStatusItem Preferred Position Item-0")
 

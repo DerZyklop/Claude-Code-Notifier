@@ -290,26 +290,14 @@ private struct Fixture {
 		#expect(fixture.log.isEmpty)
 	}
 
-	@Test(arguments: [nil, true] as [Bool?])
-	func stopIsYourTurn(notifyOnDone: Bool?) throws {
+	@Test func stopIsYourTurn() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
-		if let notifyOnDone { fixture.defaults.set(notifyOnDone, forKey: SettingsKey.notifyOnDone) }
 		try fixture.add(.working)
 		fixture.handle("Stop")
 		#expect(fixture.store.sessions["s1"]?.state == .yourTurn)
 		#expect(fixture.log.sent == [Sent("s1", "project", .yourTurn, "Claude has finished.")])
 		#expect(fixture.log.removed.isEmpty)
-	}
-
-	@Test func stopWithNotifyOnDoneOffSendsNothing() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		fixture.defaults.set(false, forKey: SettingsKey.notifyOnDone)
-		try fixture.add(.working)
-		fixture.handle("Stop", ["last_assistant_message": "Done."])
-		#expect(fixture.store.sessions["s1"]?.state == .yourTurn)
-		#expect(fixture.log.isEmpty)
 	}
 
 	@Test(arguments: [

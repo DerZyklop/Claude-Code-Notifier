@@ -1,41 +1,38 @@
 import AppKit
 import IOKit.hid
 
-/// A blink(1) USB light with two LEDs. Both follow the wave in the menu bar: they breathe in green while sessions work,
-/// in purple while a report runs, and are off without both. LED 1 shows the badge of the icon instead: steady orange
-/// while the bubble shows, steady purple while the dot of an unread report shows. With each round of the bubble, LED 1
-/// rings once in bright red, together with the bubble and its sound. When a session ends while it works or asks you, both LEDs blink 3 times in
-/// bright green, and when a report is ready, in bright purple, see ``SettingsKey/blinksAtEnd``. A light that you plug in later gets the current colors too.
-/// The switch in the setup window turns the light off, see ``SettingsKey/usesBlink1``.
+/// A blink(1) USB light with two LEDs. It shows the signals of ``LightScene`` in the areas of the setup window, see
+/// ``LightArea/blink1LEDs``. Today's look is the default: both LEDs breathe in green while sessions work, and in purple
+/// while a report runs. LED 1 shows steady orange while the bubble shows, steady purple while a report is unread, and
+/// rings once in bright red with each round of the bubble. An LED without a signal shows the color of the other LED, so
+/// that a signal uses both LEDs while nothing else shows.
+///
+/// When a session ends while it works or asks you, both LEDs blink 3 times in bright green, and when a report is ready,
+/// in bright purple, see ``SettingsKey/blinksAtEnd``. A light that you plug in later gets the current colors too. The
+/// switch in the setup window turns the light off, see ``SettingsKey/usesBlink1``.
 @MainActor
 final class Blink1 {
 	static let shared = Blink1()
 	static let vendorID = 0x27B8
 	static let productID = 0x01ED
-	/// The fade to a new color, in units of 10 ms.
+	/// The app sends a frame at this rate while the light moves. The light fades to each frame in this time.
+	static let frameTime = 1.0 / 25
+	/// The fade to a new steady color, in units of 10 ms.
 	static let fadeTime = 30
 	/// The fade of one blink step, in seconds.
 	static let pulseFade = 0.15
 	/// The time of one blink step: the fade, then the color stays a moment.
 	static let pulseStep = 0.3
 	static let pulseCount = 3
-	/// The color at the peak of a ring: only the red LED. The red of the screen has green and blue, so it looks pink on the LEDs.
-	static let ringColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
-	/// The orange of the badge on the LEDs. The orange of the screen looks yellow on them, so this one has less green.
-	static let orange = NSColor(srgbRed: 1, green: 48 / 255, blue: 0, alpha: 1)
 	/// One breath, from bright to dim and back, takes as long as one run of the wave segment.
 	static let breathDuration = Spinner.runDuration
-	/// The steps of one half breath. The light fades in a straight line between two steps, so the steps make the curve.
-	static let breathSteps = 24
 	/// The eye sees the brightness of the LED about with this gamma. The breath is even in the seen brightness.
-	static let gamma = 2.2
+	nonisolated static let gamma = 2.2
 
-	/// A color that breathes between two brightness levels. Both are the same for a light that stays.
+	/// A color that breathes between two brightness levels.
 	struct Breath: Equatable {
 		var color: NSColor
 		var brightness: ClosedRange<Double>
-
-		static let off = Breath(color: .black, brightness: 0...0)
 
 		/// The brightness at `t` of a half breath, from dim at 0 to bright at 1: a cubic ease in and out of the seen brightness.
 		func brightness(at t: Double) -> Double {
@@ -46,29 +43,30 @@ final class Blink1 {
 	}
 
 	private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-	/// The breath of the wave.
-	private var wave = Breath.off
-	private var badge: Badge?
-	/// The breath that runs, `nil` while the wave stays or the LEDs blink.
-	private var breathTask: Task<Void, Never>?
-	/// The rings of LED 1 that run.
-	private var ringTask: Task<Void, Never>?
-	/// The blinks of both LEDs that run. Then the LEDs show the wave and the badge again.
-	private var pulseTask: Task<Void, Never>?
+	private let mapping = LightMapping()
 	private var isEnabled = SettingsKey.isOn(SettingsKey.usesBlink1)
+	private var scene = LightScene(device: .blink1)
+	/// The color and the start of the blinks that run.
+	private var pulse: (color: NSColor, start: Double)?
+	/// The values that the app sent last to LED 1 and LED 2, `nil` before the first one. The app sends only changes.
+	private var sent: [[UInt8]?] = [nil, nil]
+	/// Sends the frames while the light moves.
+	private var timer: Timer?
+
+	private var devices: Set<IOHIDDevice> { IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? [] }
 
 	/// Whether a light is connected and shows the state.
-	var isShowing: Bool { isEnabled && !(IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? []).isEmpty }
+	var isShowing: Bool { isEnabled && !devices.isEmpty }
 
 	private init() {
+		scene.lights = mapping.lights(on: .blink1)
 		IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: Self.vendorID, kIOHIDProductIDKey: Self.productID] as CFDictionary)
-		IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
+		IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, _ in
 			let blink1 = Unmanaged<Blink1>.fromOpaque(context!).takeUnretainedValue()
 			MainActor.assumeIsolated {
-				guard blink1.isEnabled else { return }
-				let wave = blink1.wave
-				blink1.send(Blink1.rgb(wave.color, brightness: wave.brightness.upperBound), fadeTime: Blink1.fadeTime, led: .both, to: device)
-				if let badge = blink1.badge { blink1.send(Blink1.rgb(badge), fadeTime: Blink1.fadeTime, led: .one, to: device) }
+				// The new light gets all colors, and the others the same again.
+				blink1.sent = [nil, nil]
+				blink1.render()
 			}
 		}, Unmanaged.passUnretained(self).toOpaque())
 		IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
@@ -78,194 +76,139 @@ final class Blink1 {
 		}
 	}
 
-	/// Turns the LEDs off when the switch goes off, and shows the current state when it goes on again.
-	private func settingsChanged() {
-		let isEnabled = SettingsKey.isOn(SettingsKey.usesBlink1)
-		guard isEnabled != self.isEnabled else { return }
-		self.isEnabled = isEnabled
-		if isEnabled {
-			breathe()
-			showBadge()
-		} else {
-			stopTasks()
-			sendToAll([0, 0, 0], fadeTime: 0, led: .both)
+	/// Lets the LEDs show `wave`, the bubble while `isWaiting`, and the mark of an unread report.
+	func show(wave: LightWave, isWaiting: Bool, hasUnread: Bool) {
+		let now = CACurrentMediaTime()
+		if wave != scene.wave {
+			scene.wave = wave
+			scene.waveStart = now
 		}
+		if isWaiting != scene.isWaiting {
+			scene.isWaiting = isWaiting
+			scene.ringStart = nil
+		}
+		scene.hasUnread = hasUnread
+		render()
 	}
 
-	private func stopTasks() {
-		for task in [breathTask, ringTask, pulseTask] { task?.cancel() }
-		breathTask = nil
-		ringTask = nil
-		pulseTask = nil
+	/// Rings the LEDs of the red ring once, together with the bubble.
+	func ring() {
+		scene.ringStart = CACurrentMediaTime()
+		render()
 	}
 
-	/// The state of the wave in the menu bar.
-	enum Wave {
-		case work, report, off
-
-		/// Purple while a report runs, also when sessions work too, like the wave.
-		init(isReporting: Bool, working: Int) {
-			self = isReporting ? .report : working > 0 ? .work : .off
-		}
-
-		var breath: Breath {
-			switch self {
-			case .work: Breath(color: Spinner.color, brightness: Blink1.workBrightness)
-			case .report: Breath(color: Spinner.reportColor, brightness: Blink1.reportBrightness)
-			case .off: Breath.off
-			}
-		}
-	}
-
-	/// The badge of the icon that LED 1 shows.
-	enum Badge {
-		case asksYou, unread
-
-		/// The bubble wins over the dot.
-		init?(waiting: Int, hasUnread: Bool) {
-			guard let badge = waiting > 0 ? Badge.asksYou : hasUnread ? .unread : nil else { return nil }
-			self = badge
-		}
-
-		var color: NSColor { self == .asksYou ? Blink1.orange : Spinner.reportColor }
-	}
-
-	/// The LEDs that a command changes. LED 1 shows the badge.
-	enum LED: UInt8 {
-		case both = 0, one = 1, two = 2
-	}
-
-	/// Lets both LEDs show `wave`, and LED 1 `badge` instead if there is one.
-	func show(wave: Wave, badge: Badge?) {
-		let breath = wave.breath
-		let waveChanged = breath != self.wave, badgeChanged = badge != self.badge
-		self.wave = breath
-		self.badge = badge
-		guard isEnabled, pulseTask == nil else { return }
-		if badgeChanged {
-			ringTask?.cancel()
-			ringTask = nil
-			showBadge()
-		}
-		if waveChanged { breathe() }
+	/// Blinks both LEDs 3 times in `color` at full brightness, then shows the signals again. A new blink starts again.
+	func pulse(_ color: NSColor) {
+		guard isEnabled, SettingsKey.isOn(SettingsKey.blinksAtEnd) else { return }
+		pulse = (color, CACurrentMediaTime())
+		render()
 	}
 
 	/// Stops every animation and turns both LEDs off, e.g. when the app quits.
 	func turnOff() {
-		stopTasks()
-		wave = .off
-		badge = nil
-		sendToAll([0, 0, 0], fadeTime: 0, led: .both)
+		stopTimer()
+		scene = LightScene(device: .blink1, lights: scene.lights)
+		pulse = nil
+		send([0, 0, 0], fadeTime: 0, led: 0)
+		sent = [[0, 0, 0], [0, 0, 0]]
 	}
 
-	/// Blinks both LEDs 3 times in `color` at full brightness, then shows the wave and the badge again. A new blink
-	/// starts again.
-	func pulse(_ color: NSColor) {
-		guard isEnabled, SettingsKey.isOn(SettingsKey.blinksAtEnd) else { return }
-		breathTask?.cancel()
-		breathTask = nil
-		ringTask?.cancel()
-		ringTask = nil
-		pulseTask?.cancel()
-		let blink = [Step(rgb: Self.rgb(color, brightness: 1), fade: Self.pulseFade, hold: Self.pulseStep),
-			Step(rgb: [0, 0, 0], fade: Self.pulseFade, hold: Self.pulseStep)]
-		pulseTask = play(Array([[Step]](repeating: blink, count: Self.pulseCount).joined()), on: .both) { blink1 in
-			blink1.pulseTask = nil
-			blink1.breathe()
-			blink1.showBadge()
-		}
+	/// Follows the switch and the mapping of the setup window at once.
+	private func settingsChanged() {
+		let isEnabled = SettingsKey.isOn(SettingsKey.usesBlink1), lights = mapping.lights(on: .blink1)
+		guard isEnabled != self.isEnabled || lights != scene.lights else { return }
+		self.isEnabled = isEnabled
+		scene.lights = lights
+		render()
 	}
 
-	/// Rings LED 1 once in bright red at the times of the bubble's glow, see ``AttentionBubble/glowTimes``: up fast, a
-	/// long hold, back to the steady orange. Only while the bubble shows.
-	func ring() {
-		guard isEnabled, badge == .asksYou, pulseTask == nil else { return }
-		let length = AttentionBubble.ringLength
-		let red = Self.rgb(Self.ringColor, brightness: 1)
-		let rest = Self.rgb(.asksYou)
-		let times = AttentionBubble.glowTimes
-		let steps = [Step(rgb: red, fade: times.up * length, hold: times.down * length),
-			Step(rgb: rest, fade: (times.rest - times.down) * length, hold: (times.rest - times.down) * length)]
-		ringTask?.cancel()
-		ringTask = play(steps, on: .one) { $0.ringTask = nil }
-	}
-
-	/// One color of a blink or a ring: the fade to it, and the time until the next step. Both in seconds.
-	private struct Step {
-		var rgb: [UInt8]
-		var fade: Double
-		var hold: Double
-	}
-
-	/// Plays the steps on `led`, then calls `done`, unless a cancel stops them.
-	private func play(_ steps: [Step], on led: LED, done: @escaping (Blink1) -> Void) -> Task<Void, Never> {
-		Task {
-			for step in steps {
-				sendToAll(step.rgb, fadeTime: Int((step.fade * 100).rounded()), led: led)
-				try? await Task.sleep(nanoseconds: UInt64(step.hold * 1e9))
-				if Task.isCancelled { return }
+	/// Sends the frames of now, and runs the timer while the light moves.
+	private func render() {
+		guard isEnabled, !devices.isEmpty else {
+			stopTimer()
+			if !isEnabled, sent != [[0, 0, 0], [0, 0, 0]] {
+				send([0, 0, 0], fadeTime: 0, led: 0)
+				sent = [[0, 0, 0], [0, 0, 0]]
 			}
-			done(self)
+			return
 		}
-	}
+		let now = CACurrentMediaTime()
+		if let pulse, now - pulse.start >= Self.pulseStep * Double(2 * Self.pulseCount) { self.pulse = nil }
+		let isMoving = scene.isMoving(at: now) || pulse != nil
+		let rgbs = Self.frames(of: scene, pulse: pulse, at: now).map { frame in
+			frame.map { Self.rgb($0.color, brightness: $0.brightness) } ?? [0, 0, 0]
+		}
+		let fadeTime = isMoving ? Int((Self.frameTime * 100).rounded()) : Self.fadeTime
+		if rgbs[0] == rgbs[1] {
+			if sent[0] != rgbs[0] || sent[1] != rgbs[1] { send(rgbs[0], fadeTime: fadeTime, led: 0) }
+		} else {
+			for index in 0..<2 where sent[index] != rgbs[index] { send(rgbs[index], fadeTime: fadeTime, led: UInt8(index + 1)) }
+		}
+		sent = rgbs.map { $0 }
 
-	/// LED 1 in the badge color, or in the wave without a badge.
-	private func showBadge() {
-		let rgb = badge.map(Self.rgb) ?? Self.rgb(wave.color, brightness: wave.brightness.upperBound)
-		sendToAll(rgb, fadeTime: Self.fadeTime, led: .one)
-	}
-
-	/// The LEDs of the wave: both without a badge, else LED 2.
-	private var waveLED: LED { badge == nil ? .both : .two }
-
-	/// Fades to the bright level, then breathes down to the dim level and back until the wave changes.
-	private func breathe() {
-		breathTask?.cancel()
-		breathTask = nil
-		let breath = wave
-		sendToAll(Self.rgb(breath.color, brightness: breath.brightness.upperBound), fadeTime: Self.fadeTime, led: waveLED)
-		guard breath.brightness.lowerBound != breath.brightness.upperBound else { return }
-		let steps = Self.breathSteps
-		// From bright down to dim, then up to bright again.
-		let frames = (1...(2 * steps)).map { Self.rgb(breath.color, brightness: breath.brightness(at: Double(abs(steps - $0)) / Double(steps))) }
-		let step = Self.breathDuration / 2 / Double(steps)
-		breathTask = Task {
-			try? await Task.sleep(nanoseconds: UInt64(Double(Self.fadeTime) / 100 * 1e9))
-			while !Task.isCancelled {
-				for rgb in frames {
-					if Task.isCancelled { return }
-					sendToAll(rgb, fadeTime: Int((step * 100).rounded()), led: waveLED)
-					try? await Task.sleep(nanoseconds: UInt64(step * 1e9))
-				}
+		if !isMoving {
+			stopTimer()
+		} else if timer == nil {
+			let timer = Timer(timeInterval: Self.frameTime, repeats: true) { [weak self] _ in
+				MainActor.assumeIsolated { self?.render() }
 			}
+			// The `common` modes include the one the run loop uses while a menu is open.
+			RunLoop.main.add(timer, forMode: .common)
+			self.timer = timer
 		}
+	}
+
+	private func stopTimer() {
+		timer?.invalidate()
+		timer = nil
+	}
+
+	/// The frames of LED 1 and LED 2 at `now`. An LED without a signal shows the frame of the other one. The blinks
+	/// win over everything.
+	static func frames(of scene: LightScene, pulse: (color: NSColor, start: Double)?, at now: Double) -> [LightScene.Frame?] {
+		if let pulse {
+			let frame = LightScene.Frame(color: pulse.color, brightness: pulseBrightness(at: now - pulse.start))
+			return [frame, frame]
+		}
+		let one = scene.frame(point: 1, at: now), two = scene.frame(point: 2, at: now)
+		return [one ?? two, two ?? one]
+	}
+
+	/// The brightness of the blinks at `elapsed` seconds: a fade up, a hold, a fade down and a dark pause, 3 times.
+	static func pulseBrightness(at elapsed: Double) -> Double {
+		let step = Int(elapsed / pulseStep), inStep = elapsed - Double(step) * pulseStep
+		let fade = min(inStep / pulseFade, 1)
+		return step.isMultiple(of: 2) ? fade : 1 - fade
+	}
+
+	/// The brightness of the wave at `elapsed` seconds after it started: from bright down to dim and up again, at
+	/// `level` of its normal brightness.
+	static func breath(of wave: LightWave, level: Double, at elapsed: Double) -> Double {
+		let range = wave == .report ? reportBrightness : workBrightness
+		let breath = Breath(color: .black, brightness: range.lowerBound * level...range.upperBound * level)
+		let phase = (elapsed / breathDuration).truncatingRemainder(dividingBy: 1)
+		return breath.brightness(at: abs(1 - 2 * phase))
 	}
 
 	/// The LED is much brighter than the screen, so it gets the screen color at a share of it. The rings and the blinks
 	/// get the full light.
 	static let badgeBrightness = 0.10
-	static let reportBrightness = 0.04...0.28
-	static let workBrightness = 0.02...0.04
+	static let ringBrightness = 1.0
+	nonisolated static let reportBrightness = 0.04...0.28
+	nonisolated static let workBrightness = 0.02...0.04
 	/// The blue LED is stronger than the red and the green one, so blue gets this share.
 	static let blueShare = 0.6
 
 	/// The sRGB values without a gamma correction keep the soft mix of the screen color.
 	static func rgb(_ color: NSColor, brightness: Double) -> [UInt8] {
 		guard let srgb = color.usingColorSpace(.sRGB) else { return [0, 0, 0] }
-		return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent * blueShare].map { UInt8(($0 * brightness * 255).rounded()) }
+		let level = min(max(brightness, 0), 1)
+		return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent * blueShare].map { UInt8(($0 * level * 255).rounded()) }
 	}
 
-	static func rgb(_ badge: Badge) -> [UInt8] {
-		rgb(badge.color, brightness: badgeBrightness)
-	}
-
-	private func sendToAll(_ rgb: [UInt8], fadeTime: Int, led: LED) {
-		for device in IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? [] { send(rgb, fadeTime: fadeTime, led: led, to: device) }
-	}
-
-	/// The »fade to RGB« command for `led`. `fadeTime` is in units of 10 ms.
-	private func send(_ rgb: [UInt8], fadeTime: Int, led: LED, to device: IOHIDDevice) {
-		let report: [UInt8] = [1, UInt8(ascii: "c")] + rgb + [UInt8(fadeTime >> 8), UInt8(fadeTime & 0xFF), led.rawValue, 0]
-		IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 1, report, report.count)
+	/// The »fade to RGB« command for `led` on each light: 0 for both LEDs, else 1 or 2. `fadeTime` is in units of 10 ms.
+	private func send(_ rgb: [UInt8], fadeTime: Int, led: UInt8) {
+		let report: [UInt8] = [1, UInt8(ascii: "c")] + rgb + [UInt8(fadeTime >> 8), UInt8(fadeTime & 0xFF), led, 0]
+		for device in devices { IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, 1, report, report.count) }
 	}
 }

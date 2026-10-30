@@ -8,7 +8,7 @@ extension Report.Kind {
 		fileName: "morning-overview.md",
 		promptResource: "morning-overview-prompt",
 		settingsKey: SettingsKey.updatesMorningOverview,
-		schedule: Report.Schedule(weekdays: [2, 3, 4, 5, 6], hour: 6, menuTitle: "Every Weekday at 6:00"),
+		schedule: Report.Schedule(weekdays: [2, 3, 4, 5, 6], hour: 6, title: "Every Weekday at 6:00"),
 		notificationID: "morning-overview",
 		access: .readsProject(folders: [MorningOverview.plansFolder], mcpTools: MorningOverview.jiraReadTools),
 		timeout: 15 * 60,
@@ -49,6 +49,8 @@ enum MorningOverview {
 				calendar: report.system.calendar, branches: branches, knownBranches: known,
 				pullRequests: data["pullRequests"] as? [[String: Any]] ?? [])
 		}
+		data["sessions"] = sessions(in: claudeProjectFolder(of: report.system.folder.path), now: report.system.now(),
+			calendar: report.system.calendar)
 		return Report.Input(data: data, facts: facts(report))
 	}
 
@@ -67,7 +69,6 @@ enum MorningOverview {
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
-		if exists(projectFolder) { facts.append("Transcripts folder: \(projectFolder.path)") }
 		return facts
 	}
 
@@ -118,6 +119,39 @@ enum MorningOverview {
 			plan["openSteps"] = matches(of: #"(?m)^\s*- \[ \]"#, in: text).count
 			plan["doneSteps"] = matches(of: #"(?m)^\s*- \[[xX]\]"#, in: text).count
 			return plan
+		}
+	}
+
+	/// The days of the sessions in the input.
+	static let sessionDays = 3
+
+	/// The sessions in the transcripts `folder` that changed in the last 3 days, the newest first, with their `id`, their
+	/// `title` and the time of their `lastChange`. The title is the newest custom title, else the newest title of Claude.
+	static func sessions(in folder: URL, now: Date, calendar: Calendar) -> [[String: Any]] {
+		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
+		let start = now.addingTimeInterval(-Double(sessionDays) * 24 * 60 * 60)
+		let files = names.compactMap { name -> (URL, Date)? in
+			let file = folder.appendingPathComponent(name)
+			guard let date = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date, date >= start
+			else { return nil }
+			return (file, date)
+		}.sorted { $0.1 > $1.1 }
+		return files.map { file, date in
+			var custom: String?
+			var ai: String?
+			let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+			for line in text.split(separator: "\n") where line.contains("-title\"") {
+				guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+				switch object["type"] as? String {
+				case "custom-title": custom = object["customTitle"] as? String ?? custom
+				case "ai-title": ai = object["aiTitle"] as? String ?? ai
+				default: break
+				}
+			}
+			var session: [String: Any] = ["id": file.deletingPathExtension().lastPathComponent,
+				"lastChange": Report.timestampFormatter(calendar).string(from: date)]
+			if let title = custom ?? ai { session["title"] = title }
+			return session
 		}
 	}
 

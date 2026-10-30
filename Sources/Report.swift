@@ -46,7 +46,7 @@ final class Report: ObservableObject {
 		/// The weekdays of `Calendar`: 1 is Sunday.
 		var weekdays: Set<Int>
 		var hour: Int
-		var menuTitle: String
+		var title: String
 
 		/// Today at ``hour``, if today is a day of the schedule and that time has come. Else `nil`.
 		func dueMoment(at now: Date, calendar: Calendar) -> Date? {
@@ -95,6 +95,7 @@ final class Report: ObservableObject {
 		var readyBody: (_ text: String, _ input: Input) -> String
 		/// The file name of the backup of the old file, or `nil` for no backup.
 		var backupName: ((_ old: String) -> String)?
+
 	}
 
 	struct System {

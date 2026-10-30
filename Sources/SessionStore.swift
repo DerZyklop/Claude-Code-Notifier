@@ -2,7 +2,6 @@ import AppKit
 import UserNotifications
 
 enum SettingsKey {
-	static let notifyOnDone = "notifyOnDone"
 	/// Turns the notifications off.
 	static let muted = "muted"
 	/// Turns every sound of the app on or off.
@@ -20,7 +19,7 @@ enum SettingsKey {
 	/// Lets the NuPhy keyboard show the state, see ``KeyboardLight``.
 	static let usesKeyboard = "usesKeyboard"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
-	static let defaultValues = [notifyOnDone: true, muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
+	static let defaultValues = [muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
 		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true]
 
 	static func isOn(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
@@ -283,9 +282,7 @@ final class SessionStore: ObservableObject {
 			notify(.asksYou, session: session, body: event.message ?? "Claude needs your input.")
 		case "Stop":
 			let session = set(.yourTurn, for: event, previous: previous)
-			if system.defaults.object(forKey: SettingsKey.notifyOnDone) as? Bool ?? true {
-				notify(.yourTurn, session: session, body: Self.preview(of: event.last_assistant_message) ?? "Claude has finished.")
-			}
+			notify(.yourTurn, session: session, body: Self.preview(of: event.last_assistant_message) ?? "Claude has finished.")
 		case "StopFailure":
 			let session = set(.yourTurn, for: event, previous: previous)
 			notify(.yourTurn, session: session, body: "Claude stopped because of an error: \(event.error ?? "unknown").")

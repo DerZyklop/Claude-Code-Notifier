@@ -127,8 +127,7 @@ final class AttentionBubble {
 		let timer = Timer(fire: firstFire, interval: Self.ringInterval, repeats: true) { [weak self] _ in
 			Task { @MainActor in
 				guard let self else { return }
-				Blink1.shared.ring()
-				KeyboardLight.shared.ring()
+				Lights.ring()
 				if self.allowsChime() { Self.playChime() }
 			}
 		}
@@ -177,7 +176,7 @@ final class AttentionBubble {
 		return Self.repeating([Self.keyframes(keyPath, Self.once(rest: normal, peak: peak))], from: ringStart)
 	}
 
-	/// The glow of a round: up at once, a long peak, then back down. ``Blink1/ring()`` follows these times.
+	/// The glow of a round: up at once, a long peak, then back down. ``LightScene/ring(from:to:at:)`` follows these times.
 	static let glowTimes = (up: 0.06, down: 0.6, rest: 0.72)
 
 	/// One pulse per round, at the ``glowTimes``.
@@ -233,7 +232,7 @@ enum SoundMode: CaseIterable {
 	@MainActor var allowsSound: Bool {
 		switch self {
 		case .on: true
-		case .withoutLights: !Blink1.shared.isShowing && !KeyboardLight.shared.isShowing
+		case .withoutLights: !Lights.isShowing
 		case .off: false
 		}
 	}
