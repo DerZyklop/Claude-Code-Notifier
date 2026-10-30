@@ -14,7 +14,7 @@ import Testing
 	}
 
 	@Test func dueMomentOnlyOnTheDaysOfTheScheduleFromItsHourOn() {
-		let schedule = Report.Schedule(weekdays: [3], hour: 6, title: "")
+		let schedule = Report.Schedule(weekdays: [3], hour: 6)
 		let sixOClock = tuesdayMorning.addingTimeInterval(-3_600)
 		#expect(schedule.dueMoment(at: tuesdayMorning, calendar: utcCalendar) == sixOClock)
 		#expect(schedule.dueMoment(at: sixOClock, calendar: utcCalendar) == sixOClock)

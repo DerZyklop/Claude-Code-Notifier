@@ -8,7 +8,7 @@ extension Report.Kind {
 		fileName: "morning-overview.md",
 		promptResource: "morning-overview-prompt",
 		settingsKey: SettingsKey.updatesMorningOverview,
-		schedule: Report.Schedule(weekdays: [2, 3, 4, 5, 6], hour: 6, title: "Every Weekday at 6:00"),
+		schedule: Report.Schedule(weekdays: [2, 3, 4, 5, 6], hour: 6),
 		notificationID: "morning-overview",
 		access: .readsProject(folders: [MorningOverview.plansFolder], mcpTools: MorningOverview.jiraReadTools),
 		timeout: 15 * 60,

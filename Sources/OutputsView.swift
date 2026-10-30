@@ -41,6 +41,29 @@ final class SettingsStore: ObservableObject {
 		})
 	}
 
+	/// - Parameter weekday: The weekday of `Calendar`: 1 is Sunday.
+	func weekday(_ weekday: Int, of kind: Report.Kind) -> Binding<Bool> {
+		Binding(get: { kind.schedule(in: self.defaults).weekdays.contains(weekday) }, set: { isOn in
+			self.objectWillChange.send()
+			var schedule = kind.schedule(in: self.defaults)
+			if isOn { schedule.weekdays.insert(weekday) } else { schedule.weekdays.remove(weekday) }
+			kind.setSchedule(schedule, in: self.defaults)
+		})
+	}
+
+	/// The time of today with the hour and the minute of the schedule.
+	func time(of kind: Report.Kind) -> Binding<Date> {
+		Binding(get: {
+			let schedule = kind.schedule(in: self.defaults)
+			return Calendar.current.date(bySettingHour: schedule.hour, minute: schedule.minute, second: 0, of: Date()) ?? Date()
+		}, set: { date in
+			self.objectWillChange.send()
+			var schedule = kind.schedule(in: self.defaults)
+			(schedule.hour, schedule.minute) = (Calendar.current.component(.hour, from: date), Calendar.current.component(.minute, from: date))
+			kind.setSchedule(schedule, in: self.defaults)
+		})
+	}
+
 	func brightness(of signal: LightSignal) -> Binding<Double> {
 		Binding(get: { self.mapping.brightness(of: signal) }, set: { value in
 			self.objectWillChange.send()
@@ -120,9 +143,10 @@ struct OutputsView: View {
 							Toggle("\(area.title) · blink(1) \(area.blink1Title)", isOn: settings.area(area, of: signal))
 						}
 					}
+					.frame(width: 240)
 					Text("blink(1): \(blink1Title(of: signal))").font(.caption).foregroundStyle(.secondary)
 				}
-				.frame(width: 260)
+				.frame(width: 260, alignment: .leading)
 				Slider(value: settings.brightness(of: signal), in: 0...1) { Text("Brightness") }
 			}
 			.disabled(!isEnabled)
@@ -164,15 +188,27 @@ struct OutputsView: View {
 	}
 }
 
-/// The tab »Schedules« of the setup window: the automatic run of each report.
+/// The tab »Schedules« of the setup window: the automatic run of each report, its weekdays and its time.
 struct SchedulesView: View {
 	@EnvironmentObject private var settings: SettingsStore
+
+	/// Monday first.
+	private static let weekdays = [2, 3, 4, 5, 6, 7, 1]
 
 	var body: some View {
 		Form {
 			ForEach(Report.all.map(\.kind), id: \.settingsKey) { kind in
 				Section(kind.title) {
-					Toggle(kind.schedule.title, isOn: settings.binding(kind.settingsKey))
+					Toggle("Automatic Update", isOn: settings.binding(kind.settingsKey))
+					LabeledContent("Weekdays") {
+						HStack {
+							ForEach(Self.weekdays, id: \.self) { weekday in
+								Toggle(Calendar.current.shortWeekdaySymbols[weekday - 1], isOn: settings.weekday(weekday, of: kind))
+									.toggleStyle(.checkbox)
+							}
+						}
+					}
+					DatePicker("Time", selection: settings.time(of: kind), displayedComponents: .hourAndMinute)
 				}
 			}
 		}

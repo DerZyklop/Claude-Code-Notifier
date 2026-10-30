@@ -9,7 +9,7 @@ extension Report.Kind {
 		fileName: "didi.md",
 		promptResource: "didi-prompt",
 		settingsKey: SettingsKey.updatesDiDi,
-		schedule: Report.Schedule(weekdays: [DiDi.sprintWeekday], hour: 6, title: "Every Tuesday at 6:00"),
+		schedule: Report.Schedule(weekdays: [DiDi.sprintWeekday], hour: 6),
 		notificationID: "didi",
 		access: .readsInputOnly(schema: DiDi.schema),
 		timeout: 10 * 60,

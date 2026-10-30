@@ -41,17 +41,17 @@ final class Report: ObservableObject {
 		}
 	}
 
-	/// The days and the hour of the automatic run.
-	struct Schedule {
+	/// The days and the time of the automatic run.
+	struct Schedule: Equatable {
 		/// The weekdays of `Calendar`: 1 is Sunday.
 		var weekdays: Set<Int>
 		var hour: Int
-		var title: String
+		var minute = 0
 
-		/// Today at ``hour``, if today is a day of the schedule and that time has come. Else `nil`.
+		/// Today at ``hour`` and ``minute``, if today is a day of the schedule and that time has come. Else `nil`.
 		func dueMoment(at now: Date, calendar: Calendar) -> Date? {
 			guard weekdays.contains(calendar.component(.weekday, from: now)),
-				let moment = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: now), moment <= now else { return nil }
+				let moment = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now), moment <= now else { return nil }
 			return moment
 		}
 	}
@@ -83,6 +83,7 @@ final class Report: ObservableObject {
 		var promptResource: String
 		/// The setting that turns the automatic run on.
 		var settingsKey: String
+		/// The schedule while the user has not changed it, see ``schedule(in:)``.
 		var schedule: Schedule
 		/// The notification of a ready file. The one of a failure adds `-failed`.
 		var notificationID: String
@@ -96,6 +97,27 @@ final class Report: ObservableObject {
 		/// The file name of the backup of the old file, or `nil` for no backup.
 		var backupName: ((_ old: String) -> String)?
 
+		private var weekdaysKey: String { notificationID + "-weekdays" }
+		/// The minutes after midnight.
+		private var timeKey: String { notificationID + "-time" }
+
+		/// The schedule of the tab »Schedules«, or ``schedule`` while the user has not changed it.
+		func schedule(in defaults: UserDefaults) -> Schedule {
+			var stored = schedule
+			if let weekdays = defaults.array(forKey: weekdaysKey) as? [Int] { stored.weekdays = Set(weekdays) }
+			if let time = defaults.object(forKey: timeKey) as? Int { (stored.hour, stored.minute) = (time / 60, time % 60) }
+			return stored
+		}
+
+		/// Only a changed value is stored, as in ``SettingsKey/set(_:to:in:)``.
+		func setSchedule(_ new: Schedule, in defaults: UserDefaults) {
+			if new.weekdays == schedule.weekdays { defaults.removeObject(forKey: weekdaysKey) } else {
+				defaults.set(new.weekdays.sorted(), forKey: weekdaysKey)
+			}
+			if (new.hour, new.minute) == (schedule.hour, schedule.minute) { defaults.removeObject(forKey: timeKey) } else {
+				defaults.set(new.hour * 60 + new.minute, forKey: timeKey)
+			}
+		}
 	}
 
 	struct System {
@@ -179,6 +201,8 @@ final class Report: ObservableObject {
 	/// The key of the due moment whose run you stopped. The automatic run skips that moment, also after a restart.
 	static func stoppedKey(of kind: Kind) -> String { kind.notificationID + "-stopped" }
 
+	var schedule: Schedule { kind.schedule(in: system.defaults) }
+
 	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
 	var failedNotificationID: String { kind.notificationID + "-failed" }
 
@@ -201,15 +225,15 @@ final class Report: ObservableObject {
 		let now = system.now()
 		guard SettingsKey.isOn(kind.settingsKey, in: system.defaults), isDue(at: now) else { return }
 		let stopped = system.defaults.object(forKey: Self.stoppedKey(of: kind)) as? Date
-		if stopped != nil, stopped == kind.schedule.dueMoment(at: now, calendar: system.calendar) { return }
+		if stopped != nil, stopped == schedule.dueMoment(at: now, calendar: system.calendar) { return }
 		if let lastAutomaticRun, now.timeIntervalSince(lastAutomaticRun) < Self.retryDelay { return }
 		lastAutomaticRun = now
 		await update()
 	}
 
-	/// Due on a day of the schedule from its hour on, when the `Updated:` time of the file is before that moment.
+	/// Due on a day of the schedule from its time on, when the `Updated:` time of the file is before that moment.
 	func isDue(at now: Date) -> Bool {
-		guard !isRunning, let dueMoment = kind.schedule.dueMoment(at: now, calendar: system.calendar) else { return false }
+		guard !isRunning, let dueMoment = schedule.dueMoment(at: now, calendar: system.calendar) else { return false }
 		let text = try? String(contentsOf: fileURL, encoding: .utf8)
 		return (text.flatMap { Self.updated(in: $0, calendar: system.calendar) } ?? .distantPast) < dueMoment
 	}
@@ -311,7 +335,7 @@ final class Report: ObservableObject {
 	func stop() {
 		guard isRunning else { return }
 		isStopped = true
-		system.defaults.set(kind.schedule.dueMoment(at: system.now(), calendar: system.calendar), forKey: Self.stoppedKey(of: kind))
+		system.defaults.set(schedule.dueMoment(at: system.now(), calendar: system.calendar), forKey: Self.stoppedKey(of: kind))
 		runTask?.cancel()
 	}
 
