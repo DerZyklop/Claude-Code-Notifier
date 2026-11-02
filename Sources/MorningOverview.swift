@@ -31,19 +31,21 @@ enum MorningOverview {
 	/// The open pull requests and the git workspaces on stdin, and the places to read in the facts.
 	@MainActor
 	static func collect(_ report: Report) async throws -> Report.Input {
+		let system = report.system
 		let me = await report.me()
 		let branches = await branches(report)
+		let old = try? String(contentsOf: report.fileURL, encoding: .utf8)
 		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches]
 		var appData: [String: Any] = [:]
+		let pullRequests: [[String: Any]]
 		do {
 			let bitbucket = try await report.bitbucket()
-			let pullRequests = try await pullRequests(bitbucket, me: me)
+			pullRequests = try await Self.pullRequests(bitbucket, me: me)
 			data["pullRequests"] = pullRequests
 			appData[othersTurnKey] = Set(pullRequests.filter { $0["isMyTurn"] as? Bool == false }.compactMap { $0["id"] as? Int })
-			appData[staleKey] = Set(pullRequests.filter { isStale($0, now: report.system.now()) }.compactMap { $0["id"] as? Int })
-			let old = try? String(contentsOf: report.fileURL, encoding: .utf8)
-			let since = old.flatMap { Report.updated(in: $0, calendar: report.system.calendar) }
-				?? report.system.now().addingTimeInterval(-Double(mergeDays) * 24 * 60 * 60)
+			appData[staleKey] = Set(pullRequests.filter { isStale($0, now: system.now()) }.compactMap { $0["id"] as? Int })
+			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) }
+				?? system.now().addingTimeInterval(-Double(mergeDays) * 24 * 60 * 60)
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
 		} catch let error as URLError {
 			// Without a network, the run of the day waits for the next try.
@@ -54,12 +56,10 @@ enum MorningOverview {
 		if FileManager.default.fileExists(atPath: plansFolder.path) {
 			let known = Set(await report.git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"])
 				.split(separator: "\n").map { $0.replacingOccurrences(of: #"^origin/"#, with: "", options: .regularExpression) })
-			data["plans"] = plans(in: plansFolder, old: try? String(contentsOf: report.fileURL, encoding: .utf8), now: report.system.now(),
-				calendar: report.system.calendar, branches: branches, knownBranches: known,
-				pullRequests: data["pullRequests"] as? [[String: Any]] ?? [])
+			data["plans"] = plans(in: plansFolder, old: old, now: system.now(), calendar: system.calendar, branches: branches,
+				knownBranches: known, pullRequests: pullRequests)
 		}
-		data["sessions"] = sessions(in: claudeProjectFolder(of: report.system.folder.path), now: report.system.now(),
-			calendar: report.system.calendar)
+		data["sessions"] = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar)
 		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
 
@@ -324,12 +324,12 @@ enum MorningOverview {
 	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away.
 	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, in overview: String) -> String {
 		let anyMark = marks.joined(separator: "|")
+		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:(?:\#(anyMark)) )*(\[`#(\d+)`\])"#)
+		else { return overview }
 		var parts = overview.components(separatedBy: "\n## ")
 		for index in parts.indices.dropFirst() where turnSections.contains(title(of: parts[index])) {
 			parts[index] = parts[index].components(separatedBy: "\n").map { line in
-				let pattern = #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:(?:\#(anyMark)) )*(\[`#(\d+)`\])"#
-				guard let regex = try? NSRegularExpression(pattern: pattern),
-					let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+				guard let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
 					let start = Range(match.range(at: 1), in: line), let link = Range(match.range(at: 2), in: line),
 					let id = Range(match.range(at: 3), in: line).flatMap({ Int(line[$0]) }) else { return line }
 				let mark = (othersTurn.contains(id) ? othersTurnMark + " " : "") + (stale.contains(id) ? staleMark + " " : "")
