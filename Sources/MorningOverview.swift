@@ -289,11 +289,10 @@ enum MorningOverview {
 	/// The text without the ticked tasks that have no sub-item. A sub-item is a next line with more indent.
 	static func withoutDoneLeafTasks(in text: String) -> String {
 		let lines = text.components(separatedBy: "\n")
-		let indent = { (line: String) in line.prefix { $0 == " " || $0 == "\t" }.count }
 		return lines.indices.filter { index in
 			guard lines[index].range(of: #"^\s*[-*] \[[xX]\] "#, options: .regularExpression) != nil else { return true }
 			let next = lines.dropFirst(index + 1).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-			return next.map { indent($0) > indent(lines[index]) } ?? false
+			return next.map { indent(of: $0) > indent(of: lines[index]) } ?? false
 		}.map { lines[$0] }.joined(separator: "\n")
 	}
 
@@ -666,7 +665,7 @@ enum MorningOverview {
 	}
 
 	/// A merged pull request of another dev, for ``otherMergesSection(_:old:)``.
-	struct Merge: Equatable {
+	struct Merge {
 		var id: Int
 		var title: String
 		var author: String
