@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		Self.migrateSettings()
+		LightMapping().copyWorkToReport()
 		quitOnSignals()
 		statusMenu = StatusMenu()
 		LightSimulation.shared.showAll()

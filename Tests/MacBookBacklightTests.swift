@@ -18,10 +18,10 @@ struct MacBookBacklightTests {
 	@Test func workFadesTheBacklightDownFirstAndTheEndGivesBackTheBrightnessOfMacOS() {
 		let recorder = Recorder()
 		let light = MacBookBacklight(backlight: recorder.backlight, defaults: MemoryDefaults())
-		light.show(wave: .work)
+		light.show(waves: [.work])
 		#expect(light.isBlinking)
 		#expect(recorder.sets == [firstStep])
-		light.show(wave: .off)
+		light.show(waves: [])
 		#expect(!light.isBlinking)
 		#expect(recorder.sets == [firstStep, 0.4])
 	}
@@ -39,7 +39,7 @@ struct MacBookBacklightTests {
 	@Test func aReportBlinksToo() {
 		let recorder = Recorder()
 		let light = MacBookBacklight(backlight: recorder.backlight, defaults: MemoryDefaults())
-		light.show(wave: .report)
+		light.show(waves: [.report])
 		#expect(light.isBlinking)
 		light.turnOff()
 	}
@@ -47,7 +47,7 @@ struct MacBookBacklightTests {
 	@Test func withoutWorkTheAppNeverTouchesTheBacklight() {
 		let recorder = Recorder()
 		let light = MacBookBacklight(backlight: recorder.backlight, defaults: MemoryDefaults())
-		light.show(wave: .off)
+		light.show(waves: [])
 		light.turnOff()
 		#expect(recorder.sets.isEmpty)
 	}
@@ -56,12 +56,12 @@ struct MacBookBacklightTests {
 		let recorder = Recorder()
 		let defaults = MemoryDefaults()
 		let light = MacBookBacklight(backlight: recorder.backlight, defaults: defaults)
-		light.show(wave: .work)
+		light.show(waves: [.work])
 		SettingsKey.set(SettingsKey.usesMacBookBacklight, to: false, in: defaults)
 		light.settingsChanged()
 		#expect(!light.isBlinking)
 		#expect(recorder.sets == [firstStep, 0.4])
-		light.show(wave: .work)
+		light.show(waves: [.work])
 		#expect(recorder.sets == [firstStep, 0.4])
 		SettingsKey.set(SettingsKey.usesMacBookBacklight, to: true, in: defaults)
 		light.settingsChanged()
@@ -71,7 +71,7 @@ struct MacBookBacklightTests {
 
 	@Test func aMacWithoutBacklightDoesNotBlink() {
 		let light = MacBookBacklight(backlight: .missing, defaults: MemoryDefaults())
-		light.show(wave: .work)
+		light.show(waves: [.work])
 		#expect(!light.isBlinking)
 	}
 }

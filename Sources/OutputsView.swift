@@ -160,13 +160,9 @@ struct OutputsView: View {
 	@ViewBuilder private func simulate(_ signal: LightSignal) -> some View {
 		switch signal {
 		case .work:
-			Picker("Simulate", selection: $simulation.work) {
-				Text("Off").tag(LightWave.off)
-				Text("Work").tag(LightWave.work)
-				Text("Summary").tag(LightWave.report)
-			}
-			.pickerStyle(.segmented)
-			.fixedSize()
+			Toggle("Simulate", isOn: $simulation.work)
+		case .report:
+			Toggle("Simulate", isOn: $simulation.report)
 		case .waiting:
 			Toggle("Simulate", isOn: $simulation.waiting)
 		case .ring:

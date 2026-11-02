@@ -36,9 +36,9 @@ final class MacBookBacklight {
 
 	var isBlinking: Bool { brightnessBefore != nil }
 
-	/// Blinks while `wave` shows work or a report.
-	func show(wave: LightWave) {
-		isWorking = wave != .off
+	/// Blinks while `waves` shows work or a report.
+	func show(waves: Set<LightWave>) {
+		isWorking = !waves.isEmpty
 		update()
 	}
 

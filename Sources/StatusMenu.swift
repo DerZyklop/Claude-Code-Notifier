@@ -63,12 +63,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		var waiting = hasProblem ? 0 : sessions.filter { $0.state == .asksYou }.count
 		if simulation.waiting { waiting = max(waiting, 1) }
 		let runningReports = Report.all.filter(\.isRunning).count
-		var working = (hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count) + runningReports
-		var isReporting = runningReports > 0
-		if simulation.work != .off {
-			working = max(working, 1)
-			isReporting = simulation.work == .report
-		}
+		let workingSessions = hasProblem ? 0 : sessions.filter { $0.shownState == .working }.count
+		let isWorking = workingSessions > 0 || simulation.work
+		let isReporting = runningReports > 0 || simulation.report
+		let working = max(workingSessions + runningReports, isWorking || isReporting ? 1 : 0)
 		let hasUnread = Report.all.contains { $0.isUnread } || simulation.unread
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -80,7 +78,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
-		Lights.show(wave: LightWave(isReporting: isReporting, working: working), isWaiting: layout.waiting > 0, hasUnread: hasUnread)
+		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
+		Lights.show(waves: waves, isWaiting: layout.waiting > 0, hasUnread: hasUnread)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in

@@ -24,12 +24,6 @@ struct Blink1Tests {
 struct Blink1StateTests {
 	typealias Scene = LightScene
 
-	@Test func waveIsPurpleWhileAReportRuns() {
-		#expect(LightWave(isReporting: true, working: 2) == .report)
-		#expect(LightWave(isReporting: false, working: 1) == .work)
-		#expect(LightWave(isReporting: false, working: 0) == .off)
-	}
-
 	@Test func bubbleIsOrangeOnTheLEDs() {
 		#expect(Blink1.rgb(LightSignal.orange, brightness: 1) == [255, 48, 0])
 	}
@@ -40,7 +34,8 @@ struct Blink1StateTests {
 
 	@Test func areasMapToTheLEDsOfThePlan() {
 		#expect(LightArea.allKeys.blink1LEDs == [1, 2])
-		#expect(LightArea.firstTwoRows.blink1LEDs == [1, 2])
+		#expect(LightArea.firstRow.blink1LEDs == [1])
+		#expect(LightArea.secondRow.blink1LEDs == [2])
 		#expect(LightArea.leftSide.blink1LEDs == [1])
 		#expect(LightArea.rightSide.blink1LEDs == [1])
 		#expect(LightArea.topLeftFour.blink1LEDs == [1])
@@ -55,7 +50,7 @@ struct Blink1StateTests {
 	}
 
 	@Test func bubbleTakesLEDOneAndTheWaveBreathesOnLEDTwo() {
-		let frames = Blink1.frames(of: Scene(device: .blink1, wave: .work, isWaiting: true), pulse: nil, at: 0)
+		let frames = Blink1.frames(of: Scene(device: .blink1, waveStarts: [.work: 0], isWaiting: true), pulse: nil, at: 0)
 		#expect(frames[0]?.color == LightSignal.orange)
 		#expect(frames[1]?.color == Spinner.color)
 		#expect(abs(frames[1]!.brightness - Blink1.workBrightness.upperBound) < 1e-9)
@@ -70,7 +65,7 @@ struct Blink1StateTests {
 	}
 
 	@Test func ringPeaksInFullRedAndRestsInOrange() {
-		let scene = Scene(device: .blink1, wave: .work, isWaiting: true, ringStart: 0)
+		let scene = Scene(device: .blink1, waveStarts: [.work: 0], isWaiting: true, ringStart: 0)
 		let peakTime = AttentionBubble.glowTimes.down * AttentionBubble.ringLength - 0.01
 		let peak = Blink1.frames(of: scene, pulse: nil, at: peakTime)[0]!
 		#expect(Blink1.rgb(peak.color, brightness: peak.brightness) == [255, 0, 0])

@@ -39,13 +39,10 @@ final class KeyboardLight {
 		}
 	}
 
-	/// Lets the keys show `wave`, the bubble while `isWaiting`, and the mark of an unread report.
-	func show(wave: LightWave, isWaiting: Bool, hasUnread: Bool) {
-		let now = CACurrentMediaTime()
-		if wave != scene.wave {
-			scene.wave = wave
-			scene.waveStart = now
-		}
+	/// Lets the keys show `waves`, the bubble while `isWaiting`, and the mark of an unread report.
+	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool) {
+		scene.waveStarts = scene.waveStarts.filter { waves.contains($0.key) }
+		for wave in waves where scene.waveStarts[wave] == nil { scene.waveStarts[wave] = CACurrentMediaTime() }
 		if isWaiting != scene.isWaiting {
 			scene.isWaiting = isWaiting
 			scene.ringStart = nil

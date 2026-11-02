@@ -54,9 +54,9 @@ final class NuPhyKeyboard {
 	static let customChannel: UInt8 = 0x00
 	enum Value: UInt8 {
 		/// The first LED, the count of LEDs, then red, green and blue of each.
-		case setColors = 1
+		case setColors = 0x41
 		/// The normal effect of the keyboard shows again on all keys.
-		case clear = 2
+		case clear = 0x42
 	}
 
 	static let ledsPerReport = 9

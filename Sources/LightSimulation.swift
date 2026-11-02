@@ -7,23 +7,24 @@ import Foundation
 final class LightSimulation: ObservableObject {
 	static let shared = LightSimulation()
 
-	/// Wins over the real wave, unless it is off.
-	@Published var work = LightWave.off
+	@Published var work = false
+	@Published var report = false
 	@Published var waiting = false
 	@Published var unread = false
 
 	/// Whether any signal is on.
-	var isActive: Bool { work != .off || waiting || unread }
+	var isActive: Bool { work || report || waiting || unread }
 
 	/// Turns on every signal for `duration`, e.g. at the start of the app, so that you see all lights of the current
 	/// mapping. A change of the simulation in this time keeps it on.
 	func showAll(for duration: Duration = .seconds(3)) {
-		work = .work
+		work = true
+		report = true
 		waiting = true
 		unread = true
 		Task { @MainActor [weak self] in
 			try? await Task.sleep(for: duration)
-			guard let self, work == .work, waiting, unread else { return }
+			guard let self, work, report, waiting, unread else { return }
 			stopAll()
 		}
 	}
@@ -31,7 +32,8 @@ final class LightSimulation: ObservableObject {
 	/// Ends every simulation, e.g. when the setup window closes.
 	func stopAll() {
 		guard isActive else { return }
-		work = .off
+		work = false
+		report = false
 		waiting = false
 		unread = false
 	}

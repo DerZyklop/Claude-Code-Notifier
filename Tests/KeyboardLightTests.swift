@@ -10,7 +10,7 @@ struct NuPhyKeyboardTests {
 	@Test func clearReportHas32Bytes() {
 		let report = NuPhyKeyboard.report(.clear)
 		#expect(report.count == 32)
-		#expect(Array(report.prefix(3)) == [0x07, 0x00, 0x02])
+		#expect(Array(report.prefix(3)) == [0x07, 0x00, 0x42])
 		#expect(report.dropFirst(3).allSatisfy { $0 == 0 })
 	}
 
@@ -30,9 +30,9 @@ struct NuPhyKeyboardTests {
 		for led in 0..<16 { new[led] = red }
 		let reports = NuPhyKeyboard.reports(from: old, to: new)
 		#expect(reports.count == 2)
-		#expect(Array(reports[0].prefix(5)) == [0x07, 0x00, 0x01, 0, 9])
+		#expect(Array(reports[0].prefix(5)) == [0x07, 0x00, 0x41,0, 9])
 		#expect(Array(reports[0][5..<8]) == red)
-		#expect(Array(reports[1].prefix(5)) == [0x07, 0x00, 0x01, 9, 7])
+		#expect(Array(reports[1].prefix(5)) == [0x07, 0x00, 0x41,9, 7])
 		#expect(reports.allSatisfy { $0.count == 32 })
 	}
 
@@ -44,7 +44,7 @@ struct NuPhyKeyboardTests {
 		new[5] = blue
 		let reports = NuPhyKeyboard.reports(from: old, to: new)
 		#expect(reports.count == 1)
-		#expect(Array(reports[0].prefix(11)) == [0x07, 0x00, 0x01, 4, 2] + blue + blue)
+		#expect(Array(reports[0].prefix(11)) == [0x07, 0x00, 0x41,4, 2] + blue + blue)
 		#expect(NuPhyKeyboard.reports(from: old, to: old).isEmpty)
 	}
 
@@ -63,7 +63,7 @@ struct NuPhyKeyboardTests {
 		var new = [[UInt8]?](repeating: nil, count: NuPhyKeyboard.ledCount)
 		for led in NuPhyKeyboard.sideLights { new[led] = red }
 		let reports = NuPhyKeyboard.reports(from: [[UInt8]?](repeating: nil, count: NuPhyKeyboard.ledCount), to: new)
-		#expect(reports.map { Array($0.prefix(5)) } == [[0x07, 0x00, 0x01, 100, 9], [0x07, 0x00, 0x01, 109, 3]])
+		#expect(reports.map { Array($0.prefix(5)) } == [[0x07, 0x00, 0x41,100, 9], [0x07, 0x00, 0x41,109, 3]])
 	}
 }
 
@@ -77,7 +77,8 @@ struct LightAreaTests {
 	}
 
 	@Test func areasOfTodaysLook() {
-		#expect(LightArea.firstTwoRows.keyboardLEDs.sorted() == Array(0..<31))
+		#expect(LightArea.firstRow.keyboardLEDs == Array(0..<16))
+		#expect(LightArea.secondRow.keyboardLEDs == Array(16..<31))
 		// F11, F12, Del, Backspace and =.
 		#expect(LightArea.topRightCorner.keyboardLEDs == [13, 14, 15, 16, 17])
 		// Esc, F1, the 1 key and the key left of it.
@@ -111,9 +112,53 @@ struct LightAreaTests {
 
 @MainActor
 struct LightMappingTests {
+	@Test func storedFirstTwoRowsAreBothRows() {
+		let defaults = MemoryDefaults()
+		defaults.set(["firstTwoRows", "leftSide"], forKey: LightSignal.unread.areasKey)
+		#expect(LightMapping(defaults: defaults).areas(of: .unread) == [.firstRow, .secondRow, .leftSide])
+	}
+
+	@Test func reportGetsTheStoredLookOfWorkOnce() {
+		let defaults = MemoryDefaults()
+		let mapping = LightMapping(defaults: defaults)
+		mapping.setAreas([.leftSide], of: .work)
+		mapping.setBrightness(0.3, of: .work)
+		mapping.copyWorkToReport()
+		#expect(mapping.areas(of: .report) == [.leftSide])
+		#expect(mapping.brightness(of: .report) == 0.3)
+		mapping.setAreas([.firstRow, .secondRow], of: .report)
+		mapping.copyWorkToReport()
+		#expect(mapping.areas(of: .report) == [.firstRow, .secondRow])
+	}
+
+	@Test func eachWaveShowsOnlyOnItsSignal() {
+		var lights = LightMapping.defaultLights(on: .keyboard)
+		lights[.work] = Light(points: [30], level: 0.6)
+		lights[.report] = Light(points: [40], level: 0.6)
+		let work = LightScene(device: .keyboard, lights: lights, waveStarts: [.work: 0])
+		#expect(work.frame(point: 30, at: 0) != nil)
+		#expect(work.frame(point: 40, at: 0) == nil)
+		let report = LightScene(device: .keyboard, lights: lights, waveStarts: [.report: 0])
+		#expect(report.frame(point: 30, at: 0) == nil)
+		#expect(report.frame(point: 40, at: 0)?.color == Spinner.reportColor)
+	}
+
+	@Test func bothWavesShowAtTheSameTime() {
+		var lights = LightMapping.defaultLights(on: .keyboard)
+		lights[.work] = Light(points: [30, 35], level: 0.6)
+		lights[.report] = Light(points: [35, 40], level: 0.6)
+		let scene = LightScene(device: .keyboard, lights: lights, waveStarts: [.work: 0, .report: 0])
+		#expect(scene.frame(point: 30, at: 0)?.color == Spinner.color)
+		#expect(scene.frame(point: 40, at: 0)?.color == Spinner.reportColor)
+		// Where both overlap, the report wins, like in the menu bar.
+		#expect(scene.frame(point: 35, at: 0)?.color == Spinner.reportColor)
+	}
+
 	@Test func defaultsGiveTodaysLook() {
 		let mapping = LightMapping(defaults: MemoryDefaults())
-		#expect(mapping.areas(of: .work) == [.firstTwoRows])
+		#expect(mapping.areas(of: .work) == [.firstRow, .secondRow])
+		#expect(mapping.areas(of: .report) == [.firstRow, .secondRow])
+		#expect(mapping.brightness(of: .report) == 0.6)
 		#expect(mapping.areas(of: .waiting) == [.topRightCorner])
 		#expect(mapping.areas(of: .ring) == [.leftSide, .rightSide])
 		#expect(mapping.areas(of: .unread) == [.topLeftFour, .leftSide])
@@ -157,7 +202,7 @@ struct LightMappingTests {
 
 	@Test func manyLEDsStayAtTheLimitOfNuPhy() {
 		#expect(LightMapping.light(of: .ring, areas: [.allKeys], brightness: 1, on: .keyboard).level == 1)
-		#expect(LightMapping.light(of: .ring, areas: [.firstTwoRows], brightness: 0.6, on: .keyboard).level == 0.6)
+		#expect(LightMapping.light(of: .ring, areas: [.firstRow, .secondRow], brightness: 0.6, on: .keyboard).level == 0.6)
 		#expect(LightMapping.light(of: .ring, areas: [.leftSide, .rightSide], brightness: 1, on: .keyboard).level == NuPhyKeyboard.fullBrightness)
 		#expect(LightMapping.light(of: .ring, areas: [.topRightCorner], brightness: 0.5, on: .keyboard).level == 0.5 * NuPhyKeyboard.fullBrightness)
 	}
@@ -180,7 +225,7 @@ struct KeyboardLightSceneTests {
 	}
 
 	@Test func segmentStartsAtTheLeftAndRunsToTheRight() {
-		let scene = Scene(device: .keyboard, wave: .work, waveStart: 0)
+		let scene = Scene(device: .keyboard, waveStarts: [.work: 0])
 		let bright = 0.6, dim = KeyboardLight.dimShare * 0.6
 		// LED 30 is the key at the left end of the second row, LED 16 the one at the right end.
 		#expect(isClose(scene.frame(point: 30, at: 0)?.brightness, bright))
@@ -204,7 +249,7 @@ struct KeyboardLightSceneTests {
 	}
 
 	@Test func bothRowsShowTheSameSegment() {
-		let scene = Scene(device: .keyboard, wave: .report, waveStart: 0)
+		let scene = Scene(device: .keyboard, waveStarts: [.report: 0])
 		// LED 0 is Esc and LED 30 the 1 key: both are at the left end.
 		#expect(scene.frame(point: 0, at: 0.3) == scene.frame(point: 30, at: 0.3))
 		// Without other signals, the keys at the right end show the wave too.
@@ -212,7 +257,7 @@ struct KeyboardLightSceneTests {
 	}
 
 	@Test func waitingShowsOnTheThreeKeysAndTheRowsKeepTheWave() {
-		let scene = Scene(device: .keyboard, wave: .report, waveStart: 0, isWaiting: true)
+		let scene = Scene(device: .keyboard, waveStarts: [.report: 0], isWaiting: true)
 		#expect(scene.frame(point: topRight, at: 3) == Scene.Frame(color: LightSignal.orange, brightness: full))
 		#expect(scene.frame(point: 16, at: 3) == Scene.Frame(color: LightSignal.orange, brightness: full))
 		#expect(scene.frame(point: 17, at: 3)?.color == LightSignal.orange)
@@ -239,7 +284,7 @@ struct KeyboardLightSceneTests {
 	}
 
 	@Test func unreadWinsOverTheWaveAndLeavesTheThreeKeysToTheBubble() {
-		let scene = Scene(device: .keyboard, wave: .work, waveStart: 0, isWaiting: true, hasUnread: true)
+		let scene = Scene(device: .keyboard, waveStarts: [.work: 0], isWaiting: true, hasUnread: true)
 		#expect(scene.frame(point: 0, at: 3)?.color == Spinner.reportColor)
 		#expect(scene.frame(point: 2, at: 3)?.color == Spinner.color)
 		#expect(scene.frame(point: topRight, at: 3)?.color == LightSignal.orange)

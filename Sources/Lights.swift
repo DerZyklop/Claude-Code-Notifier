@@ -4,11 +4,11 @@ import AppKit
 /// ``LightSignal`` and ``LightScene``. Each light only maps the areas to its LEDs and sends the colors.
 @MainActor
 enum Lights {
-	/// Lets the lights show `wave`, the bubble while `isWaiting`, and the mark of an unread report.
-	static func show(wave: LightWave, isWaiting: Bool, hasUnread: Bool) {
-		Blink1.shared.show(wave: wave, isWaiting: isWaiting, hasUnread: hasUnread)
-		KeyboardLight.shared.show(wave: wave, isWaiting: isWaiting, hasUnread: hasUnread)
-		MacBookBacklight.shared.show(wave: wave)
+	/// Lets the lights show `waves`, the bubble while `isWaiting`, and the mark of an unread report.
+	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool) {
+		Blink1.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
+		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
+		MacBookBacklight.shared.show(waves: waves)
 	}
 
 	/// Rings once in red, together with the bubble.
@@ -29,21 +29,15 @@ enum Lights {
 	static var isShowing: Bool { Blink1.shared.isShowing || KeyboardLight.shared.isShowing }
 }
 
-/// The state of the wave in the menu bar.
+/// A wave that the lights show: the work of sessions, or a running report.
 enum LightWave {
-	case work, report, off
+	case work, report
 
-	/// Purple while a report runs, also when sessions work too, like the wave.
-	init(isReporting: Bool, working: Int) {
-		self = isReporting ? .report : working > 0 ? .work : .off
-	}
-
-	/// The color of the wave in the menu bar, `nil` without a wave.
-	var color: NSColor? {
+	/// The color of the wave in the menu bar.
+	var color: NSColor {
 		switch self {
 		case .work: Spinner.color
 		case .report: Spinner.reportColor
-		case .off: nil
 		}
 	}
 }
@@ -73,11 +67,12 @@ enum LightDevice {
 
 /// A group of LEDs that a signal can show on, with its LEDs on each light.
 enum LightArea: String, CaseIterable {
-	case firstTwoRows, topRightCorner, topLeftFour, leftSide, rightSide, allKeys, rightColumn
+	case firstRow, secondRow, topRightCorner, topLeftFour, leftSide, rightSide, allKeys, rightColumn
 
 	var title: String {
 		switch self {
-		case .firstTwoRows: "First Two Rows"
+		case .firstRow: "First Row"
+		case .secondRow: "Second Row"
 		case .topRightCorner: "Right End of the First Two Rows"
 		case .topLeftFour: "First 2 Keys of the First Two Rows"
 		case .leftSide: "Left Side Bar"
@@ -89,7 +84,8 @@ enum LightArea: String, CaseIterable {
 
 	@MainActor var keyboardLEDs: [Int] {
 		switch self {
-		case .firstTwoRows: return Array(NuPhyKeyboard.firstRow) + Array(NuPhyKeyboard.secondRow)
+		case .firstRow: return Array(NuPhyKeyboard.firstRow)
+		case .secondRow: return Array(NuPhyKeyboard.secondRow)
 		// The last 3 keys of the first row, and below them the last 2 of the second row, because Backspace is two keys
 		// wide. The second row runs from right to left, so these are its first 2 LEDs.
 		case .topRightCorner: return Array(NuPhyKeyboard.firstRow.upperBound - 3..<NuPhyKeyboard.firstRow.upperBound)
@@ -104,12 +100,13 @@ enum LightArea: String, CaseIterable {
 		}
 	}
 
-	/// The large areas use both LEDs of the blink(1), the small ones LED 1, and the right column LED 2.
+	/// All keys use both LEDs of the blink(1). The first row and the small areas use LED 1, the second row and the right
+	/// column LED 2, so that both rows together use both LEDs.
 	var blink1LEDs: [Int] {
 		switch self {
-		case .firstTwoRows, .allKeys: [1, 2]
-		case .topRightCorner, .topLeftFour, .leftSide, .rightSide: [1]
-		case .rightColumn: [2]
+		case .allKeys: [1, 2]
+		case .firstRow, .topRightCorner, .topLeftFour, .leftSide, .rightSide: [1]
+		case .secondRow, .rightColumn: [2]
 		}
 	}
 
@@ -125,7 +122,7 @@ enum LightArea: String, CaseIterable {
 /// A state that the lights show. The cases are in the order of their priority: where the areas of two signals
 /// overlap, an LED shows the first signal that has a color at the moment.
 enum LightSignal: String, CaseIterable {
-	case ring, waiting, unread, work
+	case ring, waiting, unread, report, work
 
 	/// The red of the ring: only the red LEDs. The red of the screen has green and blue, so it looks pink on the LEDs.
 	static let ringColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
@@ -137,7 +134,8 @@ enum LightSignal: String, CaseIterable {
 		case .ring: "Red Ring"
 		case .waiting: "Waiting"
 		case .unread: "Summary Not Opened"
-		case .work: "Work State"
+		case .work: "AI in Progress"
+		case .report: "Overview in Progress"
 		}
 	}
 
@@ -147,12 +145,21 @@ enum LightSignal: String, CaseIterable {
 		case .ring: [.leftSide, .rightSide]
 		case .waiting: [.topRightCorner]
 		case .unread: [.topLeftFour, .leftSide]
-		case .work: [.firstTwoRows]
+		case .work, .report: [.firstRow, .secondRow]
 		}
 	}
 
 	/// A share of the brightest level, see ``LightDevice/level(of:brightness:count:)``.
-	var defaultBrightness: Double { self == .work ? 0.6 : 1 }
+	var defaultBrightness: Double { [.work, .report].contains(self) ? 0.6 : 1 }
+
+	/// The wave that this signal shows, `nil` for a signal that is no wave.
+	var wave: LightWave? {
+		switch self {
+		case .work: .work
+		case .report: .report
+		case .ring, .waiting, .unread: nil
+		}
+	}
 
 	/// The keys keep the names from the time when only the keyboard had areas, so that the stored values stay.
 	var areasKey: String { "keyboard.\(rawValue).areas" }
@@ -175,8 +182,24 @@ struct LightMapping {
 	var defaults: UserDefaults = .standard
 
 	func areas(of signal: LightSignal) -> [LightArea] {
-		guard let names = defaults.object(forKey: signal.areasKey) as? [String] else { return signal.defaultAreas }
+		guard var names = defaults.object(forKey: signal.areasKey) as? [String] else { return signal.defaultAreas }
+		// The old area of both rows is now two areas.
+		if names.contains("firstTwoRows") { names += [LightArea.firstRow.rawValue, LightArea.secondRow.rawValue] }
 		return LightArea.allCases.filter { names.contains($0.rawValue) }
+	}
+
+	/// The key that marks the copy of ``copyWorkToReport()``.
+	static let reportCopiedKey = "keyboard.report.copied"
+
+	/// Gives »Overview in Progress« the stored areas and brightness of »AI in Progress«, once. Before, one signal showed
+	/// both waves.
+	func copyWorkToReport() {
+		guard defaults.object(forKey: Self.reportCopiedKey) == nil else { return }
+		for (work, report) in [(LightSignal.work.areasKey, LightSignal.report.areasKey),
+			(LightSignal.work.brightnessKey, LightSignal.report.brightnessKey)] {
+			if let value = defaults.object(forKey: work), defaults.object(forKey: report) == nil { defaults.set(value, forKey: report) }
+		}
+		defaults.set(true, forKey: Self.reportCopiedKey)
 	}
 
 	func setAreas(_ areas: [LightArea], of signal: LightSignal) {
@@ -231,18 +254,17 @@ struct LightScene {
 
 	var device: LightDevice
 	var lights: [LightSignal: Light]
-	var wave: LightWave
-	var waveStart: Double
+	/// The waves that show, each with the time when it started.
+	var waveStarts: [LightWave: Double]
 	var isWaiting: Bool
 	var hasUnread: Bool
 	var ringStart: Double?
 
-	init(device: LightDevice, lights: [LightSignal: Light]? = nil, wave: LightWave = .off, waveStart: Double = 0,
+	init(device: LightDevice, lights: [LightSignal: Light]? = nil, waveStarts: [LightWave: Double] = [:],
 		isWaiting: Bool = false, hasUnread: Bool = false, ringStart: Double? = nil) {
 		self.device = device
 		self.lights = lights ?? LightMapping.defaultLights(on: device)
-		self.wave = wave
-		self.waveStart = waveStart
+		self.waveStarts = waveStarts
 		self.isWaiting = isWaiting
 		self.hasUnread = hasUnread
 		self.ringStart = ringStart
@@ -259,7 +281,7 @@ struct LightScene {
 
 	/// Whether the frames change after `now`. The wave moves also under other signals.
 	func isMoving(at now: Double) -> Bool {
-		isRinging(at: now) || wave != .off
+		isRinging(at: now) || !waveStarts.isEmpty
 	}
 
 	/// The color of `point` at `now`: the first signal that covers it and has a color, after `signal`. `nil` while it
@@ -287,8 +309,9 @@ struct LightScene {
 			guard signal == .waiting ? isWaiting : hasUnread else { return nil }
 			let color = signal == .waiting ? LightSignal.orange : Spinner.reportColor
 			return Frame(color: color, brightness: device == .blink1 ? Blink1.badgeBrightness * level : level)
-		case .work:
-			guard let color = wave.color else { return nil }
+		case .work, .report:
+			guard let wave = signal.wave, let waveStart = waveStarts[wave] else { return nil }
+			let color = wave.color
 			switch device {
 			case .keyboard:
 				let share = Self.segmentShare(of: NuPhyKeyboard.keyX[point], at: (now - waveStart) / Spinner.runDuration)
