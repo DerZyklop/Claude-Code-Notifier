@@ -42,10 +42,9 @@ enum MorningOverview {
 			let bitbucket = try await report.bitbucket()
 			pullRequests = try await Self.pullRequests(bitbucket, me: me)
 			data["pullRequests"] = pullRequests
-			appData[othersTurnKey] = Set(pullRequests.filter { $0["isMyTurn"] as? Bool == false }.compactMap { $0["id"] as? Int })
-			appData[staleKey] = Set(pullRequests.filter { isStale($0, now: system.now()) }.compactMap { $0["id"] as? Int })
-			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) }
-				?? system.now().addingTimeInterval(-Double(mergeDays) * 24 * 60 * 60)
+			appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
+			appData[staleKey] = ids(of: pullRequests.filter { isStale($0, now: system.now()) })
+			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
 		} catch let error as URLError {
 			// Without a network, the run of the day waits for the next try.
@@ -62,6 +61,12 @@ enum MorningOverview {
 		data["sessions"] = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar)
 		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
+
+	/// The IDs of `pullRequests`.
+	private static func ids(of pullRequests: [[String: Any]]) -> Set<Int> { Set(pullRequests.compactMap { $0["id"] as? Int }) }
+
+	/// The time `count` days before `date`.
+	private static func days(_ count: Int, before date: Date) -> Date { date.addingTimeInterval(-Double(count) * 24 * 60 * 60) }
 
 	@MainActor
 	private static func facts(_ report: Report) -> [String] {
@@ -101,7 +106,7 @@ enum MorningOverview {
 		let oldSections = old.map(sections) ?? [:]
 		let projectKeys = Set((branches.compactMap { $0["name"] as? String }
 			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } })
-			.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.map { String($0.prefix { $0 != "-" }) })
+			.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.map(projectKey))
 		let day = DateFormatter()
 		day.calendar = calendar
 		day.timeZone = calendar.timeZone
@@ -110,13 +115,13 @@ enum MorningOverview {
 		return names.compactMap { name in
 			let file = folder.appendingPathComponent(name)
 			guard let text = try? String(contentsOf: file, encoding: .utf8),
-				let date = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date else { return nil }
+				let date = file.modificationDate else { return nil }
 			var plan: [String: Any] = ["name": name, "url": file.absoluteString, "changedOn": day.string(from: date),
-				"recent": date >= now.addingTimeInterval(-Double(recentDays) * 24 * 60 * 60)]
+				"recent": date >= days(recentDays, before: now)]
 			if let since { plan["changedAfterOldOverview"] = date >= since }
 			plan["oldSections"] = oldSections.filter { $0.value.contains(name) }.keys.sorted()
-			plan["tickets"] = Array(Set(matches(of: ticketPattern, in: name.uppercased() + "\n" + text.uppercased())
-				.filter { projectKeys.contains(String($0.prefix { $0 != "-" })) })).sorted()
+			plan["tickets"] = Array(Set(matches(of: ticketPattern, in: (name + "\n" + text).uppercased())
+				.filter { projectKeys.contains(projectKey(of: $0)) })).sorted()
 			plan["branches"] = branches.filter { ($0["name"] as? String).map { text.contains($0) } ?? false }
 				.map { ["name": $0["name"] as Any, "mergedInto": $0["mergedInto"] as? [String] ?? []] }
 			plan["unknownBranches"] = Array(Set(matches(of: branchPattern, in: text).filter { !knownBranches.contains($0) })).sorted()
@@ -139,11 +144,10 @@ enum MorningOverview {
 	/// `title` and the time of their `lastChange`. The title is the newest custom title, else the newest title of Claude.
 	static func sessions(in folder: URL, now: Date, calendar: Calendar) -> [[String: Any]] {
 		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
-		let start = now.addingTimeInterval(-Double(sessionDays) * 24 * 60 * 60)
+		let start = days(sessionDays, before: now)
 		let files = names.compactMap { name -> (URL, Date)? in
 			let file = folder.appendingPathComponent(name)
-			guard let date = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date, date >= start
-			else { return nil }
+			guard let date = file.modificationDate, date >= start else { return nil }
 			return (file, date)
 		}.sorted { $0.1 > $1.1 }
 		return files.map { file, date in
@@ -169,6 +173,9 @@ enum MorningOverview {
 	static let ticketPattern = #"\b[A-Z][A-Z0-9]+-\d+\b"#
 	/// A branch name with a usual prefix, e.g. `feature/PROJ-123-fix`.
 	static let branchPattern = #"\b(?:feature|bugfix|hotfix|fix|release|chore)/[A-Za-z0-9._/-]*[A-Za-z0-9]"#
+
+	/// The project key of a ticket ID, e.g. `PROJ` for `PROJ-123`.
+	private static func projectKey(of ticket: String) -> String { String(ticket.prefix { $0 != "-" }) }
 
 	private static func sourceBranch(of pullRequest: [String: Any]) -> String? {
 		((pullRequest["source"] as? [String: Any])?["branch"] as? [String: Any])?["name"] as? String
@@ -246,16 +253,24 @@ enum MorningOverview {
 		String(part.prefix { $0 != "\n" }).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
 	}
 
+	/// The index of the section `title` in `parts`, the overview split at `"\n## "`. The text above the first section does
+	/// not count.
+	private static func index(ofSection title: String, in parts: [String]) -> Int? {
+		parts.indices.dropFirst().first { self.title(of: parts[$0]) == title }
+	}
+
+	/// The line is a task with a tick, at any indent.
+	private static func isTicked(_ line: String) -> Bool { line.range(of: #"^\s*- \[[xX]\] "#, options: .regularExpression) != nil }
+
 	/// The section that Claude writes and the app moves below »My Notes«.
 	static let cleanupSection = "Cleanup Work"
 
 	/// The overview without the ticked tasks of »Cleanup Work«. A section with no task left gets »Nothing open.«.
 	static func withoutDoneCleanupTasks(in overview: String) -> String {
 		var parts = overview.components(separatedBy: "\n## ")
-		guard let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == cleanupSection }) else { return overview }
+		guard let index = index(ofSection: cleanupSection, in: parts) else { return overview }
 		let ending = String(parts[index].reversed().prefix { $0 == "\n" })
-		let lines = parts[index].components(separatedBy: "\n")
-			.filter { $0.range(of: #"^\s*- \[[xX]\] "#, options: .regularExpression) == nil }
+		let lines = parts[index].components(separatedBy: "\n").filter { !isTicked($0) }
 		var section = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
 		if !lines.contains(where: { $0.hasPrefix("- ") || $0 == "Nothing open." }) { section += "\n\nNothing open." }
 		parts[index] = section + ending
@@ -268,7 +283,7 @@ enum MorningOverview {
 		let oldSections = sections(in: old)
 		var parts = overview.components(separatedBy: "\n## ")
 		var cleanup = ""
-		if let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == cleanupSection }) {
+		if let index = index(ofSection: cleanupSection, in: parts) {
 			cleanup = "## " + parts.remove(at: index).trimmingCharacters(in: .newlines) + "\n\n"
 		}
 		let overview = parts.joined(separator: "\n## ")
@@ -384,12 +399,12 @@ enum MorningOverview {
 			let lines = part.components(separatedBy: "\n")
 			return taskBlocks(in: part).map { Array(lines[$0]) }.filter { block in
 				let isDoneWithOpenChild = { (index: Int) in
-					block[index].range(of: #"^\s*- \[[xX]\] "#, options: .regularExpression) != nil
+					isTicked(block[index])
 						&& block[(index + 1)...].prefix { indent(of: $0) > indent(of: block[index]) }
 							.contains { $0.range(of: #"^\s*- \[ \] "#, options: .regularExpression) != nil }
 				}
 				// A ticked task without an open sub-item is done, also when the user wrote it.
-				if block[0].range(of: #"^- \[[xX]\] "#, options: .regularExpression) != nil, !isDoneWithOpenChild(0) { return false }
+				if isTicked(block[0]), !isDoneWithOpenChild(0) { return false }
 				return block.indices.contains { index in
 					guard let key = taskKey(of: block[index]) else { return false }
 					return written.map { !$0.contains(key) } ?? false || isDoneWithOpenChild(index)
@@ -404,7 +419,7 @@ enum MorningOverview {
 	static func withKeptTasks(_ kept: [KeptTask], in overview: String) -> String {
 		var parts = overview.components(separatedBy: "\n## ")
 		for task in kept {
-			guard let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == task.section }) else {
+			guard let index = index(ofSection: task.section, in: parts) else {
 				let text = parts.joined(separator: "\n## ")
 				parts = (text + (text.hasSuffix("\n") ? "" : "\n") + "\n## \(task.section)\n\n" + task.lines.joined(separator: "\n") + "\n")
 					.components(separatedBy: "\n## ")
@@ -472,16 +487,16 @@ enum MorningOverview {
 		var letters: [String?] = []
 		var titles = Set<String>()
 		for line in overview.components(separatedBy: "\n") where line.hasPrefix("## ") {
-			let title = line.dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
-			guard titles.insert(title).inserted, !appSections.contains(title) else {
+			let name = title(of: String(line.dropFirst(3)))
+			guard titles.insert(name).inserted, !appSections.contains(name) else {
 				letters.append(nil)
 				continue
 			}
-			if let letter = sectionLetters[title] {
+			if let letter = sectionLetters[name] {
 				letters.append(letter)
 				continue
 			}
-			let letter = (title.uppercased().map(String.init) + alphabet).first { alphabet.contains($0) && !used.contains($0) }
+			let letter = (name.uppercased().map(String.init) + alphabet).first { alphabet.contains($0) && !used.contains($0) }
 			if let letter { used.insert(letter) }
 			letters.append(letter)
 		}
@@ -536,8 +551,7 @@ enum MorningOverview {
 		var count = 0
 		func writeCount() {
 			guard let heading else { return }
-			let title = lines[heading].dropFirst(3).replacingOccurrences(of: #"^\d+ × "#, with: "", options: .regularExpression)
-			lines[heading] = "## \(count) × \(title)"
+			lines[heading] = "## \(count) × \(title(of: String(lines[heading].dropFirst(3))))"
 		}
 		for index in lines.indices {
 			if lines[index].hasPrefix("## ") {
@@ -703,11 +717,17 @@ enum MorningOverview {
 
 	/// The user approved the pull request or asked for changes.
 	static func isReviewed(_ pullRequest: [String: Any], by me: String) -> Bool {
-		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
-		return participants.contains { participant in
-			(participant["user"] as? [String: Any])?["display_name"] as? String == me
-				&& (participant["approved"] as? Bool == true || participant["state"] is String)
-		}
+		participants(of: pullRequest).contains { userName(of: $0) == me && ($0["approved"] as? Bool == true || $0["state"] is String) }
+	}
+
+	private static func participants(of pullRequest: [String: Any]) -> [[String: Any]] { pullRequest["participants"] as? [[String: Any]] ?? [] }
+
+	/// The display name of the user of a participant or a comment.
+	private static func userName(of item: [String: Any]) -> String? { (item["user"] as? [String: Any])?["display_name"] as? String }
+
+	/// The participant entry of the user as a reviewer of the pull request.
+	private static func myReview(of pullRequest: [String: Any], me: String) -> [String: Any]? {
+		participants(of: pullRequest).first { userName(of: $0) == me && $0["role"] as? String == "REVIEWER" }
 	}
 
 	/// A file of the pull request has a merge conflict with the destination branch.
@@ -723,17 +743,13 @@ enum MorningOverview {
 
 	/// The user wrote the pull request or reviews it.
 	static func concerns(_ pullRequest: [String: Any], me: String) -> Bool {
-		if Bitbucket.isAuthor(of: pullRequest, me: me) { return true }
-		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
-		return participants.contains { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" }
+		Bitbucket.isAuthor(of: pullRequest, me: me) || myReview(of: pullRequest, me: me) != nil
 	}
 
 	/// The author waits for the user: the user reviews the pull request and did not approve it yet, and it is no draft
 	/// and has no open task. An open task is for the author, so with one, it is the author's turn.
 	static func waitsForReview(_ pullRequest: [String: Any], me: String) -> Bool {
-		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
-		guard let mine = participants.first(where: { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" })
-		else { return false }
+		guard let mine = myReview(of: pullRequest, me: me) else { return false }
 		return mine["approved"] as? Bool != true && pullRequest["draft"] as? Bool != true && (pullRequest["openTasks"] as? [Any])?.isEmpty == true
 	}
 
@@ -741,10 +757,9 @@ enum MorningOverview {
 	/// and the user did not ask for changes. In a pull request of the user, it has an open task, a merge conflict, a
 	/// failed newest build, a request for changes, a newest comment of another person, or the approval of each reviewer.
 	static func isMyTurn(_ pullRequest: [String: Any], me: String) -> Bool {
-		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
-		let name = { (item: [String: Any], key: String) in (item[key] as? [String: Any])?["display_name"] as? String }
+		let participants = participants(of: pullRequest)
 		guard Bitbucket.isAuthor(of: pullRequest, me: me) else {
-			let mine = participants.first { name($0, "user") == me }
+			let mine = participants.first { userName(of: $0) == me }
 			return waitsForReview(pullRequest, me: me) && mine?["state"] as? String != "changes_requested"
 		}
 		let reviewers = participants.filter { $0["role"] as? String == "REVIEWER" }
@@ -753,7 +768,7 @@ enum MorningOverview {
 			|| pullRequest["hasMergeConflict"] as? Bool == true
 			|| (pullRequest["buildStatuses"] as? [[String: Any]])?.first?["state"] as? String == "FAILED"
 			|| participants.contains { $0["state"] as? String == "changes_requested" }
-			|| newestComment.map { name($0, "user") != me } ?? false
+			|| newestComment.map { userName(of: $0) != me } ?? false
 			|| (!reviewers.isEmpty && reviewers.allSatisfy { $0["approved"] as? Bool == true })
 	}
 }
@@ -782,7 +797,7 @@ final class SectionCountKeeper {
 
 	/// Counts again when the file stayed the same since a change.
 	func check() {
-		let date = changeDate()
+		let date = fileURL.modificationDate
 		if date != lastDate {
 			isChanged = lastDate != nil || isChanged
 			lastDate = date
@@ -799,11 +814,13 @@ final class SectionCountKeeper {
 		let counted = MorningOverview.numbered(text)
 		guard counted != text else { return }
 		try? counted.write(to: fileURL, atomically: true, encoding: .utf8)
-		lastDate = changeDate()
+		lastDate = fileURL.modificationDate
 	}
+}
 
-	/// Read without a cache: `URL.resourceValues` can give an old date for the same URL.
-	private func changeDate() -> Date? {
-		(try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
+private extension URL {
+	/// The change date of the file, read without a cache: `URL.resourceValues` can give an old date for the same URL.
+	var modificationDate: Date? {
+		(try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
 	}
 }
