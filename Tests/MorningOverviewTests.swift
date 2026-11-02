@@ -286,14 +286,25 @@ extension ReportFixture {
 		#expect(requests[1].url!.absoluteString.contains("\"") == false)
 	}
 
-	@Test func failedFetchStillRunsClaudeWithTheError() async throws {
+	@Test func failedFetchFailsTheRunWithoutWritingAnOverview() async throws {
 		let fixture = try ReportFixture(status: 401)
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
-		let input = try fixture.input
-		#expect(input["pullRequests"] == nil)
-		#expect(input["pullRequestError"] as? String == "Bitbucket answered with HTTP 401.")
-		#expect(fixture.report.failure == nil)
+		#expect(fixture.claudeRun == nil)
+		#expect(fixture.report.failure == "Bitbucket: Bitbucket answered with HTTP 401.")
+		#expect(fixture.log.posts.map(\.identifier) == ["morning-overview-failed"])
+		#expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
+	}
+
+	@Test func missingBitbucketCredentialsFailTheRunWithoutWritingAnOverview() async throws {
+		let fixture = try ReportFixture(kind: .morningOverview, claudeOutput: overviewText, environment: [:],
+			body: { ReportFixture.morningBody(of: $0) })
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		#expect(fixture.claudeRun == nil)
+		#expect(fixture.report.failure == "Bitbucket: BITBUCKET_API_EMAIL or BITBUCKET_API_TOKEN is not set in the login shell.")
+		#expect(fixture.log.posts.map(\.identifier) == ["morning-overview-failed"])
+		#expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
 	}
 
 	@Test(arguments: [false, true])

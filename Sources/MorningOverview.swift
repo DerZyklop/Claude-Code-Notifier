@@ -40,7 +40,7 @@ enum MorningOverview {
 			// Without a network, the run of the day waits for the next try.
 			throw Report.Failure("No connection to Bitbucket: \(error.localizedDescription)")
 		} catch {
-			data["pullRequestError"] = "\(error)"
+			throw Report.Failure("Bitbucket: \(error)")
 		}
 		if FileManager.default.fileExists(atPath: plansFolder.path) {
 			let known = Set(await report.git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"])
