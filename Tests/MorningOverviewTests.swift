@@ -287,14 +287,13 @@ extension ReportFixture {
 		#expect(fixture.claudeRun != nil)
 	}
 
-	@Test func failedDetailsKeepThePullRequest() async throws {
+	@Test func failedDetailsFailTheRun() async throws {
 		let fixture = try ReportFixture(failure: { $0.url!.path.hasSuffix("/tasks") ? CocoaError(.fileReadUnknown) : nil })
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
-		let pullRequests = try #require(try fixture.input["pullRequests"] as? [[String: Any]])
-		#expect(pullRequests.map { $0["id"] as? Int } == [12, 13])
-		#expect(pullRequests[0]["detailError"] != nil)
-		#expect(pullRequests[0]["openTasks"] == nil)
+		#expect(fixture.claudeRun == nil)
+		#expect(fixture.report.failure?.hasPrefix("Bitbucket: ") == true)
+		#expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
 	}
 
 	@Test func inputHoldsThePullRequestsAndWorkspaces() async throws {

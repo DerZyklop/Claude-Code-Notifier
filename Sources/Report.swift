@@ -161,7 +161,7 @@ final class Report: ObservableObject {
 			},
 			run: Report.execute,
 			get: { request in
-				let (data, response) = try await URLSession.shared.data(for: request)
+				let (data, response) = try await URLSession.shared.data(for: request, delegate: SameHostRedirect())
 				return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
 			},
 			post: { subtitle, identifier, title, body in
@@ -570,5 +570,19 @@ private final class TimeoutFlag: @unchecked Sendable {
 	var isSet: Bool {
 		get { lock.withLock { value } }
 		set { lock.withLock { value = newValue } }
+	}
+}
+
+/// Keeps the `Authorization` header when a redirect stays on the same host. `URLSession` drops it on each redirect, for
+/// example on the redirect of the Bitbucket diffstat of a pull request.
+final class SameHostRedirect: NSObject, URLSessionTaskDelegate, Sendable {
+	func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+		newRequest request: URLRequest) async -> URLRequest? {
+		var request = request
+		if let original = task.originalRequest, request.url?.host == original.url?.host,
+			let authorization = original.value(forHTTPHeaderField: "Authorization") {
+			request.setValue(authorization, forHTTPHeaderField: "Authorization")
+		}
+		return request
 	}
 }

@@ -629,23 +629,18 @@ enum MorningOverview {
 			.filter { !isDraftOfOthers($0, me: me) }
 		for index in pullRequests.indices.filter({ concerns(pullRequests[$0], me: me) }).prefix(detailLimit) {
 			guard let id = pullRequests[index]["id"] as? Int else { continue }
-			// A failed detail request costs only the details of this pull request.
-			do {
-				let tasks = try await bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
-					fields: ["content.raw", "creator.display_name"], maxPages: 1)
-				let comments = try await bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
-					fields: ["content.raw", "user.display_name", "created_on", "inline.path", "deleted"], maxPages: 1)
-				let statuses = try await bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
-					fields: ["state", "name", "updated_on"], maxPages: 1)
-				pullRequests[index]["openTasks"] = tasks.map { Bitbucket.shortened($0) }
-				pullRequests[index]["newestComments"] = comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) }
-				pullRequests[index]["buildStatuses"] = statuses
-				pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
-				pullRequests[index]["waitsForMyReview"] = waitsForReview(pullRequests[index], me: me)
-				pullRequests[index]["isMyTurn"] = isMyTurn(pullRequests[index], me: me)
-			} catch {
-				pullRequests[index]["detailError"] = "\(error)"
-			}
+			let tasks = try await bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
+				fields: ["content.raw", "creator.display_name"], maxPages: 1)
+			let comments = try await bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
+				fields: ["content.raw", "user.display_name", "created_on", "inline.path", "deleted"], maxPages: 1)
+			let statuses = try await bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
+				fields: ["state", "name", "updated_on"], maxPages: 1)
+			pullRequests[index]["openTasks"] = tasks.map { Bitbucket.shortened($0) }
+			pullRequests[index]["newestComments"] = comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) }
+			pullRequests[index]["buildStatuses"] = statuses
+			pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
+			pullRequests[index]["waitsForMyReview"] = waitsForReview(pullRequests[index], me: me)
+			pullRequests[index]["isMyTurn"] = isMyTurn(pullRequests[index], me: me)
 		}
 		return pullRequests
 	}

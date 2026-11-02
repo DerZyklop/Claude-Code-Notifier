@@ -54,8 +54,8 @@ login shell, and Claude only reads:
   tools are on it. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
 
 Claude prints the overview, and the app writes the file. The run never gets `BITBUCKET_API_TOKEN` or `SLACK_USER_TOKEN`.
-If the Bitbucket request fails, the run fails without writing an overview, so missing PR data cannot look like a
-successful update.
+If a Bitbucket request fails, the run fails without writing an overview. This includes the request for the details of
+one PR. So missing PR data cannot look like a successful update.
 
 ## DiDi
 
