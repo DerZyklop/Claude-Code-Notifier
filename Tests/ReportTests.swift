@@ -144,6 +144,31 @@ import Testing
 		#expect(report.failure == "The command »claude« was not found.")
 	}
 
+	@Test func theStartOfARunRemovesTheFailureOfTheLastRun() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let shared = Locked<Report?>(nil)
+		let failureAtStart = Locked<String??>(nil)
+		let claudeRuns = Locked(0)
+		var system = fixture.report.system
+		let run = system.run
+		system.run = { command in
+			guard command.isClaudeRun else { return await run(command) }
+			if claudeRuns.update({ $0 += 1; return $0 }) == 1 { return .init(status: 127, output: "", error: "zsh: not found") }
+			let failure = await MainActor.run { shared.update { $0 }?.failure }
+			failureAtStart.update { $0 = .some(failure) }
+			return await run(command)
+		}
+		let report = Report(kind: .morningOverview, system: system)
+		shared.update { $0 = report }
+		await report.update()
+		#expect(report.failure == "The command »claude« was not found.")
+		fixture.log.removed = []
+		await report.update()
+		#expect(failureAtStart.update { $0 } == .some(nil))
+		#expect(fixture.log.removed.first == "morning-overview-failed")
+	}
+
 	@Test func stopEndsTheRunWithoutAFileAndWithoutAFailure() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }

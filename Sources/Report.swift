@@ -180,7 +180,7 @@ final class Report: ObservableObject {
 	private var runTask: Task<Void, Never>?
 	/// You stopped the current run. It ends without a new file and without a failure.
 	private(set) var isStopped = false
-	/// The reason why the last run failed, `nil` after a run that worked.
+	/// The reason why the last run failed, `nil` while a run goes and after a run that worked.
 	@Published private(set) var failure: String?
 	/// A new file waits to be opened. The menu marks it. The defaults keep it, so the mark stays after a restart.
 	@Published private(set) var isUnread: Bool {
@@ -261,12 +261,14 @@ final class Report: ObservableObject {
 		text.replacingOccurrences(of: #"\[\\?#([^\[\]`\\]+)\]\("#, with: "[`#$1`](", options: .regularExpression)
 	}
 
-	/// Makes a new file. ``stop()`` cancels the run.
+	/// Makes a new file. ``stop()`` cancels the run. The start removes the failure of the last run.
 	func update() async {
 		guard !isRunning else { return }
 		runStarted = system.now()
 		isRunning = true
 		isStopped = false
+		failure = nil
+		system.removeNotifications([failedNotificationID])
 		defer {
 			isRunning = false
 			runTask = nil
@@ -322,10 +324,8 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("The file could not be written: \(error.localizedDescription)")
 		}
-		failure = nil
 		isUnread = true
 		system.ready()
-		system.removeNotifications([failedNotificationID])
 		if !system.defaults.bool(forKey: SettingsKey.muted) {
 			system.post(kind.title, kind.notificationID, "Ready", kind.readyBody(text, input))
 		}
