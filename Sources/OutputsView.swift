@@ -90,6 +90,10 @@ struct OutputsView: View {
 					.padding(.leading, 16)
 					.disabled(!usesBlink1)
 				Toggle("Keyboard", isOn: settings.binding(SettingsKey.usesKeyboard))
+				Toggle(isOn: settings.binding(SettingsKey.usesMacBookBacklight)) {
+					Text("MacBook Keyboard Backlight")
+					Text("Blinks while sessions work or a report runs. At all other times, macOS controls the backlight.")
+				}
 			}
 			Section {
 				LabeledContent("Push Notifications") {
@@ -143,7 +147,7 @@ struct OutputsView: View {
 							Toggle("\(area.title) · blink(1) \(area.blink1Title)", isOn: settings.area(area, of: signal))
 						}
 					}
-					.frame(width: 240)
+					.frame(width: 240, alignment: .leading)
 					Text("blink(1): \(blink1Title(of: signal))").font(.caption).foregroundStyle(.secondary)
 				}
 				.frame(width: 260, alignment: .leading)

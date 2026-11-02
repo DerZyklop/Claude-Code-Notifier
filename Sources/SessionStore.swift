@@ -18,9 +18,11 @@ enum SettingsKey {
 	static let blinksAtEnd = "blinksAtEnd"
 	/// Lets the NuPhy keyboard show the state, see ``KeyboardLight``.
 	static let usesKeyboard = "usesKeyboard"
+	/// Lets the backlight of the MacBook keyboard blink while sessions work, see ``MacBookBacklight``.
+	static let usesMacBookBacklight = "usesMacBookBacklight"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
 	static let defaultValues = [muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
-		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true]
+		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true, usesMacBookBacklight: true]
 
 	static func isOn(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
 		defaults.object(forKey: key) as? Bool ?? defaultValues[key] ?? false

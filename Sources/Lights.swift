@@ -8,6 +8,7 @@ enum Lights {
 	static func show(wave: LightWave, isWaiting: Bool, hasUnread: Bool) {
 		Blink1.shared.show(wave: wave, isWaiting: isWaiting, hasUnread: hasUnread)
 		KeyboardLight.shared.show(wave: wave, isWaiting: isWaiting, hasUnread: hasUnread)
+		MacBookBacklight.shared.show(wave: wave)
 	}
 
 	/// Rings once in red, together with the bubble.
@@ -20,9 +21,11 @@ enum Lights {
 	static func turnOff() {
 		Blink1.shared.turnOff()
 		KeyboardLight.shared.turnOff()
+		MacBookBacklight.shared.turnOff()
 	}
 
-	/// Whether a light is connected and shows the state.
+	/// Whether a light is connected and shows the state. The MacBook backlight does not count, because it shows only
+	/// the work.
 	static var isShowing: Bool { Blink1.shared.isShowing || KeyboardLight.shared.isShowing }
 }
 

@@ -49,12 +49,14 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		#expect(SettingsKey.usesBlink1 == "usesBlink1")
 		#expect(SettingsKey.blinksAtEnd == "blinksAtEnd")
 		#expect(SettingsKey.usesKeyboard == "usesKeyboard")
+		#expect(SettingsKey.usesMacBookBacklight == "usesMacBookBacklight")
 	}
 
 	@Test func onlyMuteAndTheSoundWithLightsAreOffByDefault() {
 		#expect(SettingsKey.defaultValues == [SettingsKey.muted: false, SettingsKey.playsSound: true,
 			SettingsKey.updatesMorningOverview: true, SettingsKey.updatesDiDi: true, SettingsKey.mutesSoundWithLights: false,
-			SettingsKey.usesBlink1: true, SettingsKey.blinksAtEnd: true, SettingsKey.usesKeyboard: true])
+			SettingsKey.usesBlink1: true, SettingsKey.blinksAtEnd: true, SettingsKey.usesKeyboard: true,
+			SettingsKey.usesMacBookBacklight: true])
 	}
 
 	@Test func onlyAChangedSettingIsStored() {
