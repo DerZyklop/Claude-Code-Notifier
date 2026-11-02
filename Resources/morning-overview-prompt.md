@@ -38,8 +38,12 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
      - If an old »Optional Work« task links a plan, read only the plans with `changedAfterOldOverview: true`. Do not read the other plans again. Copy the old »Optional Work« tasks with a link to an unchanged plan, with their next actions. Leave out a next action with `[x]`, and a task that a PR, ticket or other task now covers.
    - If the facts name the memory folder of the project, read its open follow-ups.
    - The `sessions` in the JSON: the sessions of the last 3 days, with their titles. Do not read the transcripts. If the title tells of work that is not done, name the session.
-6. Cleanup work: find the outdated plans of the project folder, of all dates. Use the `plans` in the JSON. The app found their facts, so do not read a plan to find them.
-   - First copy the open tasks of »Cleanup Work« from the old overview, with no change. Leave out the tasks with `[x]`. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
+6. Cleanup work: find the forgotten tickets, and the outdated plans of the project folder, of all dates.
+   - First copy the open tasks of »Cleanup Work« from the old overview, with no change. Leave out the tasks with `[x]`, and the tasks that name a ticket. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
+   - Forgotten tickets: search with `assignee = currentUser() AND status in ("In Progress", "Untested") AND sprint is EMPTY`, with the fields `summary` and `status`. If Jira does not know one of the states, use `statusCategory = "In Progress"` in place of the states. Then keep only the tickets in these 2 states.
+   - If the Jira tools are missing or fail, skip the forgotten tickets.
+   - Write one task for each forgotten ticket, also for an »Untested« ticket. Example: »Put [PROJ-123](<ticket URL>) Short title into a sprint, or close it. It is »In Progress« and in no sprint.«
+   - For the outdated plans, use the `plans` in the JSON. The app found their facts, so do not read a plan to find them.
    - Skip each plan with »Cleanup Work« in `oldSections`, and each plan that an old »Solve the open findings« task names.
    - Skip each plan with an entry in `openPullRequests`.
    - Check only the other plans. If one of these facts is true, a plan is outdated:
@@ -94,6 +98,7 @@ Open work that no PR, ticket or branch covers: uncommitted changes, unpushed com
 
 ## Cleanup Work
 
+- [ ] Check status: [PROJ-789](https://…/browse/PROJ-789) Short title of the topic
 - [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done« and no finding holds.
 ```
 
