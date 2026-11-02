@@ -180,7 +180,7 @@ enum MorningOverview {
 		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
 		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
 		let text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(tasks(of: system), done: done,
-			in: withoutAppSections(output)))))
+			in: withoutDoneCleanupTasks(in: withoutAppSections(output))))))
 		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
 			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
 	}
@@ -233,6 +233,19 @@ enum MorningOverview {
 
 	/// The section that Claude writes and the app moves below »My Notes«.
 	static let cleanupSection = "Cleanup Work"
+
+	/// The overview without the ticked tasks of »Cleanup Work«. A section with no task left gets »Nothing open.«.
+	static func withoutDoneCleanupTasks(in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		guard let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == cleanupSection }) else { return overview }
+		let ending = String(parts[index].reversed().prefix { $0 == "\n" })
+		let lines = parts[index].components(separatedBy: "\n")
+			.filter { $0.range(of: #"^\s*- \[[xX]\] "#, options: .regularExpression) == nil }
+		var section = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+		if !lines.contains(where: { $0.hasPrefix("- ") || $0 == "Nothing open." }) { section += "\n\nNothing open." }
+		parts[index] = section + ending
+		return parts.joined(separator: "\n## ")
+	}
 
 	/// The overview with the kept sections of `old` above its first section, and »Cleanup Work« below »My Notes«. »My Notes«
 	/// stays as it is. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.

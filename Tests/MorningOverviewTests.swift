@@ -598,6 +598,19 @@ extension ReportFixture {
 			+ "## 0 × My Open PRs\n\nNothing open.\n\n## 0 × Optional Work\n")
 	}
 
+	@Test func doneCleanupTasksAreRemoved() {
+		let overview = "# Morning overview\n\n## Cleanup Work\n\n- [x] Delete a\n- [ ] Delete b\n- [X] Delete c\n\n## Optional Work\n\nNothing open.\n"
+		#expect(MorningOverview.withoutDoneCleanupTasks(in: overview)
+			== "# Morning overview\n\n## Cleanup Work\n\n- [ ] Delete b\n\n## Optional Work\n\nNothing open.\n")
+	}
+
+	@Test func cleanupWorkWithOnlyDoneTasksIsNothingOpen() {
+		#expect(MorningOverview.withoutDoneCleanupTasks(in: "# Morning overview\n\n## Cleanup Work\n\n- [x] Delete a\n")
+			== "# Morning overview\n\n## Cleanup Work\n\nNothing open.\n")
+		#expect(MorningOverview.withoutDoneCleanupTasks(in: "# Morning overview\n\n## Optional Work\n\n- [x] Work\n")
+			== "# Morning overview\n\n## Optional Work\n\n- [x] Work\n")
+	}
+
 	@Test func appSectionsGetNoIDsAndNoCounts() {
 		let overview = "## My Notes\n\n- [ ] Note\n\n## Daily\n\n- [ ] Mail\n\n## Optional Work\n\n- [ ] Work\n\n## Notifier App\n\n- [a](file:///a.md)\n"
 		#expect(MorningOverview.numbered(overview)
