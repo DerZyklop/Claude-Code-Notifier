@@ -194,16 +194,17 @@ enum MorningOverview {
 			throw Report.Failure("Claude gave no overview: \(reason)")
 		}
 		let system = report.system
-		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
-		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
-		let othersTurn = input.appData[othersTurnKey] as? Set<Int> ?? []
-		let stale = input.appData[staleKey] as? Set<Int> ?? []
-		let kept = keptTasks(in: old ?? "", lastWritten: report.lastWritten)
-		let text = withMarks(othersTurn: othersTurn, stale: stale, in: Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(
-			tasks(of: system), done: done, in: withKeptTasks(kept, in: withoutDoneCleanupTasks(in: withoutAppSections(output))))))))
+		let old = old ?? ""
+		let isSameDay = isSameDay(old, now: system.now(), calendar: system.calendar)
+		var text = withoutDoneCleanupTasks(in: withoutAppSections(output))
+		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
+		text = withWeekdayTasks(tasks(of: system), done: isSameDay ? doneWeekdayTasks(in: old) : [], in: text)
+		text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: text)))
+		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
+			in: text)
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
-		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
-			+ (otherMergesSection(merges, old: old ?? "") ?? "")
+		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
+			+ (otherMergesSection(merges, old: old) ?? "")
 			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
 	}
 
