@@ -62,9 +62,10 @@ one PR. So missing PR data cannot look like a successful update.
 The app writes `didi.md` into the same folder: the summary of the current sprint. A sprint starts on Tuesday at 11:00.
 The file has three sections:
 
-- **Merges:** each PR that you wrote and that was merged in the sprint. The title line has the links of the PR and the
-  ticket, as in the morning overview. Up to 3 highlights from the description and the review comments are its
-  sub-items. The Jira site of the ticket link comes from the morning overview.
+- **Merges:** each PR that you wrote and that was merged in the sprint. The title line starts with the emoji of its
+  kind: ✨ feature, 👌 improvement, 🐛 bugfix, ⚡️ performance, 🧹 maintenance, 🧪 tests, 📝 docs. Then it has the
+  links of the PR and the ticket, as in the morning overview. Up to 3 highlights from the description and the review
+  comments are its sub-items. The Jira site of the ticket link comes from the morning overview.
 - **Slack:** up to 10 special things from the Slack messages of the sprint, in channels and in DMs. Each one links to
   its message.
 - **Notes:** your own text. Each run keeps it. In a file that the app did not write, all text below the title counts as

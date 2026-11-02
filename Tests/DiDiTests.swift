@@ -3,7 +3,8 @@ import Testing
 @testable import ClaudeCodeNotifier
 
 /// The answer of a run with `--output-format json`.
-private func claudeAnswer(merges: [[String: Any]] = [["id": 7, "highlights": ["Needs a new token", "  "]], ["id": 9, "highlights": []]],
+private func claudeAnswer(merges: [[String: Any]] = [["id": 7, "kind": "feature", "highlights": ["Needs a new token", "  "]],
+	["id": 9, "kind": "bugfix", "highlights": []]],
 	slack: [[String: Any]] = [["permalink": "https://x.slack.com/archives/C1/p1", "text": "Release 11.1 goes live on Thursday.\nBe ready."]]) -> String {
 	let json: [String: Any] = ["type": "result", "is_error": false, "result": "{}", "structured_output": ["merges": merges, "slack": slack]]
 	return String(decoding: try! JSONSerialization.data(withJSONObject: json), as: UTF8.self)
@@ -47,9 +48,9 @@ private let expectedFile = """
 
 	## Merges
 
-	- [`#7`](https://bb/7) First line
+	- ✨ [`#7`](https://bb/7) First line
 	    - Needs a new token
-	- [`#9`](https://bb/9) PLANO-9 Second
+	- 🐛 [`#9`](https://bb/9) PLANO-9 Second
 
 	## Slack
 
@@ -317,6 +318,14 @@ extension ReportFixture {
 		try "- [ ] [PLANO-1](https://x.atlassian.net/browse/PLANO-1) Do it\n".write(
 			to: fixture.folder.appendingPathComponent("morning-overview.md"), atomically: true, encoding: .utf8)
 		await fixture.report.update()
-		#expect(try fixture.text.contains("- [`#9`](https://bb/9) [PLANO-9](https://x.atlassian.net/browse/PLANO-9) Second\n"))
+		#expect(try fixture.text.contains("- 🐛 [`#9`](https://bb/9) [PLANO-9](https://x.atlassian.net/browse/PLANO-9) Second\n"))
+	}
+
+	@Test func mergeWithAnUnknownKindGetsNoEmoji() async throws {
+		let fixture = try ReportFixture(didi: claudeAnswer(merges: [["id": 7, "kind": "party", "highlights": []], ["id": 9, "highlights": []]]))
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		let text = try fixture.text
+		#expect(text.contains("\n- [`#7`](https://bb/7) First line\n- [`#9`](https://bb/9) PLANO-9 Second\n"))
 	}
 }

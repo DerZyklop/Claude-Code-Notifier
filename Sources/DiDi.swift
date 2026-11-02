@@ -28,11 +28,30 @@ enum DiDi {
 	static let slackBudget = 250_000
 	static let descriptionLimit = 2000
 	static let commentLimit = 10
+
+	/// The kind of a merge. The run picks it, and the app writes its emoji in front of the title line.
+	enum Kind: String, CaseIterable {
+		case feature, improvement, bugfix, performance, maintenance, tests, docs
+
+		var emoji: String {
+			switch self {
+			case .feature: "✨"
+			case .improvement: "👌"
+			case .bugfix: "🐛"
+			case .performance: "⚡️"
+			case .maintenance: "🧹"
+			case .tests: "🧪"
+			case .docs: "📝"
+			}
+		}
+	}
+
 	/// The shape of the answer of the run.
 	static let schema = """
 		{"type":"object","additionalProperties":false,"required":["merges","slack"],"properties":{\
-		"merges":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","highlights"],"properties":{\
-		"id":{"type":"integer"},"highlights":{"type":"array","maxItems":3,"items":{"type":"string"}}}}},\
+		"merges":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","kind","highlights"],"properties":{\
+		"id":{"type":"integer"},"kind":{"type":"string","enum":[\(Kind.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ","))]},\
+		"highlights":{"type":"array","maxItems":3,"items":{"type":"string"}}}}},\
 		"slack":{"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["permalink","text"],\
 		"properties":{"permalink":{"type":"string"},"text":{"type":"string"}}}}}}
 		"""
@@ -162,9 +181,11 @@ enum DiDi {
 		let messages = (data["slack"] as? [String: Any])?["messages"] as? [[String: Any]] ?? []
 
 		var highlights: [Int: [String]] = [:]
+		var kinds: [Int: Kind] = [:]
 		for merge in answer["merges"] as? [[String: Any]] ?? [] {
 			guard let id = merge["id"] as? Int, highlights[id] == nil else { throw Report.Failure("Claude named a pull request twice.") }
 			highlights[id] = Array((merge["highlights"] as? [String] ?? []).map(markdownText).filter { !$0.isEmpty }.prefix(3))
+			kinds[id] = (merge["kind"] as? String).flatMap(Kind.init(rawValue:))
 		}
 		guard Set(highlights.keys) == Set(pullRequests.compactMap { $0["id"] as? Int }) else {
 			throw Report.Failure("Claude did not answer for exactly the merged pull requests.")
@@ -193,8 +214,9 @@ enum DiDi {
 		}
 		for pullRequest in pullRequests {
 			guard let id = pullRequest["id"] as? Int else { continue }
-			lines.append("- " + titleLine(id: id, url: pullRequest["url"] as? String ?? "", title: pullRequest["title"] as? String ?? "",
-				jiraBrowseURL: jiraBrowseURL))
+			// A kind that is not in ``Kind`` gets no emoji.
+			lines.append("- " + (kinds[id].map { $0.emoji + " " } ?? "") + titleLine(id: id, url: pullRequest["url"] as? String ?? "",
+				title: pullRequest["title"] as? String ?? "", jiraBrowseURL: jiraBrowseURL))
 			lines += (highlights[id] ?? []).map { "    - " + $0 }
 		}
 		lines += ["", "## Slack", ""]
