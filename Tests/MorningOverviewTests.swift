@@ -39,9 +39,24 @@ extension ReportFixture {
 		try "# Morning overview\n\nUpdated: \(time)\n".write(to: fileURL, atomically: true, encoding: .utf8)
 	}
 
-	nonisolated static func morningBody(of request: URLRequest) -> Data {
+	/// - Parameter frontendMerge: The merged pull request 20 changes a frontend file.
+	nonisolated static func morningBody(of request: URLRequest, frontendMerge: Bool = false) -> Data {
 		let path = request.url!.path
-		let values: [[String: Any]] = if path.hasSuffix("/tasks") {
+		let isMerged = request.url!.query?.contains("MERGED") == true
+		let values: [[String: Any]] = if isMerged {
+			[
+				["id": 20, "title": "Frontend fix", "author": ["display_name": "Rui"], "links": ["html": ["href": "https://bb/20"]],
+					"participants": [["user": ["display_name": "Nils"], "approved": false, "state": NSNull()]]],
+				["id": 21, "title": "Reviewed", "author": ["display_name": "Rui"],
+					"participants": [["user": ["display_name": "Nils"], "approved": false, "state": "changes_requested"]]],
+				["id": 22, "title": "Backend fix", "author": ["display_name": "Milad"]],
+				["id": 23, "title": "Mine", "author": ["display_name": "Nils"]],
+			]
+		} else if path.hasSuffix("/20/diffstat") {
+			[["new": ["path": "scheduler.logic/A.java"]], ["old": ["path": frontendMerge ? "scheduler.frontend.ng2/src/a.ts" : "a.ts"], "new": NSNull()]]
+		} else if path.hasSuffix("/22/diffstat") {
+			[["new": ["path": "scheduler.logic/B.java"], "old": ["path": "scheduler.logic/B.java"]]]
+		} else if path.hasSuffix("/tasks") {
 			[["content": ["raw": String(repeating: "t", count: 400)], "creator": ["display_name": "Rui"]]]
 		} else if path.hasSuffix("/comments") {
 			[["content": ["raw": "Looks good"], "user": ["display_name": "Rui"]], ["content": ["raw": "gone"], "deleted": true]]
@@ -176,7 +191,45 @@ extension ReportFixture {
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
 		#expect(text.contains("Updated: 2026-10-27 07:00\n\n\(notes)\n## Daily\n\n- [ ] Mail\n    - [ ] Inbox\n- [ ] Slack\n\n## 0 × Their"))
-		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes«, »Daily« and »Notifier App«"))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes«, »Daily«, »Other Devs' Merges« and »Notifier App«"))
+	}
+
+	@Test func secondUpdateKeepsTheTaskThatTheUserAdded() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		let first = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(fixture.report.lastWritten == first)
+		let mine = "- [ ] My own task\n    - [ ] Its step"
+		try first.replacingOccurrences(of: "## 1 × My Open PRs\n\n", with: "## 1 × My Open PRs\n\n\(mine)\n")
+			.write(to: fixture.fileURL, atomically: true, encoding: .utf8)
+		await fixture.report.update()
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(text.contains("- [ ] `M2` My own task\n    - [ ] `M2a` Its step\n"))
+	}
+
+	@Test func unreviewedFrontendMergesOfOthersGetASection() async throws {
+		let fixture = try ReportFixture(kind: .morningOverview, now: tuesdayMorning, claudeOutput: overviewText,
+			body: { ReportFixture.morningBody(of: $0, frontendMerge: true) })
+		defer { fixture.cleanUp() }
+		let old = "## Other Devs' Merges\n\n- [x] [`#5`](https://bb/5) Seen, by Rui\n- [ ] [`#6`](https://bb/6) Open, by Rui\n"
+			+ "- [ ] [`#20`](https://bb/20) Frontend fix, by Rui\n"
+		try "# Morning overview\n\nUpdated: 2026-10-26 07:00\n\n\(old)".write(to: fixture.fileURL, atomically: true, encoding: .utf8)
+		await fixture.report.update()
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(text.contains("Nothing open.\n\n## Other Devs' Merges\n\n- [ ] [`#20`](https://bb/20) Frontend fix, by Rui\n"
+			+ "- [ ] [`#6`](https://bb/6) Open, by Rui\n"))
+		#expect(try fixture.input["Other Devs' Merges"] == nil)
+		let query = try #require(fixture.log.requests.first { $0.url!.query?.contains("MERGED") == true }?.url?.query)
+		#expect(query.range(of: #"q=state%3D%22MERGED%22%20AND%20updated_on%20%3E%202026-10-2\dT\d\d:00:00%2B00:00"#, options: .regularExpression) != nil)
+	}
+
+	@Test func aMergeIsReviewedAfterAnApprovalOrAChangeRequest() {
+		let reviewer = { (approved: Bool, state: Any) in ["participants": [["user": ["display_name": "Nils"], "approved": approved, "state": state]]] }
+		#expect(MorningOverview.isReviewed(reviewer(true, NSNull()), by: "Nils"))
+		#expect(MorningOverview.isReviewed(reviewer(false, "changes_requested"), by: "Nils"))
+		#expect(!MorningOverview.isReviewed(reviewer(false, NSNull()), by: "Nils"))
+		#expect(!MorningOverview.isReviewed(reviewer(true, NSNull()), by: "Rui"))
 	}
 
 	@Test func claudeGetsOnlyReadTools() async throws {
@@ -229,7 +282,7 @@ extension ReportFixture {
 		})
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
-		#expect(fixture.log.requests.count == 10)
+		#expect(fixture.log.requests.count == 16)
 		#expect(fixture.report.failure == nil)
 		#expect(fixture.claudeRun != nil)
 	}
@@ -275,7 +328,9 @@ extension ReportFixture {
 		let requests = fixture.log.requests
 		#expect(requests.map { $0.url!.path } == ["/2.0/repositories/ws/repo/pullrequests",
 			"/2.0/repositories/ws/repo/pullrequests/12/tasks", "/2.0/repositories/ws/repo/pullrequests/12/comments",
-			"/2.0/repositories/ws/repo/pullrequests/12/statuses", "/2.0/repositories/ws/repo/pullrequests/12/diffstat"])
+			"/2.0/repositories/ws/repo/pullrequests/12/statuses", "/2.0/repositories/ws/repo/pullrequests/12/diffstat",
+			"/2.0/repositories/ws/repo/pullrequests", "/2.0/repositories/ws/repo/pullrequests/20/diffstat",
+			"/2.0/repositories/ws/repo/pullrequests/22/diffstat"])
 		let authorization = "Basic " + Data("me@example.com:token".utf8).base64EncodedString()
 		for request in requests {
 			#expect(request.httpMethod == "GET")
@@ -598,6 +653,38 @@ extension ReportFixture {
 			+ "## 0 × My Open PRs\n\nNothing open.\n\n## 0 × Optional Work\n")
 	}
 
+	@Test func myNotesLoseOnlyTheirDoneTasksWithoutSubItems() {
+		let old = "# Morning overview\n\n## My Notes\n\nText\n- [x] Gone\n- [x] Kept\n    - [ ] Sub\n    - [X] Sub gone\n- [ ] Open\n- [x] Last\n\n## Daily\n"
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: "# Morning overview\n\n## Optional Work\n")
+			== "# Morning overview\n\n## My Notes\n\nText\n- [x] Kept\n    - [ ] Sub\n- [ ] Open\n\n## Daily\n\n## Optional Work\n")
+	}
+
+	@Test func addedTasksAndDoneTasksWithAnOpenSubItemAreKept() {
+		let written = "# Morning overview\n\n## 1 × Optional Work\n\n- [ ] `O1` A\n    - [ ] `O1a` A1\n- [ ] `O2` B\n    - [ ] `O2a` B1\n"
+			+ "- [ ] `O3` C\n\n## My Notes\n\n- [ ] Note\n"
+		let old = "# Morning overview\n\n## 1 × Optional Work\n\n- [ ] `O1` A\n    - [ ] `O1a` A1\n    - [ ] `O1b` Mine\n- [x] `O2` B\n"
+			+ "    - [ ] `O2a` B1\n- [x] `O3` C\n- [x] `O4` Mine and done\n- [ ] `O5` 🏓 Not changed\n\n## My Notes\n\n- [ ] Other note\n"
+		#expect(MorningOverview.keptTasks(in: old, lastWritten: written.replacingOccurrences(of: "C\n", with: "C\n- [ ] Not changed\n")) == [
+			.init(section: "Optional Work", lines: ["- [ ] `O1` A", "    - [ ] `O1a` A1", "    - [ ] `O1b` Mine"]),
+			.init(section: "Optional Work", lines: ["- [x] `O2` B", "    - [ ] `O2a` B1"]),
+		])
+		#expect(MorningOverview.keptTasks(in: old, lastWritten: nil) == [.init(section: "Optional Work", lines: ["- [x] `O2` B", "    - [ ] `O2a` B1"])])
+	}
+
+	@Test func keptTasksReplaceTheTaskOfClaudeAndGetItsNewSubItems() {
+		let kept: [MorningOverview.KeptTask] = [
+			.init(section: "Optional Work", lines: ["- [ ] `O1` A", "    - [ ] `O1a` A1", "    - [ ] `O1b` Mine"]),
+			.init(section: "Optional Work", lines: ["- [x] `O2` B", "    - [ ] `O2a` B1"]),
+			.init(section: "Cleanup Work", lines: ["- [x] `C1` D", "    - [ ] `C1a` D1"]),
+			.init(section: "Open Branches", lines: ["- [ ] E"]),
+		]
+		let overview = "# Morning overview\n\n## Optional Work\n\nText\n\n- [ ] A\n    - [ ] A1\n    - [ ] A2\n- [ ] F\n\n"
+			+ "## Cleanup Work\n\nNothing open.\n"
+		#expect(MorningOverview.withKeptTasks(kept, in: overview)
+			== "# Morning overview\n\n## Optional Work\n\nText\n\n- [ ] `O1` A\n    - [ ] `O1a` A1\n    - [ ] `O1b` Mine\n    - [ ] A2\n"
+			+ "- [ ] F\n- [x] `O2` B\n    - [ ] `O2a` B1\n\n## Cleanup Work\n\n- [x] `C1` D\n    - [ ] `C1a` D1\n\n## Open Branches\n\n- [ ] E\n")
+	}
+
 	@Test func doneCleanupTasksAreRemoved() {
 		let overview = "# Morning overview\n\n## Cleanup Work\n\n- [x] Delete a\n- [ ] Delete b\n- [X] Delete c\n\n## Optional Work\n\nNothing open.\n"
 		#expect(MorningOverview.withoutDoneCleanupTasks(in: overview)
@@ -647,6 +734,41 @@ extension ReportFixture {
 			"participants": [["user": ["display_name": "Nils"], "role": "REVIEWER", "approved": approved]]]
 		#expect(MorningOverview.waitsForReview(pullRequest, me: "Nils") == waits)
 		#expect(!MorningOverview.waitsForReview(pullRequest, me: "Rui"))
+	}
+
+	@Test func isMyTurnInTheirPullRequestOnlyWhenTheAuthorWaitsForMe() {
+		let reviewer: [String: Any] = ["user": ["display_name": "Nils"], "role": "REVIEWER", "approved": false]
+		let pullRequest: [String: Any] = ["author": ["display_name": "Rui"], "openTasks": [], "participants": [reviewer]]
+		#expect(MorningOverview.isMyTurn(pullRequest, me: "Nils"))
+		var changes = reviewer
+		changes["state"] = "changes_requested"
+		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["participants": [changes]]) { $1 }, me: "Nils"))
+		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["openTasks": ["task"]]) { $1 }, me: "Nils"))
+	}
+
+	@Test(arguments: [
+		([:], false),
+		(["openTasks": ["task"]], true),
+		(["hasMergeConflict": true], true),
+		(["buildStatuses": [["state": "FAILED"], ["state": "SUCCESSFUL"]]], true),
+		(["newestComments": [["user": ["display_name": "Rui"]]]], true),
+		(["newestComments": [["user": ["display_name": "Nils"]], ["user": ["display_name": "Rui"]]]], false),
+		(["participants": [["role": "REVIEWER", "approved": false, "state": "changes_requested"]]], true),
+		(["participants": [["role": "REVIEWER", "approved": true], ["role": "REVIEWER", "approved": false]]], false),
+		(["participants": [["role": "REVIEWER", "approved": true], ["role": "PARTICIPANT", "approved": false]]], true),
+	] as [([String: Any], Bool)])
+	func isMyTurnInMyPullRequest(facts: [String: Any], isMine: Bool) {
+		let pullRequest: [String: Any] = ["author": ["display_name": "Nils"], "openTasks": [],
+			"participants": [["role": "REVIEWER", "approved": false]]]
+		#expect(MorningOverview.isMyTurn(pullRequest.merging(facts) { $1 }, me: "Nils") == isMine)
+	}
+
+	@Test func pullRequestsOfTheTurnOfOthersGetAMark() {
+		let overview = "# Morning overview\n\n## 2 × Their Open PRs\n\n- [ ] `R1` [`#1`](https://x) A\n- [ ] `R2` 🏓 [`#2`](https://x) B\n"
+			+ "    - [ ] [`#3`](https://x)\n\n## 1 × My Open PRs\n\n- [x] `M1` [`#3`](https://x) C\n\n## 1 × Optional Work\n\n- [ ] `O1` [`#3`](https://x)\n"
+		#expect(MorningOverview.withTurnMarks([1, 3], in: overview)
+			== "# Morning overview\n\n## 2 × Their Open PRs\n\n- [ ] `R1` 🏓 [`#1`](https://x) A\n- [ ] `R2` [`#2`](https://x) B\n"
+			+ "    - [ ] [`#3`](https://x)\n\n## 1 × My Open PRs\n\n- [x] `M1` 🏓 [`#3`](https://x) C\n\n## 1 × Optional Work\n\n- [ ] `O1` [`#3`](https://x)\n")
 	}
 
 	@Test func overviewNeedsTheTitleAndTheDate() {

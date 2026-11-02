@@ -34,8 +34,16 @@ enum MorningOverview {
 		let me = await report.me()
 		let branches = await branches(report)
 		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches]
+		var appData: [String: Any] = [:]
 		do {
-			data["pullRequests"] = try await pullRequests(report.bitbucket(), me: me)
+			let bitbucket = try await report.bitbucket()
+			let pullRequests = try await pullRequests(bitbucket, me: me)
+			data["pullRequests"] = pullRequests
+			appData[othersTurnKey] = Set(pullRequests.filter { $0["isMyTurn"] as? Bool == false }.compactMap { $0["id"] as? Int })
+			let old = try? String(contentsOf: report.fileURL, encoding: .utf8)
+			let since = old.flatMap { Report.updated(in: $0, calendar: report.system.calendar) }
+				?? report.system.now().addingTimeInterval(-Double(mergeDays) * 24 * 60 * 60)
+			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
 		} catch let error as URLError {
 			// Without a network, the run of the day waits for the next try.
 			throw Report.Failure("No connection to Bitbucket: \(error.localizedDescription)")
@@ -51,7 +59,7 @@ enum MorningOverview {
 		}
 		data["sessions"] = sessions(in: claudeProjectFolder(of: report.system.folder.path), now: report.system.now(),
 			calendar: report.system.calendar)
-		return Report.Input(data: data, facts: facts(report))
+		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
 
 	@MainActor
@@ -65,7 +73,8 @@ enum MorningOverview {
 		if !todayTasks.isEmpty {
 			facts.append("Weekday tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
 		}
-		facts.append("The app writes the sections »My Notes«, »Daily« and »Notifier App«. Leave them out, and also the tasks in them.")
+		let names = appSections.map { "»\($0)«" }
+		facts.append("The app writes the sections \(names.dropLast().joined(separator: ", ")) and \(names.last!). Leave them out, and also the tasks in them.")
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
@@ -179,9 +188,13 @@ enum MorningOverview {
 		let system = report.system
 		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
 		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
-		let text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(tasks(of: system), done: done,
-			in: withoutDoneCleanupTasks(in: withoutAppSections(output))))))
+		let othersTurn = input.appData[othersTurnKey] as? Set<Int> ?? []
+		let kept = keptTasks(in: old ?? "", lastWritten: report.lastWritten)
+		let text = withTurnMarks(othersTurn, in: Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(
+			tasks(of: system), done: done, in: withKeptTasks(kept, in: withoutDoneCleanupTasks(in: withoutAppSections(output))))))))
+		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
+			+ (otherMergesSection(merges, old: old ?? "") ?? "")
 			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
 	}
 
@@ -207,7 +220,7 @@ enum MorningOverview {
 	/// and their headings no count.
 	static let keptSections = ["My Notes", "Daily"]
 	/// The sections that the app writes, not Claude. Their tasks get no ID and their headings get no count.
-	static let appSections = keptSections + ["Notifier App"]
+	static let appSections = keptSections + [otherMergesSection, "Notifier App"]
 
 	/// The text of each section in `overview`, by its title without a count, from its heading to the next heading.
 	static func sections(in overview: String) -> [String: String] {
@@ -248,7 +261,7 @@ enum MorningOverview {
 	}
 
 	/// The overview with the kept sections of `old` above its first section, and »Cleanup Work« below »My Notes«. »My Notes«
-	/// stays as it is. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.
+	/// loses only its ticked tasks without sub-items. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.
 	static func withKeptSections(from old: String, keepingTicks: Bool, in overview: String) -> String {
 		let oldSections = sections(in: old)
 		var parts = overview.components(separatedBy: "\n## ")
@@ -261,6 +274,7 @@ enum MorningOverview {
 			// The heading loses an old count, so that the section keeps no wrong number.
 			let body = oldSections[title].map { $0.drop { $0 != "\n" } } ?? "\n"
 			var text = ("## \(title)" + body).trimmingCharacters(in: .newlines)
+			if title == "My Notes" { text = withoutDoneLeafTasks(in: text) }
 			if title == "Daily", !keepingTicks {
 				text = text.replacingOccurrences(of: #"(?m)^(\s*- )\[[xX]\] "#, with: "$1[ ] ", options: .regularExpression)
 			}
@@ -268,6 +282,147 @@ enum MorningOverview {
 		}.joined()
 		guard let section = overview.range(of: "\n## ") else { return overview + "\n" + kept }
 		return overview.replacingCharacters(in: section, with: "\n" + kept + "## ")
+	}
+
+	/// The text without the ticked tasks that have no sub-item. A sub-item is a next line with more indent.
+	static func withoutDoneLeafTasks(in text: String) -> String {
+		let lines = text.components(separatedBy: "\n")
+		let indent = { (line: String) in line.prefix { $0 == " " || $0 == "\t" }.count }
+		return lines.indices.filter { index in
+			guard lines[index].range(of: #"^\s*[-*] \[[xX]\] "#, options: .regularExpression) != nil else { return true }
+			let next = lines.dropFirst(index + 1).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+			return next.map { indent($0) > indent(lines[index]) } ?? false
+		}.map { lines[$0] }.joined(separator: "\n")
+	}
+
+	/// The key of the IDs of the pull requests where it is not the turn of the user, in ``Report/Input/appData``.
+	static let othersTurnKey = "othersTurn"
+	/// The sign before the link of a pull request where it is not the turn of the user.
+	static let othersTurnMark = "🏓"
+	/// The sections where a pull request gets ``othersTurnMark``.
+	static let turnSections = ["Their Open PRs", "My Open PRs"]
+
+	/// The overview with ``othersTurnMark`` before the link of each task in ``turnSections`` whose pull request is in
+	/// `othersTurn`. A mark of Claude goes away.
+	static func withTurnMarks(_ othersTurn: Set<Int>, in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		for index in parts.indices.dropFirst() where turnSections.contains(title(of: parts[index])) {
+			parts[index] = parts[index].components(separatedBy: "\n").map { line in
+				let pattern = #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:\#(othersTurnMark) )?(\[`#(\d+)`\])"#
+				guard let regex = try? NSRegularExpression(pattern: pattern),
+					let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+					let start = Range(match.range(at: 1), in: line), let link = Range(match.range(at: 2), in: line),
+					let id = Range(match.range(at: 3), in: line).flatMap({ Int(line[$0]) }) else { return line }
+				let mark = othersTurn.contains(id) ? othersTurnMark + " " : ""
+				return line[start] + mark + line[link.lowerBound...]
+			}.joined(separator: "\n")
+		}
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// A task of the old overview that a new overview keeps as it is: the section title, and the lines of the task with
+	/// its sub-items.
+	struct KeptTask: Equatable {
+		var section: String
+		var lines: [String]
+	}
+
+	/// The text of a task line without its indent, checkbox, ID and ``othersTurnMark``, or `nil` for another line.
+	static func taskKey(of line: String) -> String? {
+		guard let range = line.range(of: #"^\s*- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?"#, options: .regularExpression) else { return nil }
+		var rest = line[range.upperBound...]
+		if rest.hasPrefix(othersTurnMark + " ") { rest = rest.dropFirst(2) }
+		return rest.trimmingCharacters(in: .whitespaces)
+	}
+
+	private static func indent(of line: String) -> Int { line.prefix { $0 == " " || $0 == "\t" }.count }
+
+	/// The tasks of each section in `part`, a section without its `## `: each task line at the start of a line, with the
+	/// indented lines after it.
+	private static func taskBlocks(in part: String) -> [Range<Int>] {
+		let lines = part.components(separatedBy: "\n")
+		var blocks: [Range<Int>] = []
+		var index = 1
+		while index < lines.count {
+			guard lines[index].hasPrefix("- ") else {
+				index += 1
+				continue
+			}
+			var end = index + 1
+			while end < lines.count, indent(of: lines[end]) > 0, !lines[end].trimmingCharacters(in: .whitespaces).isEmpty { end += 1 }
+			blocks.append(index..<end)
+			index = end
+		}
+		return blocks
+	}
+
+	/// The tasks in the sections of Claude in `old` that the next overview keeps as they are: a task with a line that the
+	/// user added, and a ticked task with a sub-item that is not ticked. A line is added when `lastWritten` does not have
+	/// it. Without `lastWritten`, no line counts as added. A ticked task without an open sub-item goes away.
+	static func keptTasks(in old: String, lastWritten: String?) -> [KeptTask] {
+		let written = lastWritten.map { Set($0.components(separatedBy: "\n").compactMap(taskKey)) }
+		return old.components(separatedBy: "\n## ").dropFirst().filter { !appSections.contains(title(of: $0)) }.flatMap { part in
+			let lines = part.components(separatedBy: "\n")
+			return taskBlocks(in: part).map { Array(lines[$0]) }.filter { block in
+				let isDoneWithOpenChild = { (index: Int) in
+					block[index].range(of: #"^\s*- \[[xX]\] "#, options: .regularExpression) != nil
+						&& block[(index + 1)...].prefix { indent(of: $0) > indent(of: block[index]) }
+							.contains { $0.range(of: #"^\s*- \[ \] "#, options: .regularExpression) != nil }
+				}
+				// A ticked task without an open sub-item is done, also when the user wrote it.
+				if block[0].range(of: #"^- \[[xX]\] "#, options: .regularExpression) != nil, !isDoneWithOpenChild(0) { return false }
+				return block.indices.contains { index in
+					guard let key = taskKey(of: block[index]) else { return false }
+					return written.map { !$0.contains(key) } ?? false || isDoneWithOpenChild(index)
+				}
+			}.map { KeptTask(section: title(of: part), lines: $0) }
+		}
+	}
+
+	/// The overview with each task in `kept` in its section. It replaces the task of Claude with the same title line, and
+	/// gets the sub-items of that task that it does not have at its end. Another kept task comes at the end of its section.
+	/// A section that the overview does not have comes at its end.
+	static func withKeptTasks(_ kept: [KeptTask], in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		for task in kept {
+			guard let index = parts.indices.dropFirst().first(where: { title(of: parts[$0]) == task.section }) else {
+				let text = parts.joined(separator: "\n## ")
+				parts = (text + (text.hasSuffix("\n") ? "" : "\n") + "\n## \(task.section)\n\n" + task.lines.joined(separator: "\n") + "\n")
+					.components(separatedBy: "\n## ")
+				continue
+			}
+			var lines = parts[index].components(separatedBy: "\n")
+			let blocks = taskBlocks(in: parts[index])
+			if let block = blocks.first(where: { taskKey(of: lines[$0.lowerBound]) == taskKey(of: task.lines[0]) }) {
+				let keys = Set(task.lines.compactMap(taskKey))
+				let new = lines[block].dropFirst().filter { taskKey(of: $0).map { !keys.contains($0) } ?? true }
+				lines.replaceSubrange(block, with: task.lines + new)
+			} else if let last = blocks.last {
+				lines.insert(contentsOf: task.lines, at: last.upperBound)
+			} else {
+				lines.removeAll { $0 == "Nothing open." }
+				while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+				lines += [""] + task.lines + [""]
+			}
+			parts[index] = lines.joined(separator: "\n")
+		}
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The section of the frontend merges of other devs that the user did not review.
+	static let otherMergesSection = "Other Devs' Merges"
+
+	/// The section with a task for each merge in `merges`, and the open tasks of the section in `old`, the new ones first.
+	/// A ticked task of `old` goes away. `nil` without a task.
+	static func otherMergesSection(_ merges: [Merge], old: String) -> String? {
+		let new = merges.map { "- [ ] [`#\($0.id)`](\($0.url)) \($0.title), by \($0.author)" }
+		let ids = Set(merges.map(\.id))
+		let kept = (sections(in: old)[otherMergesSection] ?? "").components(separatedBy: "\n").filter { line in
+			guard line.hasPrefix("- [ ] ") else { return false }
+			return matches(of: #"(?<=#)\d+"#, in: line).first.flatMap { Int($0) }.map { !ids.contains($0) } ?? true
+		}
+		let lines = new + kept
+		return lines.isEmpty ? nil : "\n## \(otherMergesSection)\n\n" + lines.map { $0 + "\n" }.joined()
 	}
 
 	/// The last section: a link to each plan of this app in `folder`, by name. Its `README.md` is no plan. `nil` without
@@ -487,11 +642,58 @@ enum MorningOverview {
 				pullRequests[index]["buildStatuses"] = statuses
 				pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
 				pullRequests[index]["waitsForMyReview"] = waitsForReview(pullRequests[index], me: me)
+				pullRequests[index]["isMyTurn"] = isMyTurn(pullRequests[index], me: me)
 			} catch {
 				pullRequests[index]["detailError"] = "\(error)"
 			}
 		}
 		return pullRequests
+	}
+
+	/// A merged pull request of another dev, for ``otherMergesSection(_:old:)``.
+	struct Merge: Equatable {
+		var id: Int
+		var title: String
+		var author: String
+		var url: String
+	}
+
+	/// The days of merges that a run without an old overview reads.
+	static let mergeDays = 7
+	/// The folder of the frontend code. A merge that changes a file in it is frontend work.
+	static let frontendFolder = "scheduler.frontend.ng2/"
+
+	/// The pull requests of other devs that changed after `since`, are merged, change the frontend, and that the user
+	/// did not review. The newest come first.
+	private static func otherMerges(_ bitbucket: Bitbucket, me: String, since: Date) async throws -> [Merge] {
+		let time = DateFormatter()
+		time.locale = Locale(identifier: "en_US_POSIX")
+		time.timeZone = TimeZone(identifier: "UTC")
+		time.dateFormat = "yyyy-MM-dd'T'HH:mm:ssxxx"
+		// With `q`, Bitbucket ignores a `state` parameter, so the state goes into `q`.
+		let pullRequests = try await bitbucket.values("/pullrequests", query: ["q": "state=\"MERGED\" AND updated_on > \(time.string(from: since))",
+			"sort": "-updated_on", "pagelen": "50"], fields: ["id", "title", "author.display_name", "participants.approved",
+			"participants.state", "participants.user.display_name", "links.html.href"], maxPages: 2)
+		var merges: [Merge] = []
+		for pullRequest in pullRequests.filter({ !Bitbucket.isAuthor(of: $0, me: me) && !isReviewed($0, by: me) }).prefix(detailLimit) {
+			guard let id = pullRequest["id"] as? Int else { continue }
+			let files = try await bitbucket.values("/pullrequests/\(id)/diffstat", query: ["pagelen": "500"], fields: ["new.path", "old.path"])
+			let paths = files.flatMap { file in ["new", "old"].compactMap { ((file[$0] as? [String: Any])?["path"] as? String) } }
+			guard paths.contains(where: { $0.hasPrefix(frontendFolder) }) else { continue }
+			merges.append(Merge(id: id, title: pullRequest["title"] as? String ?? "",
+				author: (pullRequest["author"] as? [String: Any])?["display_name"] as? String ?? "",
+				url: ((pullRequest["links"] as? [String: Any])?["html"] as? [String: Any])?["href"] as? String ?? ""))
+		}
+		return merges
+	}
+
+	/// The user approved the pull request or asked for changes.
+	static func isReviewed(_ pullRequest: [String: Any], by me: String) -> Bool {
+		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
+		return participants.contains { participant in
+			(participant["user"] as? [String: Any])?["display_name"] as? String == me
+				&& (participant["approved"] as? Bool == true || participant["state"] is String)
+		}
 	}
 
 	/// A file of the pull request has a merge conflict with the destination branch.
@@ -519,6 +721,26 @@ enum MorningOverview {
 		guard let mine = participants.first(where: { ($0["user"] as? [String: Any])?["display_name"] as? String == me && $0["role"] as? String == "REVIEWER" })
 		else { return false }
 		return mine["approved"] as? Bool != true && pullRequest["draft"] as? Bool != true && (pullRequest["openTasks"] as? [Any])?.isEmpty == true
+	}
+
+	/// The user has the next step. In a pull request of another author, the author waits for the review of the user,
+	/// and the user did not ask for changes. In a pull request of the user, it has an open task, a merge conflict, a
+	/// failed newest build, a request for changes, a newest comment of another person, or the approval of each reviewer.
+	static func isMyTurn(_ pullRequest: [String: Any], me: String) -> Bool {
+		let participants = pullRequest["participants"] as? [[String: Any]] ?? []
+		let name = { (item: [String: Any], key: String) in (item[key] as? [String: Any])?["display_name"] as? String }
+		guard Bitbucket.isAuthor(of: pullRequest, me: me) else {
+			let mine = participants.first { name($0, "user") == me }
+			return waitsForReview(pullRequest, me: me) && mine?["state"] as? String != "changes_requested"
+		}
+		let reviewers = participants.filter { $0["role"] as? String == "REVIEWER" }
+		let newestComment = (pullRequest["newestComments"] as? [[String: Any]])?.first
+		return (pullRequest["openTasks"] as? [Any])?.isEmpty == false
+			|| pullRequest["hasMergeConflict"] as? Bool == true
+			|| (pullRequest["buildStatuses"] as? [[String: Any]])?.first?["state"] as? String == "FAILED"
+			|| participants.contains { $0["state"] as? String == "changes_requested" }
+			|| newestComment.map { name($0, "user") != me } ?? false
+			|| (!reviewers.isEmpty && reviewers.allSatisfy { $0["approved"] as? Bool == true })
 	}
 }
 

@@ -70,6 +70,8 @@ final class Report: ObservableObject {
 	struct Input {
 		var data: [String: Any]
 		var facts: [String] = []
+		/// The data that only the render step uses. Claude does not get it.
+		var appData: [String: Any] = [:]
 
 		var json: Data { (try? JSONSerialization.data(withJSONObject: data, options: .sortedKeys)) ?? Data() }
 	}
@@ -204,6 +206,12 @@ final class Report: ObservableObject {
 	var schedule: Schedule { kind.schedule(in: system.defaults) }
 
 	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
+	/// The folder of the backups and of the copy of the last written file.
+	private var supportFolder: URL { system.supportFolder.appendingPathComponent((kind.fileName as NSString).deletingPathExtension) }
+	/// The copy of the text that the last run wrote, without the changes of the user.
+	private var lastWrittenURL: URL { supportFolder.appendingPathComponent("last-written.md") }
+	/// The text that the last run wrote, or `nil` before the first run.
+	var lastWritten: String? { try? String(contentsOf: lastWrittenURL, encoding: .utf8) }
 	var failedNotificationID: String { kind.notificationID + "-failed" }
 
 	/// The report whose ready notification has this identifier.
@@ -321,6 +329,8 @@ final class Report: ObservableObject {
 			if let old, let name = kind.backupName?(old) { try backUp(old, as: name) }
 			excludeFromGit()
 			try text.write(to: fileURL, atomically: true, encoding: .utf8)
+			try FileManager.default.createDirectory(at: supportFolder, withIntermediateDirectories: true)
+			try text.write(to: lastWrittenURL, atomically: true, encoding: .utf8)
 		} catch {
 			return fail("The file could not be written: \(error.localizedDescription)")
 		}
@@ -358,9 +368,8 @@ final class Report: ObservableObject {
 
 	/// Keeps the old file in the support folder, one file for each name.
 	private func backUp(_ old: String, as name: String) throws {
-		let folder = system.supportFolder.appendingPathComponent((kind.fileName as NSString).deletingPathExtension)
-		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-		try old.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
+		try FileManager.default.createDirectory(at: supportFolder, withIntermediateDirectories: true)
+		try old.write(to: supportFolder.appendingPathComponent(name), atomically: true, encoding: .utf8)
 	}
 
 	/// Adds the file to `.git/info/exclude` of the project, so that `git add -A` never stages it.

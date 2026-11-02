@@ -37,6 +37,9 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
 - **Sources:**
   - The old file. Done tasks leave it.
   - The open PRs on Bitbucket, with their open tasks and newest comments. The repo comes from the remote `origin`.
+  - The PRs of other devs that were merged since the last overview, that change `scheduler.frontend.ng2/`, and that
+    I did not approve or send back. The app writes them into »Other Devs' Merges« near the end, without Claude. An
+    open task stays in the next overview. A ticked task leaves it.
   - The Jira tickets of the open sprint, from the Atlassian MCP in the `.mcp.json` of the project.
   - Untracked plan files, uncommitted and unpushed work in every worktree, the plans in `~/.claude/plans`, the Claude
     memory of the project and the titles of recent sessions.

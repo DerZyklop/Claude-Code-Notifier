@@ -43,6 +43,8 @@ struct Bitbucket {
 		var query = query
 		query["fields"] = (["next"] + fields.map { "values." + $0 }).joined(separator: ",")
 		components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+		// A `+` in a query value, e.g. in a time zone, must not reach the server as a space.
+		components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
 		var url = components.url
 		var values: [[String: Any]] = []
 		for _ in 0..<maxPages {
