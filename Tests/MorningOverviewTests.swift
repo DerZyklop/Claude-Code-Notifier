@@ -765,9 +765,32 @@ extension ReportFixture {
 	@Test func pullRequestsOfTheTurnOfOthersGetAMark() {
 		let overview = "# Morning overview\n\n## 2 × Their Open PRs\n\n- [ ] `R1` [`#1`](https://x) A\n- [ ] `R2` 🏓 [`#2`](https://x) B\n"
 			+ "    - [ ] [`#3`](https://x)\n\n## 1 × My Open PRs\n\n- [x] `M1` [`#3`](https://x) C\n\n## 1 × Optional Work\n\n- [ ] `O1` [`#3`](https://x)\n"
-		#expect(MorningOverview.withTurnMarks([1, 3], in: overview)
+		#expect(MorningOverview.withMarks(othersTurn: [1, 3], stale: [], in: overview)
 			== "# Morning overview\n\n## 2 × Their Open PRs\n\n- [ ] `R1` 🏓 [`#1`](https://x) A\n- [ ] `R2` [`#2`](https://x) B\n"
 			+ "    - [ ] [`#3`](https://x)\n\n## 1 × My Open PRs\n\n- [x] `M1` 🏓 [`#3`](https://x) C\n\n## 1 × Optional Work\n\n- [ ] `O1` [`#3`](https://x)\n")
+	}
+
+	@Test func stalePullRequestsGetAMarkAfterTheTurnMark() {
+		let overview = "# Morning overview\n\n## 3 × My Open PRs\n\n- [ ] `M1` [`#1`](https://x) A\n- [ ] `M2` ⌛ 🏓 [`#2`](https://x) B\n"
+			+ "- [ ] `M3` ⌛ [`#3`](https://x) C\n"
+		#expect(MorningOverview.withMarks(othersTurn: [1], stale: [1, 2], in: overview)
+			== "# Morning overview\n\n## 3 × My Open PRs\n\n- [ ] `M1` 🏓 ⌛ [`#1`](https://x) A\n- [ ] `M2` ⌛ [`#2`](https://x) B\n"
+			+ "- [ ] `M3` [`#3`](https://x) C\n")
+	}
+
+	@Test(arguments: [
+		("2026-11-01T09:59:59.123456+00:00", true),
+		("2026-11-01T10:00:01.5+00:00", false),
+		("2026-11-01T09:00:00+00:00", true),
+		("no date", false),
+	])
+	func pullRequestIsStaleAfter24Hours(updated: String, isStale: Bool) {
+		let now = ISO8601DateFormatter().date(from: "2026-11-02T10:00:00Z")!
+		#expect(MorningOverview.isStale(["updated_on": updated], now: now) == isStale)
+	}
+
+	@Test func taskKeyIgnoresTheMarks() {
+		#expect(MorningOverview.taskKey(of: "- [ ] `M1` 🏓 ⌛ [`#1`](https://x) A") == MorningOverview.taskKey(of: "- [ ] [`#1`](https://x) A"))
 	}
 
 	@Test func overviewNeedsTheTitleAndTheDate() {

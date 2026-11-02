@@ -40,6 +40,7 @@ enum MorningOverview {
 			let pullRequests = try await pullRequests(bitbucket, me: me)
 			data["pullRequests"] = pullRequests
 			appData[othersTurnKey] = Set(pullRequests.filter { $0["isMyTurn"] as? Bool == false }.compactMap { $0["id"] as? Int })
+			appData[staleKey] = Set(pullRequests.filter { isStale($0, now: report.system.now()) }.compactMap { $0["id"] as? Int })
 			let old = try? String(contentsOf: report.fileURL, encoding: .utf8)
 			let since = old.flatMap { Report.updated(in: $0, calendar: report.system.calendar) }
 				?? report.system.now().addingTimeInterval(-Double(mergeDays) * 24 * 60 * 60)
@@ -189,8 +190,9 @@ enum MorningOverview {
 		let isSameDay = old.map { isSameDay($0, now: system.now(), calendar: system.calendar) } ?? false
 		let done = isSameDay ? old.map(doneWeekdayTasks) ?? [] : []
 		let othersTurn = input.appData[othersTurnKey] as? Set<Int> ?? []
+		let stale = input.appData[staleKey] as? Set<Int> ?? []
 		let kept = keptTasks(in: old ?? "", lastWritten: report.lastWritten)
-		let text = withTurnMarks(othersTurn, in: Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(
+		let text = withMarks(othersTurn: othersTurn, stale: stale, in: Report.hashLinksAsCode(in: numbered(subItemsIndented(in: withWeekdayTasks(
 			tasks(of: system), done: done, in: withKeptTasks(kept, in: withoutDoneCleanupTasks(in: withoutAppSections(output))))))))
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		return withKeptSections(from: old ?? "", keepingTicks: isSameDay, in: text)
@@ -299,21 +301,39 @@ enum MorningOverview {
 	static let othersTurnKey = "othersTurn"
 	/// The sign before the link of a pull request where it is not the turn of the user.
 	static let othersTurnMark = "🏓"
-	/// The sections where a pull request gets ``othersTurnMark``.
+	/// The key of the IDs of the pull requests that nobody changed for ``staleTime``, in ``Report/Input/appData``.
+	static let staleKey = "stale"
+	/// The sign before the link of a pull request that nobody changed for ``staleTime``.
+	static let staleMark = "⌛"
+	/// The time without a change after which a pull request gets ``staleMark``.
+	static let staleTime: TimeInterval = 24 * 60 * 60
+	/// The signs that the app puts before the link of a pull request, in their order.
+	static let marks = [othersTurnMark, staleMark]
+	/// The sections where a pull request gets ``marks``.
 	static let turnSections = ["Their Open PRs", "My Open PRs"]
 
-	/// The overview with ``othersTurnMark`` before the link of each task in ``turnSections`` whose pull request is in
-	/// `othersTurn`. A mark of Claude goes away.
-	static func withTurnMarks(_ othersTurn: Set<Int>, in overview: String) -> String {
+	/// Nobody changed the pull request for ``staleTime``. Bitbucket changes `updated_on` on a push, a comment, a task and
+	/// a review.
+	static func isStale(_ pullRequest: [String: Any], now: Date) -> Bool {
+		// `ISO8601DateFormatter` cannot read the 6 digits of the fraction of a second.
+		guard let text = (pullRequest["updated_on"] as? String)?.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression),
+			let updated = ISO8601DateFormatter().date(from: text) else { return false }
+		return now.timeIntervalSince(updated) > staleTime
+	}
+
+	/// The overview with ``othersTurnMark`` and ``staleMark`` before the link of each task in ``turnSections`` whose pull
+	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away.
+	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, in overview: String) -> String {
+		let anyMark = marks.joined(separator: "|")
 		var parts = overview.components(separatedBy: "\n## ")
 		for index in parts.indices.dropFirst() where turnSections.contains(title(of: parts[index])) {
 			parts[index] = parts[index].components(separatedBy: "\n").map { line in
-				let pattern = #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:\#(othersTurnMark) )?(\[`#(\d+)`\])"#
+				let pattern = #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:(?:\#(anyMark)) )*(\[`#(\d+)`\])"#
 				guard let regex = try? NSRegularExpression(pattern: pattern),
 					let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
 					let start = Range(match.range(at: 1), in: line), let link = Range(match.range(at: 2), in: line),
 					let id = Range(match.range(at: 3), in: line).flatMap({ Int(line[$0]) }) else { return line }
-				let mark = othersTurn.contains(id) ? othersTurnMark + " " : ""
+				let mark = (othersTurn.contains(id) ? othersTurnMark + " " : "") + (stale.contains(id) ? staleMark + " " : "")
 				return line[start] + mark + line[link.lowerBound...]
 			}.joined(separator: "\n")
 		}
@@ -327,11 +347,11 @@ enum MorningOverview {
 		var lines: [String]
 	}
 
-	/// The text of a task line without its indent, checkbox, ID and ``othersTurnMark``, or `nil` for another line.
+	/// The text of a task line without its indent, checkbox, ID and ``marks``, or `nil` for another line.
 	static func taskKey(of line: String) -> String? {
 		guard let range = line.range(of: #"^\s*- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?"#, options: .regularExpression) else { return nil }
 		var rest = line[range.upperBound...]
-		if rest.hasPrefix(othersTurnMark + " ") { rest = rest.dropFirst(2) }
+		while let mark = marks.first(where: { rest.hasPrefix($0 + " ") }) { rest = rest.dropFirst(mark.count + 1) }
 		return rest.trimmingCharacters(in: .whitespaces)
 	}
 

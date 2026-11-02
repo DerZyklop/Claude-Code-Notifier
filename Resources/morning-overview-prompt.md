@@ -14,7 +14,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - A PR with `draft: true` goes only in »Draft PRs«. Never put a draft in »Their Open PRs« or »My Open PRs«.
    - Take the PRs only from the JSON. A PR of the old overview that the JSON does not have is not open for the user.
    - Use the unresolved tasks and the newest comments of each PR to find the next action.
-   - Do not write 🏓. The app puts it before the link of a PR where the next step is not for the user.
+   - Do not write 🏓 or ⌛. The app puts 🏓 before the link of a PR where the next step is not for the user. It puts ⌛ before the link of a PR that nobody changed for 24 hours.
    - If a PR has `hasMergeConflict: true`, its task starts with this next action: »Merge `<destination branch>` into the branch and solve the merge conflict.« Take the branch from `destination.branch.name`. This applies in each section that names the PR.
 3. The tickets of the sprint. Use the Jira tools of the Atlassian MCP:
    - Find the cloud ID and the site URL with `getAccessibleAtlassianResources`.
