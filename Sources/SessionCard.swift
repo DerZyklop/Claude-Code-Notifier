@@ -217,21 +217,11 @@ struct SessionCard: View {
 }
 
 extension SessionState {
-	/// The system green is too light on the light card and weak on the dark one. This green is darker in light mode
-	/// and brighter in dark mode.
-	var yourTurnGreen: NSColor {
-		NSColor(name: nil) { appearance in
-			appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-				? NSColor(srgbRed: 0.30, green: 0.87, blue: 0.45, alpha: 1)
-				: NSColor(srgbRed: 0.10, green: 0.56, blue: 0.24, alpha: 1)
-		}
-	}
-
 	var color: Color {
 		switch self {
 		case .asksYou: .orange
-		case .yourTurn: Color(nsColor: yourTurnGreen)
-		case .working: .accentColor
+		case .yourTurn: .white
+		case .working: Color(nsColor: Spinner.segmentColor(of: Spinner.color))
 		case .ended: .secondary
 		}
 	}

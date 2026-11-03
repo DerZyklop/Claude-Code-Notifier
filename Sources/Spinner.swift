@@ -30,6 +30,11 @@ final class Spinner {
 	/// The color of the wave while a report runs.
 	nonisolated static let reportColor = NSColor.systemPurple
 
+	/// The darker color of the segment on a wave in `color`.
+	nonisolated static func segmentColor(of color: NSColor) -> NSColor {
+		color.blended(withFraction: 0.35, of: .black) ?? color
+	}
+
 	let still = CAShapeLayer()
 	let track = CAShapeLayer()
 	let segment = CAShapeLayer()
@@ -109,7 +114,7 @@ final class Spinner {
 	/// The pale wave and the dark segment in `color`.
 	private func paint(_ color: NSColor) {
 		track.strokeColor = color.withAlphaComponent(0.3).cgColor
-		segment.strokeColor = (color.blended(withFraction: 0.35, of: .black) ?? color).cgColor
+		segment.strokeColor = Self.segmentColor(of: color).cgColor
 	}
 
 	/// Lets the waves glow in dark red together with the bubble of the waiting sessions. Without a shown bubble, the glow
