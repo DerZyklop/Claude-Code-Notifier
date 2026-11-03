@@ -758,6 +758,8 @@ extension ReportFixture {
 		(["buildStatuses": [["state": "FAILED"], ["state": "SUCCESSFUL"]]], true),
 		(["newestComments": [["user": ["display_name": "Rui"]]]], true),
 		(["newestComments": [["user": ["display_name": "Nils"]], ["user": ["display_name": "Rui"]]]], false),
+		(["newestComments": [["user": ["display_name": "Pipeline", "type": "app_user"]], ["user": ["display_name": "Nils"]]]], false),
+		(["newestComments": [["user": ["display_name": "Pipeline", "type": "app_user"]], ["user": ["display_name": "Rui"]]]], true),
 		(["participants": [["role": "REVIEWER", "approved": false, "state": "changes_requested"]]], true),
 		(["participants": [["role": "REVIEWER", "approved": true], ["role": "REVIEWER", "approved": false]]], false),
 		(["participants": [["role": "REVIEWER", "approved": true], ["role": "PARTICIPANT", "approved": false]]], true),

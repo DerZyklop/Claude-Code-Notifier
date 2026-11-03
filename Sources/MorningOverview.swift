@@ -674,7 +674,7 @@ enum MorningOverview {
 			let tasks = try await bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
 				fields: ["content.raw", "creator.display_name"], maxPages: 1)
 			let comments = try await bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
-				fields: ["content.raw", "user.display_name", "created_on", "inline.path", "deleted"], maxPages: 1)
+				fields: ["content.raw", "user.display_name", "user.type", "created_on", "inline.path", "deleted"], maxPages: 1)
 			let statuses = try await bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
 				fields: ["state", "name", "updated_on"], maxPages: 1)
 			pullRequests[index]["openTasks"] = tasks.map { Bitbucket.shortened($0) }
@@ -765,6 +765,7 @@ enum MorningOverview {
 	/// The user has the next step. In a pull request of another author, the author waits for the review of the user,
 	/// and the user did not ask for changes. In a pull request of the user, it has an open task, a merge conflict, a
 	/// failed newest build, a request for changes, a newest comment of another person, or the approval of each reviewer.
+	/// A comment of an app, for example of the pipeline, does not count.
 	static func isMyTurn(_ pullRequest: [String: Any], me: String) -> Bool {
 		let participants = participants(of: pullRequest)
 		guard Bitbucket.isAuthor(of: pullRequest, me: me) else {
@@ -772,7 +773,8 @@ enum MorningOverview {
 			return waitsForReview(pullRequest, me: me) && mine?["state"] as? String != "changes_requested"
 		}
 		let reviewers = participants.filter { $0["role"] as? String == "REVIEWER" }
-		let newestComment = (pullRequest["newestComments"] as? [[String: Any]])?.first
+		let newestComment = (pullRequest["newestComments"] as? [[String: Any]])?
+			.first { ($0["user"] as? [String: Any])?["type"] as? String != "app_user" }
 		return (pullRequest["openTasks"] as? [Any])?.isEmpty == false
 			|| pullRequest["hasMergeConflict"] as? Bool == true
 			|| (pullRequest["buildStatuses"] as? [[String: Any]])?.first?["state"] as? String == "FAILED"
