@@ -131,6 +131,8 @@ final class Report: ObservableObject {
 		var notifierPlansFolder: URL? = nil
 		/// The tasks of one weekday, by its number in `Calendar`, e.g. 2 for Monday. They come first in the morning overview.
 		var weekdayTasks: [Int: [String]]
+		/// The IDs of the sessions that the user archived, or `nil` if they cannot be read right now.
+		var archivedSessionIDs: () -> Set<String>? = { nil }
 		var now: () -> Date
 		var calendar: Calendar
 		var defaults: UserDefaults
@@ -153,6 +155,7 @@ final class Report: ObservableObject {
 			// The app runs from the `build` folder of its repository.
 			notifierPlansFolder: Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("plans"),
 			weekdayTasks: [2: ["🧠 Reflect ticket"]],
+			archivedSessionIDs: { VSCodeArchive.sessionIDs() },
 			now: Date.init,
 			calendar: .current,
 			defaults: .standard,

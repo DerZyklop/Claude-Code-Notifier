@@ -58,7 +58,10 @@ enum MorningOverview {
 			data["plans"] = plans(in: plansFolder, old: old, now: system.now(), calendar: system.calendar, branches: branches,
 				knownBranches: known, pullRequests: pullRequests)
 		}
-		data["sessions"] = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar)
+		let sessions = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
+			archived: system.archivedSessionIDs() ?? [])
+		data["sessions"] = sessions.open
+		data["archivedSessions"] = sessions.archivedTitles
 		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
 
@@ -140,33 +143,57 @@ enum MorningOverview {
 	/// The days of the sessions in the input.
 	static let sessionDays = 3
 
-	/// The sessions in the transcripts `folder` that changed in the last 3 days, the newest first, with their `id`, their
-	/// `title` and the time of their `lastChange`. The title is the newest custom title, else the newest title of Claude.
-	static func sessions(in folder: URL, now: Date, calendar: Calendar) -> [[String: Any]] {
+	/// The days of the archived sessions in the input. An old task of a session can stay in the overview this long.
+	static let archivedSessionDays = 14
+
+	/// The sessions in the transcripts `folder`:
+	/// - `open`: the sessions that changed in the last 3 days and that are not in `archived`, the newest first, with their
+	///   `id`, their `title` and the time of their `lastChange`.
+	/// - `archivedTitles`: the titles of the sessions in `archived` that changed in the last 14 days, sorted. A title that
+	///   an open session also has is not in it, because its work can still go on.
+	///
+	/// The title is the newest custom title, else the newest title of Claude.
+	static func sessions(in folder: URL, now: Date, calendar: Calendar, archived: Set<String> = [])
+		-> (open: [[String: Any]], archivedTitles: [String]) {
 		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
 		let start = days(sessionDays, before: now)
-		let files = names.compactMap { name -> (URL, Date)? in
+		let archivedStart = days(archivedSessionDays, before: now)
+		let files = names.compactMap { name -> (file: URL, id: String, date: Date)? in
 			let file = folder.appendingPathComponent(name)
-			guard let date = file.modificationDate, date >= start else { return nil }
-			return (file, date)
-		}.sorted { $0.1 > $1.1 }
-		return files.map { file, date in
-			var custom: String?
-			var ai: String?
-			let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-			for line in text.split(separator: "\n") where line.contains("-title\"") {
-				guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
-				switch object["type"] as? String {
-				case "custom-title": custom = object["customTitle"] as? String ?? custom
-				case "ai-title": ai = object["aiTitle"] as? String ?? ai
-				default: break
-				}
+			let id = file.deletingPathExtension().lastPathComponent
+			guard let date = file.modificationDate, date >= (archived.contains(id) ? archivedStart : start) else { return nil }
+			return (file, id, date)
+		}.sorted { $0.date > $1.date }
+		var open: [[String: Any]] = []
+		var archivedTitles: [String: String] = [:]
+		for (file, id, date) in files {
+			let title = title(of: file)
+			if archived.contains(id) {
+				if let title { archivedTitles[title.lowercased()] = title }
+				continue
 			}
-			var session: [String: Any] = ["id": file.deletingPathExtension().lastPathComponent,
-				"lastChange": Report.timestampFormatter(calendar).string(from: date)]
-			if let title = custom ?? ai { session["title"] = title }
-			return session
+			var session: [String: Any] = ["id": id, "lastChange": Report.timestampFormatter(calendar).string(from: date)]
+			if let title { session["title"] = title }
+			open.append(session)
 		}
+		for title in open.compactMap({ $0["title"] as? String }) { archivedTitles[title.lowercased()] = nil }
+		return (open, archivedTitles.values.sorted())
+	}
+
+	/// The newest custom title of the transcript `file`, else the newest title of Claude.
+	private static func title(of file: URL) -> String? {
+		var custom: String?
+		var ai: String?
+		let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+		for line in text.split(separator: "\n") where line.contains("-title\"") {
+			guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+			switch object["type"] as? String {
+			case "custom-title": custom = object["customTitle"] as? String ?? custom
+			case "ai-title": ai = object["aiTitle"] as? String ?? ai
+			default: break
+			}
+		}
+		return custom ?? ai
 	}
 
 	/// A ticket ID, e.g. `PROJ-123`, in upper case.

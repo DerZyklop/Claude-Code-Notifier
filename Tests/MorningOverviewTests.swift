@@ -573,10 +573,31 @@ extension ReportFixture {
 			try text.write(to: file, atomically: true, encoding: .utf8)
 			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-ages[name]! * day)], ofItemAtPath: file.path)
 		}
-		let sessions = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar)
+		let sessions = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar).open
 		#expect(sessions.map { $0["id"] as? String } == ["b", "a", "c"])
 		#expect(sessions.map { $0["title"] as? String } == ["Second", "Mine", nil])
 		#expect(sessions[0]["lastChange"] as? String == Report.timestampFormatter(utcCalendar).string(from: now.addingTimeInterval(-0.1 * day)))
+	}
+
+	@Test func archivedSessionsGiveOnlyTheirTitles() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let now = tuesdayMorning
+		let day: TimeInterval = 24 * 60 * 60
+		let sessions: [(name: String, title: String, age: Double)] = [
+			("open", "Skill", 0.5), ("done", "Commit", 1), ("doneOld", "Wrapper", 10), ("doneTooOld", "Gone", 20),
+			("doneTwin", "skill", 2),
+		]
+		for session in sessions {
+			let file = folder.appendingPathComponent("\(session.name).jsonl")
+			try (#"{"type":"ai-title","aiTitle":"\#(session.title)"}"# + "\n").write(to: file, atomically: true, encoding: .utf8)
+			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-session.age * day)], ofItemAtPath: file.path)
+		}
+		let result = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar,
+			archived: ["done", "doneOld", "doneTooOld", "doneTwin"])
+		#expect(result.open.map { $0["id"] as? String } == ["open"])
+		#expect(result.archivedTitles == ["Commit", "Wrapper"])
 	}
 
 	@Test func eachSectionGetsItsOwnLetter() {

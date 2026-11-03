@@ -38,6 +38,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
      - If an old »Optional Work« task links a plan, read only the plans with `changedAfterOldOverview: true`. Do not read the other plans again. Copy the old »Optional Work« tasks with a link to an unchanged plan, with their next actions. Leave out a next action with `[x]`, and a task that a PR, ticket or other task now covers.
    - If the facts name the memory folder of the project, read its open follow-ups.
    - The `sessions` in the JSON: the sessions of the last 3 days, with their titles. Do not read the transcripts. If the title tells of work that is not done, name the session.
+   - The `archivedSessions` in the JSON: the titles of the sessions that the user archived. An archived session is done. Leave out each old task and each next action that names such a session. Compare the titles without case.
 6. Cleanup work: find the forgotten tickets, and the outdated plans of the project folder, of all dates.
    - First copy the open tasks of »Cleanup Work« from the old overview, with no change. Leave out the tasks with `[x]`, and the tasks that name a ticket. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
    - Forgotten tickets: search with `assignee = currentUser() AND status in ("In Progress", "Untested") AND sprint is EMPTY`, with the fields `summary` and `status`. If Jira does not know one of the states, use `statusCategory = "In Progress"` in place of the states. Then keep only the tickets in these 2 states.
