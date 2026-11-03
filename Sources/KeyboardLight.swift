@@ -8,6 +8,8 @@ import AppKit
 /// - The right end of the first two rows shows orange while the bubble shows.
 /// - Both side bars show the red ring of the bubble in each round.
 /// - The first 2 keys of the first two rows and the left bar show a steady purple while a report is unread.
+/// - The letter keys show the sessions of the card, each on its own letter, see ``SessionStore/letters``. The colors are
+///   those of their icons: a green pulse while it works, white on your turn, orange while it asks you.
 ///
 /// Where areas overlap, the signal first in ``LightSignal`` wins. Everything else shows the normal effect of the
 /// keyboard. A keyboard that you plug in later gets the current colors too.
@@ -39,8 +41,10 @@ final class KeyboardLight {
 		}
 	}
 
-	/// Lets the keys show `waves`, the bubble while `isWaiting`, and the mark of an unread report.
-	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool) {
+	/// Lets the keys show `waves`, the bubble while `isWaiting`, the mark of an unread report, and `sessions` on the
+	/// letter keys.
+	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: SessionState] = [:]) {
+		scene.sessionLights = Self.sessionLights(of: sessions)
 		scene.waveStarts = scene.waveStarts.filter { waves.contains($0.key) }
 		for wave in waves where scene.waveStarts[wave] == nil { scene.waveStarts[wave] = CACurrentMediaTime() }
 		if isWaiting != scene.isWaiting {
@@ -49,6 +53,21 @@ final class KeyboardLight {
 		}
 		scene.hasUnread = hasUnread
 		render()
+	}
+
+	/// The light of each LED for the state of the session on each letter, see ``SessionStore/letters``.
+	static func sessionLights(of sessions: [Int: SessionState]) -> [Int: SessionLight] {
+		var colors: [Int: SessionLight] = [:]
+		for (letter, state) in sessions where NuPhyKeyboard.letterKeys.indices.contains(letter) {
+			let key = NuPhyKeyboard.letterKeys[letter]
+			switch state {
+			case .working: colors[key] = SessionLight(color: Spinner.color, pulses: true)
+			case .yourTurn: colors[key] = SessionLight(color: .white)
+			case .asksYou: colors[key] = SessionLight(color: LightSignal.orange)
+			case .ended: break
+			}
+		}
+		return colors
 	}
 
 	/// Rings the keys of the red ring once, together with the bubble.
@@ -88,7 +107,8 @@ final class KeyboardLight {
 			// An LED without a frame shows the normal effect of the keyboard.
 			keyboard.show(Dictionary(uniqueKeysWithValues: frames.map { led, frame in (led, (color: frame.color, brightness: frame.brightness)) }))
 		}
-		if !scene.isMoving(at: now) {
+		// A failed report needs the next frame to send all colors again.
+		if !scene.isMoving(at: now) && !keyboard.isOutOfSync {
 			stopTimer()
 		} else if timer == nil {
 			let timer = Timer(timeInterval: Self.frameTime, repeats: true) { [weak self] _ in

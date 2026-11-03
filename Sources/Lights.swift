@@ -4,10 +4,11 @@ import AppKit
 /// ``LightSignal`` and ``LightScene``. Each light only maps the areas to its LEDs and sends the colors.
 @MainActor
 enum Lights {
-	/// Lets the lights show `waves`, the bubble while `isWaiting`, and the mark of an unread report.
-	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool) {
+	/// Lets the lights show `waves`, the bubble while `isWaiting`, and the mark of an unread report. The letter keys of
+	/// the keyboard show `sessions`: the state of the session on each letter, see ``SessionStore/letters``.
+	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: SessionState] = [:]) {
 		Blink1.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
-		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
+		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread, sessions: sessions)
 		MacBookBacklight.shared.show(waves: waves)
 	}
 
@@ -243,6 +244,13 @@ struct LightMapping {
 	}
 }
 
+/// The light of a session on its letter key, see ``SessionStore/letters``.
+struct SessionLight: Equatable {
+	var color: NSColor
+	/// A working session pulses.
+	var pulses = false
+}
+
 /// What the LEDs of one light show, as a function of the time. The signals and their order are the same on each
 /// light. Only the wave looks different: a running segment on the keyboard, a breath on the blink(1).
 @MainActor
@@ -259,6 +267,8 @@ struct LightScene {
 	var isWaiting: Bool
 	var hasUnread: Bool
 	var ringStart: Double?
+	/// The light of each LED that shows a session. It shows above all signals but the ring.
+	var sessionLights: [Int: SessionLight] = [:]
 
 	init(device: LightDevice, lights: [LightSignal: Light]? = nil, waveStarts: [LightWave: Double] = [:],
 		isWaiting: Bool = false, hasUnread: Bool = false, ringStart: Double? = nil) {
@@ -273,7 +283,7 @@ struct LightScene {
 	static let ringLength = AttentionBubble.glowTimes.rest * AttentionBubble.ringLength
 
 	/// All LEDs that a signal uses.
-	var points: Set<Int> { lights.values.reduce(Set<Int>()) { $0.union($1.points) } }
+	var points: Set<Int> { lights.values.reduce(Set(sessionLights.keys)) { $0.union($1.points) } }
 
 	func isRinging(at now: Double) -> Bool {
 		ringStart.map { now - $0 < Self.ringLength } ?? false
@@ -281,7 +291,7 @@ struct LightScene {
 
 	/// Whether the frames change after `now`. The wave moves also under other signals.
 	func isMoving(at now: Double) -> Bool {
-		isRinging(at: now) || !waveStarts.isEmpty
+		isRinging(at: now) || !waveStarts.isEmpty || sessionLights.values.contains(where: \.pulses)
 	}
 
 	/// The color of `point` at `now`: the first signal that covers it and has a color, after `signal`. `nil` while it
@@ -290,6 +300,7 @@ struct LightScene {
 		let signals = LightSignal.allCases
 		let start = signal.flatMap { signals.firstIndex(of: $0).map { $0 + 1 } } ?? 0
 		for signal in signals[start...] {
+			if signal != .ring, let light = sessionLights[point] { return Self.frame(of: light, at: now) }
 			guard let light = lights[signal], light.points.contains(point) else { continue }
 			if let frame = frame(of: signal, level: light.level, point: point, at: now) { return frame }
 		}
@@ -321,6 +332,15 @@ struct LightScene {
 				return Frame(color: color, brightness: Blink1.breath(of: wave, level: level, at: now - waveStart))
 			}
 		}
+	}
+
+	/// A steady light at full brightness, or a pulse in the rhythm of the wave between its dim share and full brightness.
+	static func frame(of light: SessionLight, at now: Double) -> Frame {
+		let full = NuPhyKeyboard.fullBrightness
+		guard light.pulses else { return Frame(color: light.color, brightness: full) }
+		let pulse = Blink1.Breath(color: light.color, brightness: KeyboardLight.dimShare * full...full)
+		let phase = (now / Blink1.breathDuration).truncatingRemainder(dividingBy: 1)
+		return Frame(color: light.color, brightness: pulse.brightness(at: abs(1 - 2 * phase)))
 	}
 
 	/// The share of the key at `x` that the segment covers after `runs` runs from left to right. The segment leaves at

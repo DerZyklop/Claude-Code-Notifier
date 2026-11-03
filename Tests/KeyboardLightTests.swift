@@ -327,4 +327,44 @@ struct KeyboardLightSceneTests {
 		#expect(scene.frame(point: 50, at: 3) == Scene.Frame(color: LightSignal.orange, brightness: 0.5))
 		#expect(scene.frame(point: left, at: 3) == nil)
 	}
+
+	@Test func letterKeysAreTheLettersRowByRowFromTheBottom() {
+		let keys = NuPhyKeyboard.letterKeys
+		#expect(keys.count == 26)
+		let starts: [(x: Double, count: Int)] = [(22.5, 7), (17.5, 9), (15, 10)]
+		let xs: [Double] = starts.flatMap { row in (0..<row.count).map { row.x + Double($0) * NuPhyKeyboard.keyWidth } }
+		#expect(keys.map { NuPhyKeyboard.keyX[$0] } == xs)
+		#expect(keys.filter(NuPhyKeyboard.rows[2].contains).count == 10)
+		#expect(keys.filter(NuPhyKeyboard.rows[3].contains).count == 9)
+		#expect(keys.filter(NuPhyKeyboard.rows[4].contains).count == 7)
+	}
+
+	@Test func letterKeysShowTheirSessionsInTheColorsOfTheirIcons() {
+		let lights = KeyboardLight.sessionLights(of: [0: .working, 1: .yourTurn, 5: .asksYou, 3: .ended, 26: .working])
+		let keys = NuPhyKeyboard.letterKeys
+		#expect(lights == [keys[0]: SessionLight(color: Spinner.color, pulses: true), keys[1]: SessionLight(color: .white),
+			keys[5]: SessionLight(color: LightSignal.orange)])
+	}
+
+	@Test func sessionKeysShowAboveTheWaveButBelowTheRing() {
+		let key = NuPhyKeyboard.letterKeys[0]
+		var scene = Scene(device: .keyboard, waveStarts: [.work: 0], ringStart: 0)
+		scene.sessionLights = [key: SessionLight(color: .white)]
+		#expect(scene.points.contains(key))
+		#expect(scene.frame(point: key, at: 10) == Scene.Frame(color: .white, brightness: NuPhyKeyboard.fullBrightness))
+		scene.lights[.ring] = Light(points: [key], level: 1)
+		#expect(scene.frame(point: key, at: Scene.ringLength / 2)?.color != .white)
+	}
+
+	@Test func aWorkingSessionPulsesInTheRhythmOfTheWave() {
+		let key = NuPhyKeyboard.letterKeys[0]
+		var scene = Scene(device: .keyboard)
+		scene.sessionLights = [key: SessionLight(color: Spinner.color)]
+		#expect(!scene.isMoving(at: 0))
+		scene.sessionLights[key]?.pulses = true
+		#expect(scene.isMoving(at: 0))
+		let full = NuPhyKeyboard.fullBrightness
+		#expect(abs(scene.frame(point: key, at: 0)!.brightness - full) < 0.001)
+		#expect(abs(scene.frame(point: key, at: Blink1.breathDuration / 2)!.brightness - KeyboardLight.dimShare * full) < 0.001)
+	}
 }

@@ -215,11 +215,17 @@ final class SessionStore: ObservableObject {
 		didSet {
 			let kept = hiddenStates.filter { sessions[$0.key]?.shownState == $0.value }
 			if kept.count != hiddenStates.count { hiddenStates = kept }
+			updateLetters()
 		}
 	}
 	/// The sessions that the user removed from the card, with their shown state at that time. A session comes back
 	/// when its shown state changes.
-	@Published private(set) var hiddenStates: [String: SessionState] = [:]
+	@Published private(set) var hiddenStates: [String: SessionState] = [:] {
+		didSet { updateLetters() }
+	}
+	/// The letter key of each session on the keyboard, as an index in ``NuPhyKeyboard/letterKeys``. A session keeps its
+	/// letter while it is on the card and not ended.
+	@Published private(set) var letters: [String: Int] = [:]
 	/// The Claude tab that the user looks at. Its session gets no notification.
 	private(set) var focusedTab: FocusedTab?
 
@@ -241,6 +247,24 @@ final class SessionStore: ObservableObject {
 	/// The sessions of the card, without the hidden ones.
 	var sortedSessions: [Session] {
 		sessions.values.filter { hiddenStates[$0.id] == nil }.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
+	}
+
+	/// The letters of `old` for the sessions that are still in `ids`. Each new session in `ids` gets the first free one of
+	/// `count` letters, in the order of `ids`. Without a free letter, a session gets none.
+	static func letters(keeping old: [String: Int], for ids: [String], count: Int) -> [String: Int] {
+		var letters = old.filter { ids.contains($0.key) }
+		for id in ids where letters[id] == nil {
+			let used = Set(letters.values)
+			guard let free = (0..<count).first(where: { !used.contains($0) }) else { break }
+			letters[id] = free
+		}
+		return letters
+	}
+
+	private func updateLetters() {
+		let ids = sortedSessions.filter { $0.shownState != .ended }.map(\.id)
+		let letters = Self.letters(keeping: letters, for: ids, count: NuPhyKeyboard.letterKeys.count)
+		if letters != self.letters { self.letters = letters }
 	}
 
 	func handle(_ data: Data) {

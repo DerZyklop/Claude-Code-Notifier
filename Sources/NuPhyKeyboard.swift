@@ -20,6 +20,9 @@ final class NuPhyKeyboard {
 	static let keyCount = 84
 	static let firstRow = rows[0]
 	static let secondRow = rows[1]
+	/// The letter keys row by row from the bottom: Z to M, A to L, Q to P. The fourth row runs from right to left, so A
+	/// is its second last LED.
+	static let letterKeys = Array(61...67) + Array((50...58).reversed()) + Array(32...41)
 	/// The key at the right end of each row.
 	static let rightEnds = rows.enumerated().map { index, row in index.isMultiple(of: 2) ? row.upperBound - 1 : row.lowerBound }
 	/// The left edge of each key, by LED, from `rgb_matrix.layout`.
@@ -69,6 +72,9 @@ final class NuPhyKeyboard {
 	private var device: IOHIDDevice?
 	/// The color that the app sent last for each LED, `nil` for the normal effect. The app sends only changes.
 	private var sent = [[UInt8]?](repeating: nil, count: ledCount)
+	/// A report did not reach the keyboard, so ``sent`` can be wrong. The next ``show(_:)`` clears all keys and sends
+	/// all colors again.
+	private(set) var isOutOfSync = false
 
 	init() {
 		IOHIDManagerSetDeviceMatching(manager, [
@@ -95,12 +101,14 @@ final class NuPhyKeyboard {
 	func show(_ lights: [Int: (color: NSColor, brightness: Double)]) {
 		var colors = [[UInt8]?](repeating: nil, count: Self.ledCount)
 		for (led, light) in lights { colors[led] = Self.rgb(light.color, brightness: light.brightness) }
-		if Self.releases(from: sent, to: colors) {
-			send(Self.report(.clear))
+		var isSent = true
+		if isOutOfSync || Self.releases(from: sent, to: colors) {
+			isSent = send(Self.report(.clear))
 			sent = sent.map { _ in nil }
 		}
-		for report in Self.reports(from: sent, to: colors) { send(report) }
+		for report in Self.reports(from: sent, to: colors) { isSent = send(report) && isSent }
 		sent = colors
+		isOutOfSync = !isSent
 	}
 
 	/// Whether an LED goes back to the normal effect. The only way is the clear command, which clears all LEDs.
@@ -110,8 +118,8 @@ final class NuPhyKeyboard {
 
 	/// Gives all keys the normal effect of the keyboard back.
 	func clear() {
-		guard sent.contains(where: { $0 != nil }) else { return }
-		send(Self.report(.clear))
+		guard isOutOfSync || sent.contains(where: { $0 != nil }) else { return }
+		isOutOfSync = !send(Self.report(.clear))
 		sent = sent.map { _ in nil }
 	}
 
@@ -148,7 +156,7 @@ final class NuPhyKeyboard {
 	/// Clears all keys first, also the colors of an app that crashed, because ``clear()`` skips keys without a color.
 	private func connect(_ device: IOHIDDevice) {
 		self.device = device
-		send(Self.report(.clear))
+		isOutOfSync = !send(Self.report(.clear))
 		sent = sent.map { _ in nil }
 		onConnect?()
 	}
@@ -158,8 +166,12 @@ final class NuPhyKeyboard {
 		self.device = nil
 	}
 
-	private func send(_ report: [UInt8]) {
-		guard let device else { return }
-		IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0, report, report.count)
+	/// Whether the report reached the keyboard.
+	@discardableResult
+	private func send(_ report: [UInt8]) -> Bool {
+		guard let device else { return false }
+		let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0, report, report.count)
+		if result != kIOReturnSuccess { NSLog("NuPhy keyboard: report 0x%02X failed with 0x%08X", report[2], result) }
+		return result == kIOReturnSuccess
 	}
 }
