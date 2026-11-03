@@ -670,10 +670,19 @@ extension ReportFixture {
 		let old = "# Morning overview\n\n## 1 × Optional Work\n\n- [ ] `O1` A\n    - [ ] `O1a` A1\n    - [ ] `O1b` Mine\n- [x] `O2` B\n"
 			+ "    - [ ] `O2a` B1\n- [x] `O3` C\n- [x] `O4` Mine and done\n- [ ] `O5` 🏓 Not changed\n\n## My Notes\n\n- [ ] Other note\n"
 		#expect(MorningOverview.keptTasks(in: old, lastWritten: written.replacingOccurrences(of: "C\n", with: "C\n- [ ] Not changed\n")) == [
-			.init(section: "Optional Work", lines: ["- [ ] `O1` A", "    - [ ] `O1a` A1", "    - [ ] `O1b` Mine"]),
+			.init(section: "Optional Work", lines: ["- [ ] `O1` A", "    - [ ] `O1b` Mine"]),
 			.init(section: "Optional Work", lines: ["- [x] `O2` B", "    - [ ] `O2a` B1"]),
 		])
 		#expect(MorningOverview.keptTasks(in: old, lastWritten: nil) == [.init(section: "Optional Work", lines: ["- [x] `O2` B", "    - [ ] `O2a` B1"])])
+	}
+
+	@Test func keptTaskKeepsOnlyTheLinesOfTheUserAndTheirParentsAndSubItems() {
+		let written = "# Morning overview\n\n## 1 × My Open PRs\n\n- [ ] `M1` A\n    - [ ] `M1a` A1\n    - [ ] `M1b` Old words\n"
+		let old = "# Morning overview\n\n## 1 × My Open PRs\n\n- [ ] `M1` A\n    - [ ] `M1a` A1\n\t    - [x] Mine\n\t\t    - [ ] Sub of mine\n"
+			+ "    - [ ] `M1b` Old words\n"
+		#expect(MorningOverview.keptTasks(in: old, lastWritten: written) == [
+			.init(section: "My Open PRs", lines: ["- [ ] `M1` A", "    - [ ] `M1a` A1", "\t    - [x] Mine", "\t\t    - [ ] Sub of mine"]),
+		])
 	}
 
 	@Test func keptTasksReplaceTheTaskOfClaudeAndGetItsNewSubItems() {

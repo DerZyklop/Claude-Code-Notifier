@@ -399,27 +399,45 @@ enum MorningOverview {
 		return blocks
 	}
 
-	/// The tasks in the sections of Claude in `old` that the next overview keeps as they are: a task with a line that the
-	/// user added, and a ticked task with a sub-item that is not ticked. A line is added when `lastWritten` does not have
-	/// it. Without `lastWritten`, no line counts as added. A ticked task without an open sub-item goes away.
+	/// The tasks in the sections of Claude in `old` that the next overview keeps: a task with a line that the user added,
+	/// and a ticked task with a sub-item that is not ticked. A line is added when `lastWritten` does not have it. Without
+	/// `lastWritten`, no line counts as added. A ticked task without an open sub-item goes away. Of a kept task, only the
+	/// title line, the added and ticked lines, their parents and their sub-items stay. The new sub-items of Claude replace
+	/// the other lines.
 	static func keptTasks(in old: String, lastWritten: String?) -> [KeptTask] {
 		let written = lastWritten.map { Set($0.components(separatedBy: "\n").compactMap(taskKey)) }
 		return old.components(separatedBy: "\n## ").dropFirst().filter { !appSections.contains(title(of: $0)) }.flatMap { part in
 			let lines = part.components(separatedBy: "\n")
-			return taskBlocks(in: part).map { Array(lines[$0]) }.filter { block in
-				let isDoneWithOpenChild = { (index: Int) in
-					isTicked(block[index])
-						&& block[(index + 1)...].prefix { indent(of: $0) > indent(of: block[index]) }
-							.contains { $0.range(of: #"^\s*- \[ \] "#, options: .regularExpression) != nil }
-				}
+			return taskBlocks(in: part).map { Array(lines[$0]) }.compactMap { block -> KeptTask? in
 				// A ticked task without an open sub-item is done, also when the user wrote it.
-				if isTicked(block[0]), !isDoneWithOpenChild(0) { return false }
-				return block.indices.contains { index in
-					guard let key = taskKey(of: block[index]) else { return false }
-					return written.map { !$0.contains(key) } ?? false || isDoneWithOpenChild(index)
-				}
-			}.map { KeptTask(section: title(of: part), lines: $0) }
+				if isTicked(block[0]), !isTickedWithOpenChild(0, in: block) { return nil }
+				let reasons = block.indices.filter { isReason($0, in: block, written: written) }
+				guard !reasons.isEmpty else { return nil }
+				let lines = block.indices.filter { index in
+					index == 0 || reasons.contains { reason in
+						reason == index || isDescendant(index, of: reason, in: block) || isDescendant(reason, of: index, in: block)
+					}
+				}.map { block[$0] }
+				return KeptTask(section: title(of: part), lines: lines)
+			}
 		}
+	}
+
+	/// The line at `index` makes the task stay: the user added it, or it is ticked and has a sub-item that is not ticked.
+	private static func isReason(_ index: Int, in block: [String], written: Set<String>?) -> Bool {
+		guard let key = taskKey(of: block[index]) else { return false }
+		return written.map { !$0.contains(key) } ?? false || isTickedWithOpenChild(index, in: block)
+	}
+
+	/// The line at `index` is ticked and has a sub-item that is not ticked.
+	private static func isTickedWithOpenChild(_ index: Int, in block: [String]) -> Bool {
+		isTicked(block[index]) && block[(index + 1)...].prefix { indent(of: $0) > indent(of: block[index]) }
+			.contains { $0.range(of: #"^\s*- \[ \] "#, options: .regularExpression) != nil }
+	}
+
+	/// The line at `index` is a sub-item of the line at `parent`, at any depth.
+	private static func isDescendant(_ index: Int, of parent: Int, in block: [String]) -> Bool {
+		index > parent && block[(parent + 1)...index].allSatisfy { indent(of: $0) > indent(of: block[parent]) }
 	}
 
 	/// The overview with each task in `kept` in its section. It replaces the task of Claude with the same title line, and
