@@ -40,10 +40,14 @@ enum MorningOverview {
 		let pullRequests: [[String: Any]]
 		do {
 			let bitbucket = try await report.bitbucket()
-			pullRequests = try await Self.pullRequests(bitbucket, me: me)
+			pullRequests = try await Self.pullRequests(bitbucket, me: me).map { pullRequest in
+				var pullRequest = pullRequest
+				pullRequest["isStale"] = isStale(pullRequest, now: system.now())
+				return pullRequest
+			}
 			data["pullRequests"] = pullRequests
 			appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
-			appData[staleKey] = ids(of: pullRequests.filter { isStale($0, now: system.now()) })
+			appData[staleKey] = ids(of: pullRequests.filter { $0["isStale"] as? Bool == true })
 			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
 		} catch let error as URLError {

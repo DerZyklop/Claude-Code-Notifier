@@ -14,6 +14,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - A PR with `draft: true` goes only in »Draft PRs«. Never put a draft in »Their Open PRs« or »My Open PRs«.
    - Take the PRs only from the JSON. A PR of the old overview that the JSON does not have is not open for the user.
    - Use the unresolved tasks and the newest comments of each PR to find the next action.
+   - If a PR has `isMyTurn: false` and `isStale: false`, the next step is not for the user. Write no next action for the PR, also no action for later, for example »If Rui does not review it by tomorrow noon, ask Rui for a review.« Write only the title line. A PR with `isStale: true` can get a reminder to the colleague as its next action.
    - Do not write 🏓 or ⌛. The app puts 🏓 before the link of a PR where the next step is not for the user. It puts ⌛ before the link of a PR that nobody changed for 24 hours.
    - If a PR has `hasMergeConflict: true`, its task starts with this next action: »Merge `<destination branch>` into the branch and solve the merge conflict.« Take the branch from `destination.branch.name`. This applies in each section that names the PR.
 3. The tickets of the sprint. Use the Jira tools of the Atlassian MCP:
@@ -109,7 +110,7 @@ Rules:
 - Copy the description line below »Optional Work« exactly as shown.
 - If the ticket of a task is blocked, write 🚫 before the first link of the title line: ``- [ ] 🚫 [`#1234`](<PR URL>) [PROJ-123](<ticket URL>) Short title``. A ticket is blocked if its Jira state is »Blocked«, or if it has an »is blocked by« link to a ticket that is not »Done«. Use the links and states that you already have. Write no other sign before a link.
 - Write no IDs for the tasks. The app adds an ID like `M2` or `M2a` to each task and each next action.
-- Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items.
+- Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items. A task with no next action is also only one line.
   - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
   - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from the Jira site URL.
   - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
