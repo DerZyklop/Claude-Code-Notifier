@@ -5,22 +5,6 @@ import SwiftUI
 import Testing
 @testable import ClaudeCodeNotifier
 
-/// The red, green, blue and alpha of the color in sRGB, in the given appearance.
-@MainActor
-private func components(_ color: NSColor, in name: NSAppearance.Name) throws -> [Double] {
-	let appearance = try #require(NSAppearance(named: name))
-	var resolved: NSColor?
-	appearance.performAsCurrentDrawingAppearance {
-		resolved = color.usingColorSpace(.sRGB)
-	}
-	let color = try #require(resolved)
-	return [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent]
-}
-
-private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
-	a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < 0.001 }
-}
-
 /// Measures the card with one session per state, each in its own folder, or in the folder of `cwds`. The store and the setup use a fake system, and nothing writes to the defaults.
 @MainActor
 private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> NSSize {
@@ -141,30 +125,20 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(SessionState.asksYou.color == .orange)
 	}
 
-	@Test func workingIsTheAccentColor() {
-		#expect(SessionState.working.color == .accentColor)
+	@Test func workingIsTheSegmentGreenOfTheWave() {
+		#expect(SessionState.working.color == Color(nsColor: Spinner.segmentColor(of: Spinner.color)))
 	}
 
 	@Test func endedIsSecondary() {
 		#expect(SessionState.ended.color == .secondary)
 	}
 
-	@Test func yourTurnIsTheGreen() throws {
-		let color = NSColor(SessionState.yourTurn.color)
-		#expect(isClose(try components(color, in: .aqua), [0.10, 0.56, 0.24, 1]))
-		#expect(isClose(try components(color, in: .darkAqua), [0.30, 0.87, 0.45, 1]))
+	@Test func yourTurnIsWhite() {
+		#expect(SessionState.yourTurn.color == .white)
 	}
 
 	@Test func eachStateHasItsOwnColor() {
 		let colors = [SessionState.asksYou, .yourTurn, .working, .ended].map(\.color)
 		#expect(Set(colors).count == 4)
-	}
-
-	@Test func greenIsDarkerInLightMode() throws {
-		#expect(isClose(try components(SessionState.yourTurn.yourTurnGreen, in: .aqua), [0.10, 0.56, 0.24, 1]))
-	}
-
-	@Test func greenIsBrighterInDarkMode() throws {
-		#expect(isClose(try components(SessionState.yourTurn.yourTurnGreen, in: .darkAqua), [0.30, 0.87, 0.45, 1]))
 	}
 }
