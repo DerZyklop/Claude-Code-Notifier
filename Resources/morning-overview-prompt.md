@@ -66,6 +66,7 @@ Print only this Markdown, with no text before or after it:
 # Morning overview
 
 Updated: YYYY-MM-DD HH:MM
+Total open tasks: N
 
 ## Their Open PRs
 
@@ -80,14 +81,17 @@ Updated: YYYY-MM-DD HH:MM
 
 ## Remaining Tickets in this Sprint
 
+- [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic - The only task.
 - [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic
     - [ ] The next action.
     - [ ] The action after it.
 
 ## Open Branches
 
-- [ ] `feature/old-idea` Short title of the topic
+- [ ] `feature/idea` Short title of the topic - The only action.
+- [ ] `feature/other-idea` Short title of the topic
     - [ ] The next action.
+    - [ ] The action after that.
 
 ## Optional Work
 
