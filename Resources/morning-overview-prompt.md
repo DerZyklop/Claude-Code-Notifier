@@ -92,7 +92,6 @@ Updated: YYYY-MM-DD HH:MM
 Open work that no PR, ticket or branch covers: uncommitted changes, unpushed commits, plan files that are not yet mentioned and handover files, follow-ups in the memory, and unfinished sessions of the last 3 days.
 
 - [ ] Short title of the topic
-    - [ ] The next action.
 - [ ] Solve the open findings of [review.md](file:///…/review.md)
     - [ ] The next action for the first finding that still holds.
 
