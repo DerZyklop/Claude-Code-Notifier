@@ -81,7 +81,7 @@ The file has three sections:
   that names a PR or a Slack message that is not in the data.
 
 The prompt is `Resources/didi-prompt.md`. For Slack, the login shell must set `SLACK_USER_TOKEN`. Without it, the
-file says »Slack not available«. To get the token:
+update fails and does not change the file. To get the token:
 
 1. On api.slack.com/apps, create an app »From scratch« in your workspace.
 2. Add the User Token Scopes `search:read`, `users:read`, `channels:read`, `groups:read`, `im:read` and `mpim:read`.

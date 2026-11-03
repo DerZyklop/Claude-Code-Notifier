@@ -218,19 +218,19 @@ extension ReportFixture {
 		#expect(DiDi.readyBody(text, Report.Input(data: [:])) == "0 merges, 1 Slack points. Click to open the file.")
 	}
 
-	@Test func missingSlackTokenStillWritesTheMerges() async throws {
+	@Test func missingSlackTokenStopsTheRun() async throws {
 		var environment = ReportFixture.credentials
 		environment[Slack.tokenVariable] = nil
 		let fixture = try ReportFixture(didi: claudeAnswer(slack: []), environment: environment)
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
-		#expect(fixture.report.failure == nil)
-		#expect(try fixture.input["slackError"] as? String == "SLACK_USER_TOKEN is not set in the login shell.")
-		#expect(try fixture.text.contains("## Slack\n\nSlack not available: SLACK_USER_TOKEN is not set in the login shell.\n"))
+		#expect(fixture.claudeRun == nil)
+		#expect(fixture.report.failure == "SLACK_USER_TOKEN is not set in the login shell.")
+		#expect(fixture.log.posts.map(\.identifier) == ["didi-failed"])
 	}
 
 	@Test func bothSourcesFailingStopsTheRun() async throws {
-		let fixture = try ReportFixture(didi: claudeAnswer(), environment: [:])
+		let fixture = try ReportFixture(didi: claudeAnswer(), status: 500)
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		#expect(fixture.claudeRun == nil)

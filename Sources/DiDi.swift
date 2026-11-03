@@ -67,9 +67,16 @@ enum DiDi {
 	// MARK: - Data
 
 	/// The merged pull requests of the user and the Slack messages of the sprint. A failed source leaves its error in the
-	/// data. When both fail, or when the network fails, the run does not start, so that the next try can work.
+	/// data. When both fail, when the network fails, or when the Slack token is missing, the run does not start, so that
+	/// the next try can work.
 	@MainActor
 	static func collect(_ report: Report) async throws -> Report.Input {
+		let slack: Slack
+		do {
+			slack = try await report.slack()
+		} catch {
+			throw Report.Failure("\(error)")
+		}
 		let system = report.system
 		let now = system.now()
 		let start = sprintStart(before: now, calendar: system.calendar)
@@ -87,7 +94,7 @@ enum DiDi {
 			errors.append("Bitbucket: \(error)")
 		}
 		do {
-			let (messages, isCut) = try await report.slack().messages(since: start, calendar: system.calendar)
+			let (messages, isCut) = try await slack.messages(since: start, calendar: system.calendar)
 			data["slack"] = slackData(messages, isCut: isCut, formatter: formatter)
 		} catch let error as URLError {
 			throw Report.Failure("No connection to Slack: \(error.localizedDescription)")
