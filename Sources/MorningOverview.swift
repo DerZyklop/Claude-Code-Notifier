@@ -302,14 +302,18 @@ enum MorningOverview {
 		return overview.replacingCharacters(in: section, with: "\n" + kept + "## ")
 	}
 
-	/// The text without the ticked tasks that have no sub-item. A sub-item is a next line with more indent.
+	/// The text without the ticked tasks that have no sub-item. A sub-item is a next line with more indent. The lines go from
+	/// the bottom up, so that a ticked task whose sub-items are all ticked goes away too.
 	static func withoutDoneLeafTasks(in text: String) -> String {
-		let lines = text.components(separatedBy: "\n")
-		return lines.indices.filter { index in
-			guard lines[index].range(of: #"^\s*[-*] \[[xX]\] "#, options: .regularExpression) != nil else { return true }
-			let next = lines.dropFirst(index + 1).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-			return next.map { indent(of: $0) > indent(of: lines[index]) } ?? false
-		}.map { lines[$0] }.joined(separator: "\n")
+		var kept: [String] = []
+		for line in text.components(separatedBy: "\n").reversed() {
+			if line.range(of: #"^\s*[-*] \[[xX]\] "#, options: .regularExpression) != nil {
+				let next = kept.last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+				guard let next, indent(of: next) > indent(of: line) else { continue }
+			}
+			kept.append(line)
+		}
+		return kept.reversed().joined(separator: "\n")
 	}
 
 	/// The key of the IDs of the pull requests where it is not the turn of the user, in ``Report/Input/appData``.
@@ -324,6 +328,8 @@ enum MorningOverview {
 	static let staleTime: TimeInterval = 24 * 60 * 60
 	/// The signs that the app puts before the link of a pull request, in their order.
 	static let marks = [othersTurnMark, staleMark]
+	/// The sign that Claude puts before the first link of a task whose ticket is blocked. It comes after ``marks``.
+	static let blockedMark = "🚫"
 	/// The sections where a pull request gets ``marks``.
 	static let turnSections = ["Their Open PRs", "My Open PRs"]
 
@@ -337,18 +343,20 @@ enum MorningOverview {
 	}
 
 	/// The overview with ``othersTurnMark`` and ``staleMark`` before the link of each task in ``turnSections`` whose pull
-	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away.
+	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away, but ``blockedMark`` stays.
 	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, in overview: String) -> String {
-		let anyMark = marks.joined(separator: "|")
-		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)(?:(?:\#(anyMark)) )*(\[`#(\d+)`\])"#)
+		let anyMark = (marks + [blockedMark]).joined(separator: "|")
+		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)((?:(?:\#(anyMark)) )*)(\[`#(\d+)`\])"#)
 		else { return overview }
 		var parts = overview.components(separatedBy: "\n## ")
 		for index in parts.indices.dropFirst() where turnSections.contains(title(of: parts[index])) {
 			parts[index] = parts[index].components(separatedBy: "\n").map { line in
 				guard let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-					let start = Range(match.range(at: 1), in: line), let link = Range(match.range(at: 2), in: line),
-					let id = Range(match.range(at: 3), in: line).flatMap({ Int(line[$0]) }) else { return line }
+					let start = Range(match.range(at: 1), in: line), let old = Range(match.range(at: 2), in: line),
+					let link = Range(match.range(at: 3), in: line),
+					let id = Range(match.range(at: 4), in: line).flatMap({ Int(line[$0]) }) else { return line }
 				let mark = (othersTurn.contains(id) ? othersTurnMark + " " : "") + (stale.contains(id) ? staleMark + " " : "")
+					+ (line[old].contains(blockedMark) ? blockedMark + " " : "")
 				return line[start] + mark + line[link.lowerBound...]
 			}.joined(separator: "\n")
 		}
@@ -362,11 +370,11 @@ enum MorningOverview {
 		var lines: [String]
 	}
 
-	/// The text of a task line without its indent, checkbox, ID and ``marks``, or `nil` for another line.
+	/// The text of a task line without its indent, checkbox, ID, ``marks`` and ``blockedMark``, or `nil` for another line.
 	static func taskKey(of line: String) -> String? {
 		guard let range = line.range(of: #"^\s*- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?"#, options: .regularExpression) else { return nil }
 		var rest = line[range.upperBound...]
-		while let mark = marks.first(where: { rest.hasPrefix($0 + " ") }) { rest = rest.dropFirst(mark.count + 1) }
+		while let mark = (marks + [blockedMark]).first(where: { rest.hasPrefix($0 + " ") }) { rest = rest.dropFirst(mark.count + 1) }
 		return rest.trimmingCharacters(in: .whitespaces)
 	}
 

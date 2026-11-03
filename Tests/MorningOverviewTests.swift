@@ -658,6 +658,12 @@ extension ReportFixture {
 			== "# Morning overview\n\n## My Notes\n\nText\n- [x] Kept\n    - [ ] Sub\n- [ ] Open\n\n## Daily\n\n## Optional Work\n")
 	}
 
+	@Test func myNotesLoseADoneTaskWhoseSubItemsAreAllDone() {
+		let old = "# Morning overview\n\n## My Notes\n\n- [x] Gone\n\t- [x] Sub\n\t\t- [x] Sub of sub\n- [x] Kept\n\t- [x] Sub\n\t\t- [ ] Open\n\n## Daily\n"
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: "# Morning overview\n\n## Optional Work\n")
+			== "# Morning overview\n\n## My Notes\n\n- [x] Kept\n\t- [x] Sub\n\t\t- [ ] Open\n\n## Daily\n\n## Optional Work\n")
+	}
+
 	@Test func addedTasksAndDoneTasksWithAnOpenSubItemAreKept() {
 		let written = "# Morning overview\n\n## 1 × Optional Work\n\n- [ ] `O1` A\n    - [ ] `O1a` A1\n- [ ] `O2` B\n    - [ ] `O2a` B1\n"
 			+ "- [ ] `O3` C\n\n## My Notes\n\n- [ ] Note\n"
@@ -789,8 +795,14 @@ extension ReportFixture {
 		#expect(MorningOverview.isStale(["updated_on": updated], now: now) == isStale)
 	}
 
+	@Test func blockedMarkOfClaudeStaysAfterTheMarksOfTheApp() {
+		let overview = "# Morning overview\n\n## 2 × My Open PRs\n\n- [ ] `M1` 🚫 [`#1`](https://x) A\n- [ ] `M2` 🏓 🚫 [`#2`](https://x) B\n"
+		#expect(MorningOverview.withMarks(othersTurn: [1], stale: [1], in: overview)
+			== "# Morning overview\n\n## 2 × My Open PRs\n\n- [ ] `M1` 🏓 ⌛ 🚫 [`#1`](https://x) A\n- [ ] `M2` 🚫 [`#2`](https://x) B\n")
+	}
+
 	@Test func taskKeyIgnoresTheMarks() {
-		#expect(MorningOverview.taskKey(of: "- [ ] `M1` 🏓 ⌛ [`#1`](https://x) A") == MorningOverview.taskKey(of: "- [ ] [`#1`](https://x) A"))
+		#expect(MorningOverview.taskKey(of: "- [ ] `M1` 🏓 ⌛ 🚫 [`#1`](https://x) A") == MorningOverview.taskKey(of: "- [ ] [`#1`](https://x) A"))
 	}
 
 	@Test func overviewNeedsTheTitleAndTheDate() {

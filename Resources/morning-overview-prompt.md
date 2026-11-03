@@ -106,6 +106,7 @@ Rules:
 - Use the time from the facts for the `Updated:` line.
 - Write the section headings exactly as shown, without a number. The app adds the number of tasks to each heading.
 - Copy the description line below »Optional Work« exactly as shown.
+- If the ticket of a task is blocked, write 🚫 before the first link of the title line: ``- [ ] 🚫 [`#1234`](<PR URL>) [PROJ-123](<ticket URL>) Short title``. A ticket is blocked if its Jira state is »Blocked«, or if it has an »is blocked by« link to a ticket that is not »Done«. Use the links and states that you already have. Write no other sign before a link.
 - Write no IDs for the tasks. The app adds an ID like `M2` or `M2a` to each task and each next action.
 - Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items.
   - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
