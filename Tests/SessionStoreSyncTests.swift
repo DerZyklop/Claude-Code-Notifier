@@ -437,7 +437,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 		@Test func anArchivedSessionGivesItsLetterFree() throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }
-			fixture.add(.yourTurn, id: "a")
+			fixture.add(.working, id: "a")
 			fixture.add(.working, id: "b")
 			#expect(Set(fixture.store.letters.keys) == ["a", "b"])
 			fixture.fake[\.archived] = ["a"]

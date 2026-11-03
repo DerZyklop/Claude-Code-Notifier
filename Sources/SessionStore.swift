@@ -263,7 +263,8 @@ final class SessionStore: ObservableObject {
 	}
 
 	private func updateLetters() {
-		let ids = sortedSessions.map(\.id)
+		// A new chat gets its letter with the first prompt.
+		let ids = sortedSessions.filter { letters[$0.id] != nil || $0.title != nil || $0.isBusy }.map(\.id)
 		let letters = Self.letters(keeping: letters, for: ids, count: NuPhyKeyboard.letterKeys.count)
 		if letters != self.letters { self.letters = letters }
 	}

@@ -668,6 +668,17 @@ private struct Fixture {
 		#expect(fixture.store.letters == ["third": 2])
 	}
 
+	@Test func aNewChatGetsItsLetterWithTheFirstPrompt() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		fixture.handle("SessionStart")
+		#expect(fixture.store.letters.isEmpty)
+		fixture.handle("UserPromptSubmit")
+		#expect(fixture.store.letters == ["s1": 0])
+		fixture.handle("Stop")
+		#expect(fixture.store.letters == ["s1": 0])
+	}
+
 	@Test func removeEndedKeepsTheOtherSessions() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
