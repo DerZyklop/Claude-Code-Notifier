@@ -224,7 +224,8 @@ final class SessionStore: ObservableObject {
 		didSet { updateLetters() }
 	}
 	/// The letter key of each session on the keyboard, as an index in ``NuPhyKeyboard/letterKeys``. A session keeps its
-	/// letter while it is on the card and not ended.
+	/// letter while it is on the card, also when it ends, because VS Code ends and restarts an idle session when you
+	/// open its tab.
 	@Published private(set) var letters: [String: Int] = [:]
 	/// The Claude tab that the user looks at. Its session gets no notification.
 	private(set) var focusedTab: FocusedTab?
@@ -262,7 +263,7 @@ final class SessionStore: ObservableObject {
 	}
 
 	private func updateLetters() {
-		let ids = sortedSessions.filter { $0.shownState != .ended }.map(\.id)
+		let ids = sortedSessions.map(\.id)
 		let letters = Self.letters(keeping: letters, for: ids, count: NuPhyKeyboard.letterKeys.count)
 		if letters != self.letters { self.letters = letters }
 	}

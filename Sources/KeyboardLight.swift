@@ -9,10 +9,11 @@ import AppKit
 /// - Both side bars show the red ring of the bubble in each round.
 /// - The first 2 keys of the first two rows and the left bar show a steady purple while a report is unread.
 /// - The letter keys show the sessions of the card, each on its own letter, see ``SessionStore/letters``. The colors are
-///   those of their icons: a green pulse while it works, white on your turn, orange while it asks you.
+///   those of their icons: a green pulse while it works, a half bright white on your turn, orange while it asks you,
+///   a dim white after it ended.
 ///
-/// Where areas overlap, the signal first in ``LightSignal`` wins. Everything else shows the normal effect of the
-/// keyboard. A keyboard that you plug in later gets the current colors too.
+/// Where areas overlap, the signal first in ``LightSignal`` wins. An LED goes off when its signal ends. Everything
+/// else shows the normal effect of the keyboard. A keyboard that you plug in later gets the current colors too.
 @MainActor
 final class KeyboardLight {
 	static let shared = KeyboardLight()
@@ -62,9 +63,9 @@ final class KeyboardLight {
 			let key = NuPhyKeyboard.letterKeys[letter]
 			switch state {
 			case .working: colors[key] = SessionLight(color: Spinner.color, pulses: true)
-			case .yourTurn: colors[key] = SessionLight(color: .white)
+			case .yourTurn: colors[key] = SessionLight(color: .white, brightness: 0.5)
 			case .asksYou: colors[key] = SessionLight(color: LightSignal.orange)
-			case .ended: break
+			case .ended: colors[key] = SessionLight(color: .white, brightness: dimShare)
 			}
 		}
 		return colors
@@ -101,12 +102,8 @@ final class KeyboardLight {
 		}
 		let now = CACurrentMediaTime()
 		let frames = scene.points.compactMap { led in scene.frame(point: led, at: now).map { (led, $0) } }
-		if frames.isEmpty {
-			keyboard.clear()
-		} else {
-			// An LED without a frame shows the normal effect of the keyboard.
-			keyboard.show(Dictionary(uniqueKeysWithValues: frames.map { led, frame in (led, (color: frame.color, brightness: frame.brightness)) }))
-		}
+		// An LED without a frame goes off, or shows the normal effect of the keyboard if it never had a color.
+		keyboard.show(Dictionary(uniqueKeysWithValues: frames.map { led, frame in (led, (color: frame.color, brightness: frame.brightness)) }))
 		// A failed report needs the next frame to send all colors again.
 		if !scene.isMoving(at: now) && !keyboard.isOutOfSync {
 			stopTimer()

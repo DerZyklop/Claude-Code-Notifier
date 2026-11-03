@@ -247,6 +247,8 @@ struct LightMapping {
 /// The light of a session on its letter key, see ``SessionStore/letters``.
 struct SessionLight: Equatable {
 	var color: NSColor
+	/// The share of the full brightness of a steady light.
+	var brightness = 1.0
 	/// A working session pulses.
 	var pulses = false
 }
@@ -334,10 +336,10 @@ struct LightScene {
 		}
 	}
 
-	/// A steady light at full brightness, or a pulse in the rhythm of the wave between its dim share and full brightness.
+	/// A steady light at its brightness, or a pulse in the rhythm of the wave between its dim share and full brightness.
 	static func frame(of light: SessionLight, at now: Double) -> Frame {
 		let full = NuPhyKeyboard.fullBrightness
-		guard light.pulses else { return Frame(color: light.color, brightness: full) }
+		guard light.pulses else { return Frame(color: light.color, brightness: light.brightness * full) }
 		let pulse = Blink1.Breath(color: light.color, brightness: KeyboardLight.dimShare * full...full)
 		let phase = (now / Blink1.breathDuration).truncatingRemainder(dividingBy: 1)
 		return Frame(color: light.color, brightness: pulse.brightness(at: abs(1 - 2 * phase)))

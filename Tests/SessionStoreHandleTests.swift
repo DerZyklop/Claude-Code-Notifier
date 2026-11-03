@@ -650,18 +650,22 @@ private struct Fixture {
 		#expect(SessionStore.letters(keeping: [:], for: ["a", "b", "c"], count: 2) == ["a": 0, "b": 1])
 	}
 
-	@Test func anEndedSessionGivesItsLetterFree() throws {
+	@Test func anEndedSessionKeepsItsLetterUntilItLeavesTheCard() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
 		try fixture.add(.working, id: "first")
 		try fixture.add(.working, id: "second")
 		#expect(fixture.store.letters == ["first": 0, "second": 1])
 		fixture.handle("SessionEnd", id: "first")
-		#expect(fixture.store.letters == ["second": 1])
 		try fixture.add(.working, id: "third")
-		#expect(fixture.store.letters == ["second": 1, "third": 0])
+		#expect(fixture.store.letters == ["first": 0, "second": 1, "third": 2])
+		// VS Code restarts an idle session when you open its tab.
+		fixture.handle("SessionStart", id: "first")
+		#expect(fixture.store.letters["first"] == 0)
 		fixture.store.hide("second")
-		#expect(fixture.store.letters == ["third": 0])
+		fixture.handle("SessionEnd", id: "first")
+		fixture.store.removeEnded()
+		#expect(fixture.store.letters == ["third": 2])
 	}
 
 	@Test func removeEndedKeepsTheOtherSessions() throws {

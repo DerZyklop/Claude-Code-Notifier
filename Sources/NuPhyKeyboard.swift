@@ -72,8 +72,7 @@ final class NuPhyKeyboard {
 	private var device: IOHIDDevice?
 	/// The color that the app sent last for each LED, `nil` for the normal effect. The app sends only changes.
 	private var sent = [[UInt8]?](repeating: nil, count: ledCount)
-	/// A report did not reach the keyboard, so ``sent`` can be wrong. The next ``show(_:)`` clears all keys and sends
-	/// all colors again.
+	/// A report did not reach the keyboard, so ``sent`` can be wrong. The next ``show(_:)`` sends all colors again.
 	private(set) var isOutOfSync = false
 
 	init() {
@@ -96,25 +95,28 @@ final class NuPhyKeyboard {
 		IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
 	}
 
-	/// Shows each LED of `lights` in its color, at its brightness from 0 to 1, or up to ``fullBrightness``. The LEDs
-	/// that are not in `lights` show the normal effect of the keyboard.
+	/// Shows each LED of `lights` in its color, at its brightness from 0 to 1, or up to ``fullBrightness``. An LED that
+	/// had a color and is not in `lights` goes off, see ``colors(from:to:)``. The other LEDs show the normal effect of
+	/// the keyboard.
 	func show(_ lights: [Int: (color: NSColor, brightness: Double)]) {
 		var colors = [[UInt8]?](repeating: nil, count: Self.ledCount)
 		for (led, light) in lights { colors[led] = Self.rgb(light.color, brightness: light.brightness) }
+		colors = Self.colors(from: sent, to: colors)
+		let old = isOutOfSync ? sent.map { _ in nil } : sent
 		var isSent = true
-		if isOutOfSync || Self.releases(from: sent, to: colors) {
-			isSent = send(Self.report(.clear))
-			sent = sent.map { _ in nil }
-		}
-		for report in Self.reports(from: sent, to: colors) { isSent = send(report) && isSent }
+		for report in Self.reports(from: old, to: colors) { isSent = send(report) && isSent }
 		sent = colors
 		isOutOfSync = !isSent
 	}
 
-	/// Whether an LED goes back to the normal effect. The only way is the clear command, which clears all LEDs.
-	static func releases(from old: [[UInt8]?], to new: [[UInt8]?]) -> Bool {
-		zip(old, new).contains { $0 != nil && $1 == nil }
+	/// The colors `new`, with black for each LED that had a color in `old` and has none in `new`. The only way back
+	/// to the normal effect is the clear command, and it clears all LEDs at once, so the other keys flicker.
+	static func colors(from old: [[UInt8]?], to new: [[UInt8]?]) -> [[UInt8]?] {
+		zip(old, new).map { old, new in new ?? old.map { _ in off } }
 	}
+
+	/// The LED values of an LED that is off.
+	static let off: [UInt8] = [0, 0, 0]
 
 	/// Gives all keys the normal effect of the keyboard back.
 	func clear() {

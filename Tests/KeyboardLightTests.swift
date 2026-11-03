@@ -48,15 +48,16 @@ struct NuPhyKeyboardTests {
 		#expect(NuPhyKeyboard.reports(from: old, to: old).isEmpty)
 	}
 
-	@Test func anLEDThatLosesItsColorNeedsAClear() {
+	@Test func anLEDThatLosesItsColorGoesOff() {
 		var old = [[UInt8]?](repeating: nil, count: 20)
 		old[3] = red
-		var new = old
-		#expect(!NuPhyKeyboard.releases(from: old, to: new))
-		new[3] = nil
-		#expect(NuPhyKeyboard.releases(from: old, to: new))
+		var new = [[UInt8]?](repeating: nil, count: 20)
 		new[5] = blue
-		#expect(NuPhyKeyboard.releases(from: [[UInt8]?](repeating: nil, count: 20), to: new) == false)
+		let colors = NuPhyKeyboard.colors(from: old, to: new)
+		#expect(colors[3] == NuPhyKeyboard.off)
+		#expect(colors[5] == blue)
+		#expect(colors.indices.filter { colors[$0] != nil } == [3, 5])
+		#expect(NuPhyKeyboard.reports(from: old, to: colors).map { Array($0.prefix(8)) } == [[0x07, 0x00, 0x41, 3, 1] + NuPhyKeyboard.off, [0x07, 0x00, 0x41, 5, 1] + blue])
 	}
 
 	@Test func sideLightsFitIntoOneRunOfTwelveInTwoReports() {
@@ -342,8 +343,8 @@ struct KeyboardLightSceneTests {
 	@Test func letterKeysShowTheirSessionsInTheColorsOfTheirIcons() {
 		let lights = KeyboardLight.sessionLights(of: [0: .working, 1: .yourTurn, 5: .asksYou, 3: .ended, 26: .working])
 		let keys = NuPhyKeyboard.letterKeys
-		#expect(lights == [keys[0]: SessionLight(color: Spinner.color, pulses: true), keys[1]: SessionLight(color: .white),
-			keys[5]: SessionLight(color: LightSignal.orange)])
+		#expect(lights == [keys[0]: SessionLight(color: Spinner.color, pulses: true),
+			keys[1]: SessionLight(color: .white, brightness: 0.5), keys[5]: SessionLight(color: LightSignal.orange), keys[3]: SessionLight(color: .white, brightness: KeyboardLight.dimShare)])
 	}
 
 	@Test func sessionKeysShowAboveTheWaveButBelowTheRing() {
