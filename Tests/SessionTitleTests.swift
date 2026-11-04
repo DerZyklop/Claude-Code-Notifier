@@ -412,3 +412,38 @@ private let startDate = Date(timeIntervalSince1970: 1_792_571_415.25)
 		}
 	}
 }
+
+@Suite struct SessionTitleLastActivityTests {
+	private func lastActivity(_ lines: [String]) throws -> Date? {
+		try withTranscript(jsonl(lines)) { SessionTitle.lastActivity(transcript: $0) }
+	}
+
+	@Test func missingFileHasNoActivity() {
+		#expect(SessionTitle.lastActivity(transcript: "/nonexistent/transcript.jsonl") == nil)
+	}
+
+	@Test func lastPromptOrAnswerIsTheActivity() throws {
+		let lines = [
+			#"{"type":"user","timestamp":"2026-10-21T08:30:00.000Z"}"#,
+			#"{"type":"assistant","timestamp":"2026-10-21T09:40:58.450Z"}"#,
+			#"{"type":"user","isMeta":true,"timestamp":"2026-10-21T15:00:00.000Z"}"#,
+			#"{"type":"attachment","timestamp":"2026-10-21T15:00:00.000Z"}"#,
+			#"{"type":"last-prompt"}"#,
+			"no json",
+		]
+		let expected = try #require(ISO8601DateFormatter.withFraction.date(from: "2026-10-21T09:40:58.450Z"))
+		#expect(try lastActivity(lines) == expected)
+	}
+
+	@Test func transcriptWithoutPromptHasNoActivity() throws {
+		#expect(try lastActivity([#"{"type":"summary","summary":"No time"}"#]) == nil)
+	}
+}
+
+private extension ISO8601DateFormatter {
+	static var withFraction: ISO8601DateFormatter {
+		let format = ISO8601DateFormatter()
+		format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+		return format
+	}
+}

@@ -44,6 +44,23 @@ enum SessionTitle {
 		return nil
 	}
 
+	/// The time of the last prompt or answer in the last 512 KiB of the transcript. `nil` while there is none. A new
+	/// process for an old session, e.g. when you open its tab in VS Code, adds no such line.
+	static func lastActivity(transcript path: String) -> Date? {
+		guard let handle = FileHandle.regularFile(atPath: path), let end = try? handle.seekToEnd() else { return nil }
+		defer { try? handle.close() }
+		try? handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
+		guard let data = try? handle.read(upToCount: 524_288) else { return nil }
+		let timestampKey = Data(#""timestamp""#.utf8)
+		for line in data.split(separator: UInt8(ascii: "\n")).reversed() where line.range(of: timestampKey) != nil {
+			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+				["user", "assistant"].contains(json["type"] as? String), json["isMeta"] as? Bool != true,
+				let timestamp = json["timestamp"] as? String, let date = timestampFormat.date(from: timestamp) else { continue }
+			return date
+		}
+		return nil
+	}
+
 	private static let timestampFormat: ISO8601DateFormatter = {
 		let format = ISO8601DateFormatter()
 		format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

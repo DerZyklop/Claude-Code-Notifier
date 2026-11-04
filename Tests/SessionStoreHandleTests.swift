@@ -189,6 +189,16 @@ private struct Fixture {
 		#expect(fixture.log.isEmpty)
 	}
 
+	@Test func sessionStartKeepsTheTimeOfTheLastPrompt() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let path = try fixture.transcript([#"{"type":"user","timestamp":"2026-11-04T09:40:58.000Z"}"#])
+		fixture.handle("SessionStart", ["transcript_path": path])
+		#expect(fixture.store.sessions["s1"]?.updated == Date(timeIntervalSince1970: 1_793_785_258))
+		fixture.handle("Stop", ["transcript_path": path])
+		#expect(try #require(fixture.store.sessions["s1"]).updated > Date(timeIntervalSince1970: 1_793_785_258))
+	}
+
 	@Test(arguments: ["UserPromptSubmit", "PostToolUse"])
 	func promptOrToolUseIsWorking(name: String) throws {
 		let fixture = try Fixture()

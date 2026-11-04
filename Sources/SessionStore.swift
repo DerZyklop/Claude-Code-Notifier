@@ -373,7 +373,9 @@ final class SessionStore: ObservableObject {
 		if title == nil || event.hook_event_name != "PostToolUse", let transcriptPath {
 			title = SessionTitle.read(transcript: transcriptPath) ?? title
 		}
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: Date(), transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [])
+		// A start is no activity of the user: VS Code starts a new process when you open the tab of an old session.
+		let updated = event.hook_event_name == "SessionStart" ? transcriptPath.flatMap(SessionTitle.lastActivity) ?? Date() : Date()
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: updated, transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [])
 		sessions[session.id] = session
 		return session
 	}
@@ -414,7 +416,7 @@ final class SessionStore: ObservableObject {
 		for process in running {
 			let previous = sessions[process.sessionID]
 			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: SessionTitle.start(transcript: process.transcriptPath) ?? process.started,
-				state: process.state ?? .yourTurn, updated: process.stateChanged, transcriptPath: process.transcriptPath,
+				state: process.state ?? .yourTurn, updated: SessionTitle.lastActivity(transcript: process.transcriptPath) ?? process.stateChanged, transcriptPath: process.transcriptPath,
 				title: SessionTitle.read(transcript: process.transcriptPath))
 			// VS Code restarts the process of a session now and then, so the process can start later than the session.
 			session.started = min(session.started, process.started)

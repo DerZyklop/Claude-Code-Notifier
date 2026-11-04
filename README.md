@@ -127,7 +127,7 @@ fails silently after at most 1 s.
 
 | Hook | State |
 |---|---|
-| `SessionStart` | your turn, no notification |
+| `SessionStart` | your turn, no notification. The last activity stays the time of the last prompt or answer. |
 | `UserPromptSubmit`, `PostToolUse` | working |
 | `PreToolUse` for `AskUserQuestion\|ExitPlanMode` | asks you |
 | `Notification` | asks you, one notification for each question or plan |
