@@ -10,7 +10,8 @@ import AppKit
 /// - The first 2 keys of the first two rows and the left bar show a steady purple while a report is unread.
 /// - The letter keys show the sessions of the card, each on its own letter, see ``SessionStore/letters``. The colors are
 ///   those of their icons: a green pulse while it works, a half bright white on your turn, orange while it asks you,
-///   a dim white after it ended.
+///   a dim white after it ended. A session without activity for ``idleLimit`` stays dark. A switch of the setup
+///   window turns the letter keys off.
 ///
 /// Where areas overlap, the signal first in ``LightSignal`` wins. An LED goes off when its signal ends. Everything
 /// else shows the normal effect of the keyboard. A keyboard that you plug in later gets the current colors too.
@@ -23,10 +24,15 @@ final class KeyboardLight {
 	static let dimShare = 0.2
 	/// The width of the segment, in the units of ``NuPhyKeyboard/keyX``: 4 keys.
 	static let segmentWidth = 4 * NuPhyKeyboard.keyWidth
+	/// A session without an event for this time stays dark on its letter key: 5 hours.
+	static let idleLimit: TimeInterval = 5 * 60 * 60
 
 	private let keyboard = NuPhyKeyboard()
 	private let mapping = LightMapping()
 	private var isEnabled = SettingsKey.isOn(SettingsKey.usesKeyboard)
+	private var showsSessions = SettingsKey.isOn(SettingsKey.showsSessionsOnKeyboard)
+	/// The session on each letter, from the last ``show(waves:isWaiting:hasUnread:sessions:)``.
+	private var sessions: [Int: Session] = [:]
 	private var scene = LightScene(device: .keyboard)
 	/// Sends the frames while the light moves.
 	private var timer: Timer?
@@ -40,12 +46,18 @@ final class KeyboardLight {
 		NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
 			MainActor.assumeIsolated { self?.settingsChanged() }
 		}
+		// A session can pass the idle limit without an event.
+		let idleTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+			MainActor.assumeIsolated { self?.updateSessionLights() }
+		}
+		RunLoop.main.add(idleTimer, forMode: .common)
 	}
 
 	/// Lets the keys show `waves`, the bubble while `isWaiting`, the mark of an unread report, and `sessions` on the
 	/// letter keys.
-	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: SessionState] = [:]) {
-		scene.sessionLights = Self.sessionLights(of: sessions)
+	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:]) {
+		self.sessions = sessions
+		scene.sessionLights = Self.sessionLights(of: showsSessions ? Self.shownSessions(sessions, at: Date()) : [:])
 		scene.waveStarts = scene.waveStarts.filter { waves.contains($0.key) }
 		for wave in waves where scene.waveStarts[wave] == nil { scene.waveStarts[wave] = CACurrentMediaTime() }
 		if isWaiting != scene.isWaiting {
@@ -53,6 +65,19 @@ final class KeyboardLight {
 			scene.ringStart = nil
 		}
 		scene.hasUnread = hasUnread
+		render()
+	}
+
+	/// The shown state of each session in `sessions` that is busy, or that had an event in the last ``idleLimit``.
+	static func shownSessions(_ sessions: [Int: Session], at now: Date) -> [Int: SessionState] {
+		sessions.filter { $0.value.isBusy || now.timeIntervalSince($0.value.updated) < idleLimit }.mapValues(\.shownState)
+	}
+
+	/// Sends the session lights again when a session passed the idle limit or the switch changed.
+	private func updateSessionLights() {
+		let lights = Self.sessionLights(of: showsSessions ? Self.shownSessions(sessions, at: Date()) : [:])
+		guard lights != scene.sessionLights else { return }
+		scene.sessionLights = lights
 		render()
 	}
 
@@ -86,6 +111,8 @@ final class KeyboardLight {
 
 	/// Follows the switch and the mapping of the setup window at once.
 	private func settingsChanged() {
+		showsSessions = SettingsKey.isOn(SettingsKey.showsSessionsOnKeyboard)
+		updateSessionLights()
 		let isEnabled = SettingsKey.isOn(SettingsKey.usesKeyboard), lights = mapping.lights(on: .keyboard)
 		guard isEnabled != self.isEnabled || lights != scene.lights else { return }
 		self.isEnabled = isEnabled

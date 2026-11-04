@@ -5,8 +5,8 @@ import AppKit
 @MainActor
 enum Lights {
 	/// Lets the lights show `waves`, the bubble while `isWaiting`, and the mark of an unread report. The letter keys of
-	/// the keyboard show `sessions`: the state of the session on each letter, see ``SessionStore/letters``.
-	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: SessionState] = [:]) {
+	/// the keyboard show `sessions`: the session on each letter, see ``SessionStore/letters``.
+	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:]) {
 		Blink1.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
 		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread, sessions: sessions)
 		MacBookBacklight.shared.show(waves: waves)

@@ -347,6 +347,16 @@ struct KeyboardLightSceneTests {
 			keys[1]: SessionLight(color: .white, brightness: 0.5), keys[5]: SessionLight(color: LightSignal.orange), keys[3]: SessionLight(color: .white, brightness: KeyboardLight.dimShare)])
 	}
 
+	@Test func letterKeysLeaveOutSessionsWithoutActivityFor5Hours() {
+		let now = Date()
+		func session(_ state: SessionState, idle hours: Double) -> Session {
+			Session(id: "\(state)\(hours)", cwd: nil, started: now, state: state, updated: now - hours * 60 * 60)
+		}
+		let sessions = [0: session(.yourTurn, idle: 4.9), 1: session(.yourTurn, idle: 5), 2: session(.ended, idle: 6),
+			3: session(.working, idle: 6), 4: session(.asksYou, idle: 6)]
+		#expect(KeyboardLight.shownSessions(sessions, at: now) == [0: .yourTurn, 3: .working, 4: .asksYou])
+	}
+
 	@Test func sessionKeysShowAboveTheWaveButBelowTheRing() {
 		let key = NuPhyKeyboard.letterKeys[0]
 		var scene = Scene(device: .keyboard, waveStarts: [.work: 0], ringStart: 0)

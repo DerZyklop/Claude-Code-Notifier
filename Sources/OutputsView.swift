@@ -90,6 +90,12 @@ struct OutputsView: View {
 					.padding(.leading, 16)
 					.disabled(!usesBlink1)
 				Toggle("Keyboard", isOn: settings.binding(SettingsKey.usesKeyboard))
+				Toggle(isOn: settings.binding(SettingsKey.showsSessionsOnKeyboard)) {
+					Text("Sessions on the Letter Keys")
+					Text("Each session lights its letter key. A session without activity for 5 hours stays dark.")
+				}
+					.padding(.leading, 16)
+					.disabled(!SettingsKey.isOn(SettingsKey.usesKeyboard, in: settings.defaults))
 				Toggle(isOn: settings.binding(SettingsKey.usesMacBookBacklight)) {
 					Text("MacBook Keyboard Backlight")
 					Text("Blinks while sessions work or a report runs. At all other times, macOS controls the backlight.")
