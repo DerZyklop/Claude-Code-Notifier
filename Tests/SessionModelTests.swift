@@ -89,7 +89,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(SessionState.asksYou, "asks you"),
 		(.yourTurn, "your turn"),
 		(.working, "working"),
-		(.ended, "ended"),
 	])
 	func title(state: SessionState, expected: String) {
 		#expect(state.title == expected)
@@ -99,14 +98,13 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(SessionState.asksYou, "questionmark.bubble.fill"),
 		(.yourTurn, "checkmark.circle.fill"),
 		(.working, "hourglass"),
-		(.ended, "stop.circle.fill"),
 	])
 	func symbol(state: SessionState, expected: String) {
 		#expect(state.symbol == expected)
 	}
 
 	@Test func rawValueIsTheMenuOrder() {
-		#expect([SessionState.asksYou, .yourTurn, .working, .ended].map(\.rawValue) == [0, 1, 2, 3])
+		#expect([SessionState.asksYou, .yourTurn, .working].map(\.rawValue) == [0, 1, 2])
 	}
 }
 
@@ -139,7 +137,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(.yourTurn, 3, true),
 		(.working, 1, false),
 		(.asksYou, 1, false),
-		(.ended, 1, false),
 	])
 	func hasBackgroundTask(state: SessionState, shellCommands: Int, expected: Bool) {
 		#expect(session(state: state, shellCommands: shellCommands).hasBackgroundTask == expected)
@@ -150,7 +147,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(.yourTurn, 2, .working),
 		(.working, 0, .working),
 		(.asksYou, 1, .asksYou),
-		(.ended, 1, .ended),
 	])
 	func shownState(state: SessionState, shellCommands: Int, expected: SessionState) {
 		#expect(session(state: state, shellCommands: shellCommands).shownState == expected)
@@ -162,7 +158,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(.yourTurn, 2, "working in the background: 2 shell commands"),
 		(.working, 1, "working"),
 		(.asksYou, 2, "asks you"),
-		(.ended, 0, "ended"),
 	])
 	func stateTitle(state: SessionState, shellCommands: Int, expected: String) {
 		#expect(session(state: state, shellCommands: shellCommands).stateTitle == expected)
@@ -172,7 +167,6 @@ private func notification(type: String? = nil, message: String? = nil) -> HookEv
 		(SessionState.yourTurn, true),
 		(.working, false),
 		(.asksYou, false),
-		(.ended, false),
 	])
 	func subagentIsABackgroundTask(state: SessionState, expected: Bool) {
 		let session = session(state: state, agents: ["a1"])

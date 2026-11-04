@@ -341,10 +341,10 @@ struct KeyboardLightSceneTests {
 	}
 
 	@Test func letterKeysShowTheirSessionsInTheColorsOfTheirIcons() {
-		let lights = KeyboardLight.sessionLights(of: [0: .working, 1: .yourTurn, 5: .asksYou, 3: .ended, 26: .working])
+		let lights = KeyboardLight.sessionLights(of: [0: .working, 1: .yourTurn, 5: .asksYou, 26: .working])
 		let keys = NuPhyKeyboard.letterKeys
 		#expect(lights == [keys[0]: SessionLight(color: Spinner.color, pulses: true),
-			keys[1]: SessionLight(color: .white, brightness: 0.5), keys[5]: SessionLight(color: LightSignal.orange), keys[3]: SessionLight(color: .white, brightness: KeyboardLight.dimShare)])
+			keys[1]: SessionLight(color: .white, brightness: 0.5), keys[5]: SessionLight(color: LightSignal.orange)])
 	}
 
 	@Test func letterKeysLeaveOutSessionsWithoutActivityFor5Hours() {
@@ -352,7 +352,7 @@ struct KeyboardLightSceneTests {
 		func session(_ state: SessionState, idle hours: Double) -> Session {
 			Session(id: "\(state)\(hours)", cwd: nil, started: now, state: state, updated: now - hours * 60 * 60)
 		}
-		let sessions = [0: session(.yourTurn, idle: 4.9), 1: session(.yourTurn, idle: 5), 2: session(.ended, idle: 6),
+		let sessions = [0: session(.yourTurn, idle: 4.9), 1: session(.yourTurn, idle: 5), 2: session(.yourTurn, idle: 6),
 			3: session(.working, idle: 6), 4: session(.asksYou, idle: 6)]
 		#expect(KeyboardLight.shownSessions(sessions, at: now) == [0: .yourTurn, 3: .working, 4: .asksYou])
 	}

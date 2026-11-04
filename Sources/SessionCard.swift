@@ -216,7 +216,6 @@ extension SessionState {
 		case .asksYou: .orange
 		case .yourTurn: .white
 		case .working: Color(nsColor: Spinner.segmentColor(of: Spinner.color))
-		case .ended: .secondary
 		}
 	}
 }

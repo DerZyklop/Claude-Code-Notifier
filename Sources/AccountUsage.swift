@@ -2,7 +2,8 @@ import Foundation
 
 // The usage limits of all Claude accounts on this Mac. Each account has its own Claude Code configuration folder, see
 // ``AccountUsageStore/configDirectories(home:defaultDirectory:)``. To remove the feature, delete this file,
-// `AccountUsageCard.swift`, their tests, and `addUsageCard(to:)` with its call in `StatusMenu`.
+// `AccountUsageCard.swift`, `AccountsView.swift`, their tests, `addUsageCard(to:)` with its call in `StatusMenu`, and
+// the tab `SetupTab.accounts`.
 
 /// The limits of one claude.ai subscription, from the `rate_limit_event` of a `claude -p` run.
 struct AccountUsage: Equatable {
@@ -51,6 +52,8 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	var updated: Date?
 	/// The reason of the last failed update. The card keeps the older ``usage``.
 	var failure: String?
+	/// The folder has no login yet, see ``AccountLogin``.
+	var needsLogin = false
 	var isLoading = false
 
 	var id: String { directory.path }
@@ -69,6 +72,7 @@ final class AccountUsageStore: ObservableObject {
 		var email: String?
 		var usage: AccountUsage?
 		var failure: String?
+		var needsLogin = false
 	}
 
 	@Published private(set) var entries: [AccountUsageEntry] = []
@@ -110,12 +114,21 @@ final class AccountUsageStore: ObservableObject {
 				entries[index].isLoading = false
 				entries[index].email = result.email ?? entries[index].email
 				entries[index].failure = result.failure
+				entries[index].needsLogin = result.needsLogin
 				if let usage = result.usage {
 					entries[index].usage = usage
 					entries[index].updated = Date()
 				}
 			}
 		}
+	}
+
+	/// The folder of a new account, `~/.claude-<name>`, or `nil` for a name that is not lowercase letters, digits and
+	/// `-`, or that an account has already.
+	nonisolated static func newDirectory(named name: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
+		guard !name.isEmpty, name.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }) else { return nil }
+		let directory = home.appendingPathComponent(".claude-\(name)", isDirectory: true)
+		return FileManager.default.fileExists(atPath: directory.path) ? nil : directory
 	}
 
 	/// The default folder first, then each folder `~/.claude-*` that Claude Code uses: it holds a `.claude.json`.
@@ -138,7 +151,7 @@ enum AccountUsageProbe {
 		let auth = try? JSONDecoder().decode(AuthStatus.self, from: Data(status.output.utf8))
 		guard let auth else { return .init(failure: failureText(status) ?? "»claude auth status« gave no answer.") }
 		guard auth.loggedIn else {
-			return .init(failure: "Not logged in. Run »CLAUDE_CONFIG_DIR=\(directory.path) claude« and »/login«.")
+			return .init(failure: "Not logged in.", needsLogin: true)
 		}
 		guard auth.authMethod == nil || auth.authMethod == "claude.ai" else {
 			return .init(email: auth.email, failure: "Uses an API key, which has no subscription limits.")
@@ -164,9 +177,13 @@ enum AccountUsageProbe {
 		return error.isEmpty ? nil : String(error.prefix(200))
 	}
 
+	private static func claude(_ arguments: [String], directory: URL, timeout: TimeInterval) async -> Report.CommandResult {
+		await Report.execute(command(arguments, directory: directory, timeout: timeout))
+	}
+
 	/// Runs `claude` through the login shell for its `PATH`, in an empty folder. The default folder runs without
 	/// `CLAUDE_CONFIG_DIR`, because its login belongs to the unset variable.
-	private static func claude(_ arguments: [String], directory: URL, timeout: TimeInterval) async -> Report.CommandResult {
+	static func command(_ arguments: [String], directory: URL, timeout: TimeInterval) -> Report.Command {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodePulse-usage", isDirectory: true)
 		try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 		let isDefault = directory.standardizedFileURL.path == FileManager.default.homeDirectoryForCurrentUser
@@ -174,8 +191,7 @@ enum AccountUsageProbe {
 		let account = isDefault ? ["-u", "CLAUDE_CONFIG_DIR"] : ["CLAUDE_CONFIG_DIR=\(directory.path)"]
 		let secrets = Report.secretVariables.flatMap { ["-u", $0] }
 		let shell = getpwuid(getuid()).map { String(cString: $0.pointee.pw_shell) } ?? "/bin/zsh"
-		let command = Report.Command(executable: shell, arguments: ["-lc", #"exec "$0" "$@""#, "/usr/bin/env"] + secrets + account
+		return Report.Command(executable: shell, arguments: ["-lc", #"exec "$0" "$@""#, "/usr/bin/env"] + secrets + account
 			+ ["claude"] + arguments, directory: folder, timeout: timeout)
-		return await Report.execute(command)
 	}
 }

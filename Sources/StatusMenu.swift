@@ -204,9 +204,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		cardItem.view = card
 		menu.addItem(cardItem)
 		addUsageCard(to: menu)
-		if SessionStore.shared.sessions.values.contains(where: { $0.state == .ended }) {
-			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
-		}
 
 		for report in Report.all { addGroup(for: report, to: menu) }
 
@@ -256,10 +253,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// The usage limits of the accounts, see ``AccountUsageStore``. The menu sets the width, and the card keeps its height.
 	private func addUsageCard(to menu: NSMenu) {
 		AccountUsageStore.shared.refreshIfStale()
-		let view = NSHostingView(rootView: AccountUsageCard(store: AccountUsageStore.shared, clock: clock))
+		let card = AccountUsageCard(store: AccountUsageStore.shared, clock: clock) { [weak menu] in
+			menu?.cancelTracking()
+			SetupWindow.show(tab: .accounts)
+		}
+		// Measured before `sizingOptions` is empty: then the view leaves its size to the menu and measures 0.
+		let view = NSHostingView(rootView: card)
+		view.frame.size = view.fittingSize
 		view.sizingOptions = []
 		view.autoresizingMask = [.width]
-		view.frame.size = view.fittingSize
 		let item = NSMenuItem()
 		item.view = view
 		menu.addItem(item)
@@ -307,10 +309,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	// MARK: - Actions
-
-	@objc private func removeEnded() {
-		SessionStore.shared.removeEnded()
-	}
 
 	@objc private func toggleLaunchAtLogin() {
 		if SMAppService.mainApp.status == .enabled {

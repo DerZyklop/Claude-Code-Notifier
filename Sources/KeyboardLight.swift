@@ -9,9 +9,8 @@ import AppKit
 /// - Both side bars show the red ring of the bubble in each round.
 /// - The first 2 keys of the first two rows and the left bar show a steady purple while a report is unread.
 /// - The letter keys show the sessions of the card, each on its own letter, see ``SessionStore/letters``. The colors are
-///   those of their icons: a green pulse while it works, a half bright white on your turn, orange while it asks you,
-///   a dim white after it ended. A session without activity for ``idleLimit`` stays dark. A switch of the setup
-///   window turns the letter keys off.
+///   those of their icons: a green pulse while it works, a half bright white on your turn, orange while it asks you.
+///   A session without activity for ``idleLimit`` stays dark. A switch of the setup window turns the letter keys off.
 ///
 /// Where areas overlap, the signal first in ``LightSignal`` wins. An LED goes off when its signal ends. Everything
 /// else shows the normal effect of the keyboard. A keyboard that you plug in later gets the current colors too.
@@ -90,7 +89,6 @@ final class KeyboardLight {
 			case .working: colors[key] = SessionLight(color: Spinner.color, pulses: true)
 			case .yourTurn: colors[key] = SessionLight(color: .white, brightness: 0.5)
 			case .asksYou: colors[key] = SessionLight(color: LightSignal.orange)
-			case .ended: colors[key] = SessionLight(color: .white, brightness: dimShare)
 			}
 		}
 		return colors

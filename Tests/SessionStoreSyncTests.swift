@@ -249,21 +249,6 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			#expect(fixture.store.sessions == ["a": expected])
 		}
 
-		@Test func fileStateDoesNotChangeAnEndedSession() throws {
-			let fixture = try Fixture()
-			defer { fixture.cleanUp() }
-			let updated = fixture.add(.ended, id: "a").updated
-			fixture.fake[\.running] = [process("a", pid: 1, state: .working, changed: updated + 60)]
-
-			fixture.store.syncWithSessionFiles(archived: [])
-
-			let session = try #require(fixture.store.sessions["a"])
-			#expect(session.state == .ended)
-			#expect(session.updated == updated)
-			#expect(session.pid == 1)
-			#expect(fixture.fake[\.removed].isEmpty)
-		}
-
 		@Test func archivedProcessIsSkipped() async throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }
@@ -283,35 +268,21 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 
 			fixture.store.syncWithSessionFiles(archived: [])
 
-			#expect(fixture.store.sessions["a"]?.state == .ended)
+			#expect(fixture.store.sessions["a"] == nil)
 			#expect(fixture.fake[\.ended] == 0)
 		}
 
 		@Test(arguments: [SessionState.asksYou, .yourTurn, .working])
-		func sessionEndsWhenItsProcessIsGone(state: SessionState) throws {
+		func sessionLeavesWhenItsProcessIsGone(state: SessionState) throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }
 			fixture.add(state, id: "a", pid: 1, agents: ["a1"])
-			let before = Date()
 
 			fixture.store.syncWithSessionFiles(archived: [])
 
-			let session = try #require(fixture.store.sessions["a"])
-			#expect(session.state == .ended)
-			#expect(session.updated >= before)
-			#expect(session.agents.isEmpty)
+			#expect(fixture.store.sessions["a"] == nil)
+			#expect(fixture.fake[\.removed] == ["a"])
 			#expect(fixture.fake[\.ended] == 1)
-		}
-
-		@Test func endedSessionWithoutProcessKeepsItsTime() throws {
-			let fixture = try Fixture()
-			defer { fixture.cleanUp() }
-			let ended = fixture.add(.ended, id: "a", pid: 1)
-
-			fixture.store.syncWithSessionFiles(archived: [])
-
-			#expect(fixture.store.sessions["a"] == ended)
-			#expect(fixture.fake[\.ended] == 0)
 		}
 
 		@Test func sessionWithoutPIDStays() throws {
@@ -396,7 +367,7 @@ private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
 			#expect(fixture.fake[\.removed] == ["a"])
 		}
 
-		@Test(arguments: [SessionState.yourTurn, .ended])
+		@Test(arguments: [SessionState.yourTurn])
 		func interruptDoesNotChangeOtherStates(state: SessionState) throws {
 			let fixture = try Fixture()
 			defer { fixture.cleanUp() }

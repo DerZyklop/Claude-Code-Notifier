@@ -5,6 +5,8 @@ import SwiftUI
 struct AccountUsageCard: View {
 	@ObservedObject var store: AccountUsageStore
 	@ObservedObject var clock: MenuClock
+	/// Opens the accounts tab of the setup window.
+	var openSetup: () -> Void = {}
 
 	var body: some View {
 		VStack(spacing: 0) {
@@ -39,6 +41,9 @@ struct AccountUsageCard: View {
 			.foregroundStyle(.secondary)
 			.disabled(store.isLoading)
 			.help("Update now. Each update uses a prompt of one token per account.")
+			Button("Accounts …", action: openSetup)
+				.buttonStyle(.link)
+				.help("Add an account or log in to one")
 		}
 		.font(.system(size: NSFont.smallSystemFontSize))
 		.padding(.horizontal, 6)

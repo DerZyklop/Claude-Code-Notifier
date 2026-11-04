@@ -130,7 +130,7 @@ fails silently after at most 1 s.
 | `Notification` | asks you, one notification for each question or plan |
 | `Stop`, `StopFailure` | your turn |
 | `SubagentStart`, `SubagentStop` | working, and the count of subagents in the row |
-| `SessionEnd` | ended, no notification |
+| `SessionEnd` | removed from the card, no notification |
 
 Every 3 s, the app also reads these sources:
 

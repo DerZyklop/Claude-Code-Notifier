@@ -225,7 +225,7 @@ private struct Fixture {
 		#expect(fixture.log.isEmpty)
 	}
 
-	@Test(arguments: [nil, .working, .ended] as [SessionState?])
+	@Test(arguments: [nil, .working] as [SessionState?])
 	func idleReminderIsYourTurn(previous: SessionState?) throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
@@ -262,7 +262,7 @@ private struct Fixture {
 		#expect(fixture.log.sent == [Sent("s1", "project", .yourTurn, "Claude is WAITING for your input")])
 	}
 
-	@Test(arguments: [nil, .working, .yourTurn, .ended] as [SessionState?])
+	@Test(arguments: [nil, .working, .yourTurn] as [SessionState?])
 	func notificationAsksYou(previous: SessionState?) throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
@@ -367,12 +367,12 @@ private struct Fixture {
 	}
 
 	@Test(arguments: ["logout", "prompt_input_exit", nil] as [String?])
-	func sessionEndEndsTheSession(reason: String?) throws {
+	func sessionEndRemovesTheSession(reason: String?) throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
 		try fixture.add(.working)
 		fixture.handle("SessionEnd", reason.map { ["reason": $0] } ?? [:])
-		#expect(fixture.store.sessions["s1"]?.state == .ended)
+		#expect(fixture.store.sessions["s1"] == nil)
 		#expect(fixture.log.removed == ["s1"])
 		#expect(fixture.log.added.isEmpty)
 		#expect(fixture.log.ended == 1)
@@ -383,7 +383,7 @@ private struct Fixture {
 		defer { fixture.cleanUp() }
 		try fixture.add(.yourTurn)
 		fixture.handle("SessionEnd")
-		#expect(fixture.store.sessions["s1"]?.state == .ended)
+		#expect(fixture.store.sessions["s1"] == nil)
 		#expect(fixture.log.ended == 0)
 	}
 
@@ -456,14 +456,6 @@ private struct Fixture {
 		fixture.handle("SubagentStop", ["agent_id": "a1"], id: "s2")
 		#expect(fixture.store.sessions["s1"] == before)
 		#expect(fixture.store.sessions["s2"] == nil)
-	}
-
-	@Test func sessionEndRemovesTheAgents() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		fixture.handle("SubagentStart", ["agent_id": "a1"])
-		fixture.handle("SessionEnd")
-		#expect(fixture.store.sessions["s1"]?.agents.isEmpty == true)
 	}
 
 	@Test func unknownEventChangesNothing() throws {
@@ -650,22 +642,16 @@ private struct Fixture {
 		#expect(SessionStore.letters(keeping: [:], for: ["a", "b", "c"], count: 2) == ["a": 0, "b": 1])
 	}
 
-	@Test func anEndedSessionKeepsItsLetterUntilItLeavesTheCard() throws {
+	@Test func anEndedSessionFreesItsLetter() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
 		try fixture.add(.working, id: "first")
 		try fixture.add(.working, id: "second")
 		#expect(fixture.store.letters == ["first": 0, "second": 1])
 		fixture.handle("SessionEnd", id: "first")
+		#expect(fixture.store.letters == ["second": 1])
 		try fixture.add(.working, id: "third")
-		#expect(fixture.store.letters == ["first": 0, "second": 1, "third": 2])
-		// VS Code restarts an idle session when you open its tab.
-		fixture.handle("SessionStart", id: "first")
-		#expect(fixture.store.letters["first"] == 0)
-		fixture.store.hide("second")
-		fixture.handle("SessionEnd", id: "first")
-		fixture.store.removeEnded()
-		#expect(fixture.store.letters == ["third": 2])
+		#expect(fixture.store.letters == ["second": 1, "third": 0])
 	}
 
 	@Test func aNewChatGetsItsLetterWithTheFirstPrompt() throws {
@@ -679,28 +665,18 @@ private struct Fixture {
 		#expect(fixture.store.letters == ["s1": 0])
 	}
 
-	@Test func removeEndedKeepsTheOtherSessions() throws {
-		let fixture = try Fixture()
-		defer { fixture.cleanUp() }
-		for (id, state) in [("asks", SessionState.asksYou), ("turn", .yourTurn), ("working", .working), ("ended", .ended), ("ended too", .ended)] {
-			try fixture.add(state, id: id)
-		}
-		fixture.store.removeEnded()
-		#expect(Set(fixture.store.sessions.keys) == ["asks", "turn", "working"])
-	}
-
 	@Test func sortedByShownStateThenNewestFirst() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
 		// Each session is newer than the one before.
-		let sessions = [("working old", SessionState.working), ("background", .yourTurn), ("ended", .ended), ("turn", .yourTurn), ("asks", .asksYou), ("working new", .working)]
+		let sessions = [("working old", SessionState.working), ("background", .yourTurn), ("turn", .yourTurn), ("asks", .asksYou), ("working new", .working)]
 		for (id, state) in sessions {
 			try fixture.add(state, id: id, pid: id == "background" ? 7 : nil)
 			waitForClock(after: try #require(fixture.store.sessions[id]).updated)
 		}
 		// A shell command in the background shows the turn as working.
 		fixture.store.apply(shellCommands: [7: 1])
-		#expect(fixture.store.sortedSessions.map(\.id) == ["asks", "working new", "background", "working old", "turn", "ended"])
+		#expect(fixture.store.sortedSessions.map(\.id) == ["asks", "working new", "background", "working old", "turn"])
 	}
 
 	@Test func hideRemovesTheSessionFromTheList() throws {

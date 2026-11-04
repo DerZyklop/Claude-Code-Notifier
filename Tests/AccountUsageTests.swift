@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import ClaudeCodeNotifier
 
@@ -92,5 +94,30 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 			guard Date() < deadline else { throw Timeout() }
 			try await Task.sleep(nanoseconds: 10_000_000)
 		}
+	}
+}
+
+@Suite struct AccountUsageNewDirectoryTests {
+	@Test func acceptsOnlyFreeSimpleNames() throws {
+		let home = FileManager.default.temporaryDirectory.appendingPathComponent("AccountUsageTests-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: home) }
+		try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude-taken"), withIntermediateDirectories: true)
+		#expect(AccountUsageStore.newDirectory(named: "work-2", home: home)?.lastPathComponent == ".claude-work-2")
+		for name in ["", "Work", "a b", "../x", "taken"] {
+			#expect(AccountUsageStore.newDirectory(named: name, home: home) == nil, "\(name)")
+		}
+	}
+}
+
+@MainActor @Suite struct AccountUsageCardTests {
+	/// The menu measures the card before it gives the size to the menu. A card of height 0 does not show.
+	@Test func hasTheHeightOfItsRows() {
+		let store = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b")] }, fetch: { _ in .init() })
+		store.refreshIfStale()
+		let one = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a")] }, fetch: { _ in .init() })
+		one.refreshIfStale()
+		let height = { (store: AccountUsageStore) in NSHostingView(rootView: AccountUsageCard(store: store, clock: MenuClock())).fittingSize.height }
+		#expect(height(one) > 40)
+		#expect(height(store) > height(one))
 	}
 }

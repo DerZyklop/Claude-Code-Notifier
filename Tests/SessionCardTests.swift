@@ -57,7 +57,7 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		let empty = try cardSize(states: [])
 		let one = try cardSize(states: [.working])
 		let two = try cardSize(states: [.working, .yourTurn])
-		let all = try cardSize(states: [.asksYou, .yourTurn, .working, .ended])
+		let all = try cardSize(states: [.asksYou, .yourTurn, .working])
 		#expect(one.width >= 300)
 		#expect(two.height > one.height)
 		#expect(all.height > two.height)
@@ -146,16 +146,12 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(SessionState.working.color == Color(nsColor: Spinner.segmentColor(of: Spinner.color)))
 	}
 
-	@Test func endedIsSecondary() {
-		#expect(SessionState.ended.color == .secondary)
-	}
-
 	@Test func yourTurnIsWhite() {
 		#expect(SessionState.yourTurn.color == .white)
 	}
 
 	@Test func eachStateHasItsOwnColor() {
-		let colors = [SessionState.asksYou, .yourTurn, .working, .ended].map(\.color)
-		#expect(Set(colors).count == 4)
+		let colors = [SessionState.asksYou, .yourTurn, .working].map(\.color)
+		#expect(Set(colors).count == 3)
 	}
 }

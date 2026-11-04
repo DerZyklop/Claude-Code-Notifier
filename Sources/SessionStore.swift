@@ -38,7 +38,7 @@ enum SettingsKey {
 }
 
 enum SessionState: Int {
-	case asksYou, yourTurn, working, ended
+	case asksYou, yourTurn, working
 
 	/// The place in the card: sessions that ask you on top, then the working ones, then the finished ones.
 	var listOrder: Int {
@@ -46,7 +46,6 @@ enum SessionState: Int {
 		case .asksYou: 0
 		case .working: 1
 		case .yourTurn: 2
-		case .ended: 3
 		}
 	}
 
@@ -55,7 +54,6 @@ enum SessionState: Int {
 		case .asksYou: "asks you"
 		case .yourTurn: "your turn"
 		case .working: "working"
-		case .ended: "ended"
 		}
 	}
 
@@ -64,7 +62,6 @@ enum SessionState: Int {
 		case .asksYou: "questionmark.bubble.fill"
 		case .yourTurn: "checkmark.circle.fill"
 		case .working: "hourglass"
-		case .ended: "stop.circle.fill"
 		}
 	}
 }
@@ -339,16 +336,12 @@ final class SessionStore: ObservableObject {
 			// The state stays: Claude can still work, or its turn is over and other subagents run in the background.
 			guard let agent = event.agent_id, previous?.agents.contains(agent) == true else { return }
 			sessions[id]?.agents.remove(agent)
-		case "SessionEnd" where event.reason == "clear":
-			// `/clear` ends the session too, but only to start the next one at once.
+		case "SessionEnd":
+			// No notification: the user closes the session, and it leaves the card. `/clear` ends it too, but only to
+			// start the next one at once, so it does not pulse.
 			sessions[id] = nil
 			removeNotification(of: id)
-		case "SessionEnd":
-			// No notification: the user closes a session. An archived one leaves the menu with the next check.
-			set(.ended, for: event, previous: previous)
-			sessions[id]?.agents = []
-			removeNotification(of: id)
-			if previous?.isBusy == true { system.sessionEnded() }
+			if event.reason != "clear", previous?.isBusy == true { system.sessionEnded() }
 		default:
 			return
 		}
@@ -365,10 +358,6 @@ final class SessionStore: ObservableObject {
 	/// Removes the session from the card until its shown state changes.
 	func hide(_ id: String) {
 		hiddenStates[id] = sessions[id]?.shownState
-	}
-
-	func removeEnded() {
-		sessions = sessions.filter { $0.value.state != .ended }
 	}
 
 	/// Sends a notification of the given kind, also while the notifications are muted.
@@ -431,7 +420,7 @@ final class SessionStore: ObservableObject {
 			session.started = min(session.started, process.started)
 			session.pid = process.pid
 			// The file wins only when it is newer than the last hook event, because a hook comes faster.
-			if let state = process.state, state != session.state, session.state != .ended, process.stateChanged > session.updated.addingTimeInterval(1) {
+			if let state = process.state, state != session.state, process.stateChanged > session.updated.addingTimeInterval(1) {
 				session.state = state
 				session.updated = process.stateChanged
 				session.title = session.transcriptPath.flatMap(SessionTitle.read) ?? session.title
@@ -450,10 +439,9 @@ final class SessionStore: ObservableObject {
 
 		// A process that ended without a `SessionEnd` hook, e.g. in a session that started before the hooks.
 		let runningIDs = Set(running.map(\.sessionID))
-		for (id, session) in sessions where session.pid != nil && session.state != .ended && !runningIDs.contains(id) {
-			sessions[id]?.state = .ended
-			sessions[id]?.updated = Date()
-			sessions[id]?.agents = []
+		for (id, session) in sessions where session.pid != nil && !runningIDs.contains(id) {
+			sessions[id] = nil
+			removeNotification(of: id)
 			if session.isBusy { system.sessionEnded() }
 		}
 	}
