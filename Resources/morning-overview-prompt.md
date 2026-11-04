@@ -27,9 +27,9 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
 4. Open branches: the `branches` in the JSON.
    - Leave out the base branches, for example `master`, `main` and `dev`.
    - Leave out each branch that a listed PR or ticket already covers: the source branch of a PR, or a branch name with the ID of a listed ticket.
-   - For each other branch, give the next action. Examples:
-     - If `mergedInto` names a base branch, delete the branch.
-     - If `track` is `[gone]`, the remote branch is deleted. If the local branch has new work, push it again. Else delete it.
+   - If the only next action of a branch is to delete it, put the branch only in »Cleanup Work«. Examples: `mergedInto` names a base branch, a merged PR has all its commits, or `track` is `[gone]` and the local branch has no new work.
+   - For each other branch, give the next action. A branch with a choice stays here, for example »If you still need the commit, open a PR. Else delete the branch.« Examples:
+     - If `track` is `[gone]` and the local branch has new work, push it again.
      - If the branch has no `upstream` and has commits, push it and open a PR.
      - If it is `ahead`, push it.
 5. Optional work:
@@ -40,8 +40,9 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - If the facts name the memory folder of the project, read its open follow-ups.
    - The `sessions` in the JSON: the sessions of the last 3 days, with their titles. Do not read the transcripts. If the title tells of work that is not done, name the session.
    - The `archivedSessions` in the JSON: the titles of the sessions that the user archived. An archived session is done. Leave out each old task and each next action that names such a session. Compare the titles without case.
-6. Cleanup work: find the forgotten tickets, and the outdated plans of the project folder, of all dates.
-   - First copy the open tasks of »Cleanup Work« from the old overview, with no change. Leave out the tasks with `[x]`, and the tasks that name a ticket. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
+6. Cleanup work: find the forgotten tickets, the branches to delete, and the outdated plans of the project folder, of all dates.
+   - First copy the open tasks of »Cleanup Work« from the old overview, with no change. Leave out the tasks with `[x]`, the tasks that name a ticket, and the tasks that delete a branch that `branches` does not have. If an old task has sub-items, write each sub-item as its own task, and leave out the old title line.
+   - Branches to delete: write one task for each branch that section 4 puts here: »Delete `<branch>`, because <reason>.«
    - Forgotten tickets: search with `assignee = currentUser() AND status in ("In Progress", "Untested") AND sprint is EMPTY`, with the fields `summary` and `status`. If Jira does not know one of the states, use `statusCategory = "In Progress"` in place of the states. Then keep only the tickets in these 2 states.
    - If the Jira tools are missing or fail, skip the forgotten tickets.
    - Write one task for each forgotten ticket, also for an »Untested« ticket. Example: »Put [PROJ-123](<ticket URL>) Short title into a sprint, or close it. It is »In Progress« and in no sprint.«
@@ -104,6 +105,7 @@ Open work that no PR, ticket or branch covers: uncommitted changes, unpushed com
 ## Cleanup Work
 
 - [ ] Check status: [PROJ-789](https://…/browse/PROJ-789) Short title of the topic
+- [ ] Delete `feature/old-idea`, because #1234 has all its commits.
 - [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done« and no finding holds.
 ```
 
