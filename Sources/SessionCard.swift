@@ -37,7 +37,7 @@ struct SessionCard: View {
 					.padding(.horizontal, 6)
 					.padding(.vertical, 4)
 			}
-			let groups = Self.groups(sessions)
+			let groups = Self.groups(sessions, order: store.projectOrder)
 			ForEach(groups, id: \.project) { group in
 				if groups.count > 1 { projectHeadline(group.project, isFirst: group.project == groups.first?.project && running.isEmpty) }
 				ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, session in
@@ -72,9 +72,9 @@ struct SessionCard: View {
 		.padding(.bottom, 5)
 	}
 
-	/// The sessions by ``Session/project``. The groups have the order of their first session, and each group keeps
-	/// the order of `sessions`.
-	static func groups(_ sessions: [Session]) -> [(project: String, sessions: [Session])] {
+	/// The sessions by ``Session/project``. The groups have the order of `order`, then the order of their first session.
+	/// Each group keeps the order of `sessions`.
+	static func groups(_ sessions: [Session], order: [String] = []) -> [(project: String, sessions: [Session])] {
 		var groups: [(project: String, sessions: [Session])] = []
 		for session in sessions {
 			if let index = groups.firstIndex(where: { $0.project == session.project }) {
@@ -83,7 +83,8 @@ struct SessionCard: View {
 				groups.append((session.project, [session]))
 			}
 		}
-		return groups
+		let rank = { (project: String) in order.firstIndex(of: project) ?? order.count }
+		return groups.enumerated().sorted { (rank($0.element.project), $0.offset) < (rank($1.element.project), $1.offset) }.map(\.element)
 	}
 
 	/// Small like the header. Below the header or a row, it gets more space above.

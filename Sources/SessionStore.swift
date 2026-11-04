@@ -219,8 +219,12 @@ final class SessionStore: ObservableObject {
 			let kept = hiddenStates.filter { sessions[$0.key]?.shownState == $0.value }
 			if kept.count != hiddenStates.count { hiddenStates = kept }
 			updateLetters()
+			projectOrder = Self.projectOrder(keeping: projectOrder, for: sessions.values)
 		}
 	}
+	/// The order of the projects on the card. When the app starts, the last used project is first. A project keeps its
+	/// place, and a new project comes last.
+	private(set) var projectOrder: [String] = []
 	/// The sessions that the user removed from the card, with their shown state at that time. A session comes back
 	/// when its shown state changes.
 	@Published private(set) var hiddenStates: [String: SessionState] = [:] {
@@ -246,11 +250,21 @@ final class SessionStore: ObservableObject {
 		}
 		// Shows the sessions that run already when the app starts.
 		checkSessions()
+		projectOrder = Self.projectOrder(keeping: [], for: sessions.values)
 	}
 
 	/// The sessions of the card, without the hidden ones.
 	var sortedSessions: [Session] {
 		sessions.values.filter { hiddenStates[$0.id] == nil }.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
+	}
+
+	/// `old`, then the new projects of `sessions`, the last used one first.
+	static func projectOrder(keeping old: [String], for sessions: some Collection<Session>) -> [String] {
+		var order = old
+		for session in sessions.sorted(by: { $0.updated > $1.updated }) where !order.contains(session.project) {
+			order.append(session.project)
+		}
+		return order
 	}
 
 	/// The letters of `old` for the sessions that are still in `ids`. Each new session in `ids` gets the first free one of

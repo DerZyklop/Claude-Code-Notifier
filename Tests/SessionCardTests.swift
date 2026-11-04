@@ -75,6 +75,23 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(groups.map { $0.sessions.map(\.id) } == [["a", "c"], ["b"], ["d"]])
 	}
 
+	@Test func groupsFollowTheProjectOrder() {
+		let date = Date(timeIntervalSince1970: 1_000_000)
+		let sessions = [("a", "/x/one"), ("b", "/x/two"), ("c", "/x/three")].map { id, cwd in
+			Session(id: id, cwd: cwd, started: date, state: .working, updated: date)
+		}
+		#expect(SessionCard.groups(sessions, order: ["two", "one"]).map(\.project) == ["two", "one", "three"])
+	}
+
+	@Test func projectOrderKeepsOldProjectsAndAddsNewOnesLast() {
+		let date = Date(timeIntervalSince1970: 1_000_000)
+		let sessions = [("a", "/x/one", 1.0), ("b", "/x/two", 3.0), ("c", "/x/three", 2.0)].map { id, cwd, time in
+			Session(id: id, cwd: cwd, started: date, state: .working, updated: date.addingTimeInterval(time))
+		}
+		#expect(SessionStore.projectOrder(keeping: [], for: sessions) == ["two", "three", "one"])
+		#expect(SessionStore.projectOrder(keeping: ["one"], for: sessions) == ["one", "two", "three"])
+	}
+
 	@Test func projectHeadlinesOnlyWithMoreThanOneProject() throws {
 		let oneProject = try cardSize(states: [.working, .yourTurn], cwds: ["/tmp/one", "/tmp/one"])
 		let twoProjects = try cardSize(states: [.working, .yourTurn], cwds: ["/tmp/one", "/tmp/two"])
