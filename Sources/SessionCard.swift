@@ -23,7 +23,6 @@ struct SessionCard: View {
 	var body: some View {
 		let sessions = store.sortedSessions
 		let running = reports.filter(\.isRunning)
-		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 		VStack(spacing: 0) {
 			header
 			ForEach(Array(running.enumerated()), id: \.element.kind.notificationID) { index, report in
@@ -47,13 +46,7 @@ struct SessionCard: View {
 				}
 			}
 		}
-		.padding(4)
-		.background(shape.fill(Color.primary.opacity(0.04)))
-		.overlay(shape.strokeBorder(Color.primary.opacity(0.15)))
-		.padding(.horizontal, 10)
-		.padding(.vertical, 4)
-		.font(.system(size: NSFont.systemFontSize))
-		.frame(minWidth: 300)
+		.menuCard()
 	}
 
 	private var header: some View {
@@ -224,6 +217,20 @@ extension SessionState {
 		case .working: Color(nsColor: Spinner.segmentColor(of: Spinner.color))
 		case .ended: .secondary
 		}
+	}
+}
+
+extension View {
+	/// The bordered card of a menu item, like ``SessionCard``.
+	func menuCard() -> some View {
+		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+		return padding(4)
+			.background(shape.fill(Color.primary.opacity(0.04)))
+			.overlay(shape.strokeBorder(Color.primary.opacity(0.15)))
+			.padding(.horizontal, 10)
+			.padding(.vertical, 4)
+			.font(.system(size: NSFont.systemFontSize))
+			.frame(minWidth: 300)
 	}
 }
 

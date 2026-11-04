@@ -81,7 +81,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
 		let store = SessionStore.shared
 		let letters = hasProblem ? [:] : Dictionary(uniqueKeysWithValues: store.letters.compactMap { id, letter in
-			store.sessions[id].map { (letter, $0.shownState) }
+			store.sessions[id].map { (letter, $0) }
 		})
 		Lights.show(waves: waves, isWaiting: layout.waiting > 0, hasUnread: hasUnread, sessions: letters)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
@@ -203,6 +203,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let cardItem = NSMenuItem()
 		cardItem.view = card
 		menu.addItem(cardItem)
+		addUsageCard(to: menu)
 		if SessionStore.shared.sessions.values.contains(where: { $0.state == .ended }) {
 			menu.addItem(action("Remove Ended Sessions", #selector(removeEnded)))
 		}
@@ -250,6 +251,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		guard let card else { return }
 		let height = cardSize().height
 		if card.frame.height != height { card.frame.size.height = height }
+	}
+
+	/// The usage limits of the accounts, see ``AccountUsageStore``. The menu sets the width, and the card keeps its height.
+	private func addUsageCard(to menu: NSMenu) {
+		AccountUsageStore.shared.refreshIfStale()
+		let view = NSHostingView(rootView: AccountUsageCard(store: AccountUsageStore.shared, clock: clock))
+		view.sizingOptions = []
+		view.autoresizingMask = [.width]
+		view.frame.size = view.fittingSize
+		let item = NSMenuItem()
+		item.view = view
+		menu.addItem(item)
 	}
 
 	/// The group of a report: the buttons to update and to open, and the reason of a failure. The setup window holds the setting of the

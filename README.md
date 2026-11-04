@@ -58,6 +58,20 @@ Claude prints the overview, and the app writes the file. The run never gets `BIT
 If a Bitbucket request fails, the run fails without writing an overview. This includes the request for the details of
 one PR. So missing PR data cannot look like a successful update.
 
+## Usage of your accounts
+
+Below the sessions, a second card shows the limits of each Claude account: the 5-hour limit and the weekly limit, each
+with its reset time. From 80 % on, the percentage is orange.
+
+- **Accounts:** the default folder `~/.claude`, and each folder `~/.claude-*` with a `.claude.json` in it. To add an
+  account, run `CLAUDE_CONFIG_DIR=~/.claude-work claude` once and log in with `/login`.
+- **How:** the app runs `claude -p` with a prompt of one token for each account, and reads the limits from its
+  output. The app never reads a login token. The run skips all hooks, so it does not show as a session.
+- **When:** when you open the menu and the data is older than 10 minutes, or when you click the arrow in the card.
+- **Cost:** each update uses a little of the 5-hour limit. On an idle account, it starts the 5-hour window.
+- **Remove:** delete `Sources/AccountUsage.swift`, `Sources/AccountUsageCard.swift` and
+  `Tests/AccountUsageTests.swift`, and the call of `addUsageCard(to:)` in `Sources/StatusMenu.swift`.
+
 ## DiDi
 
 The app writes `didi.md` into the same folder: the summary of the current sprint. A sprint starts on Tuesday at 11:00.
