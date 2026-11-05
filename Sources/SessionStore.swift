@@ -10,6 +10,8 @@ enum SettingsKey {
 	static let updatesMorningOverview = "updatesMorningOverview"
 	/// Updates DiDi on each Tuesday, see ``Report/runIfDue()``.
 	static let updatesDiDi = "updatesDiDi"
+	/// The folder path of the morning overviews. Empty while the user has not set it, see ``Report/missingFolderReason``.
+	static let morningOverviewFolder = "morningOverviewFolder"
 	/// Keeps the sound off while a light shows the state, see ``SoundMode``.
 	static let mutesSoundWithLights = "mutesSoundWithLights"
 	/// Lets the blink(1) show the state, see ``Blink1``.

@@ -316,7 +316,7 @@ extension ReportFixture {
 		let fixture = try ReportFixture(didi: claudeAnswer())
 		defer { fixture.cleanUp() }
 		try "- [ ] [PLANO-1](https://x.atlassian.net/browse/PLANO-1) Do it\n".write(
-			to: fixture.folder.appendingPathComponent("morning-overview.md"), atomically: true, encoding: .utf8)
+			to: fixture.overviewFolder.appendingPathComponent("2026-10-26.md"), atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		#expect(try fixture.text.contains("- 🐛 [`#9`](https://bb/9) [PLANO-9](https://x.atlassian.net/browse/PLANO-9) Second\n"))
 	}

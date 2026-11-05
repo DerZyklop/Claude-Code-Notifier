@@ -76,20 +76,20 @@ import Testing
 	@Test func gitNeverStagesTheFile() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
-		let git = fixture.folder.appendingPathComponent(".git")
+		let git = fixture.overviewFolder.appendingPathComponent(".git")
 		try FileManager.default.createDirectory(at: git.appendingPathComponent("info"), withIntermediateDirectories: true)
 		try "ref: refs/heads/main\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
 		let exclude = git.appendingPathComponent("info/exclude")
 		try "# own rules\n*.log".write(to: exclude, atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		await fixture.report.update()
-		#expect(try String(contentsOf: exclude, encoding: .utf8) == "# own rules\n*.log\n/morning-overview.md\n")
+		#expect(try String(contentsOf: exclude, encoding: .utf8) == "# own rules\n*.log\n/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md\n")
 	}
 
 	@Test func worktreeFolderGetsNoExclude() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
-		try "gitdir: /work/repo/.git/worktrees/x\n".write(to: fixture.folder.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+		try "gitdir: /work/repo/.git/worktrees/x\n".write(to: fixture.overviewFolder.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		#expect(fixture.report.failure == nil)
 		#expect(FileManager.default.fileExists(atPath: fixture.fileURL.path))
@@ -186,7 +186,7 @@ import Testing
 		#expect(report.isStopped)
 		#expect(!report.isRunning)
 		#expect(report.failure == nil)
-		#expect(!FileManager.default.fileExists(atPath: report.fileURL.path))
+		#expect(!FileManager.default.fileExists(atPath: report.newFileURL!.path))
 		#expect(fixture.log.posts.isEmpty)
 	}
 

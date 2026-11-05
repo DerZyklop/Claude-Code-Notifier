@@ -32,7 +32,7 @@ struct ReportButtons: View {
 					if report.isUnread { Text("●").foregroundStyle(Color(nsColor: Spinner.reportColor)) }
 				}
 			}
-			.disabled(!FileManager.default.fileExists(atPath: report.fileURL.path))
+			.disabled(!(report.fileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false))
 			Spacer(minLength: 0)
 		}
 		.controlSize(.small)

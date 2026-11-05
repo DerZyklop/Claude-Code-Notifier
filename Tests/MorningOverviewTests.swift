@@ -172,6 +172,35 @@ extension ReportFixture {
 		#expect(fixture.log.removed == ["morning-overview-failed"])
 	}
 
+	@Test func updateWritesAFileWithTheDateAndReadsTheNewestOldOne() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let older = fixture.overviewFolder.appendingPathComponent("2026-10-23.md")
+		let old = fixture.overviewFolder.appendingPathComponent("2026-10-26.md")
+		try "# Morning overview\n\nUpdated: 2026-10-23 07:00\n\n## My Notes\n\nOlder\n".write(to: older, atomically: true, encoding: .utf8)
+		try "# Morning overview\n\nUpdated: 2026-10-26 07:00\n\n## My Notes\n\nNewest\n".write(to: old, atomically: true, encoding: .utf8)
+		#expect(fixture.report.fileURL?.lastPathComponent == "2026-10-26.md")
+		await fixture.report.update()
+		#expect(fixture.fileURL.lastPathComponent == "2026-10-27.md")
+		#expect(fixture.report.fileURL == fixture.fileURL)
+		#expect(try String(contentsOf: fixture.fileURL, encoding: .utf8).contains("## My Notes\n\nNewest\n"))
+		#expect(try String(contentsOf: old, encoding: .utf8).contains("Newest"))
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Old overview: \(old.path)\n"))
+		#expect(!FileManager.default.fileExists(atPath: fixture.folder.appendingPathComponent("morning-overview.md").path))
+	}
+
+	@Test func updateWithoutAFolderFailsWithAHint() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		fixture.defaults.removeObject(forKey: SettingsKey.morningOverviewFolder)
+		await fixture.report.update()
+		#expect(fixture.claudeRun == nil)
+		#expect(fixture.report.fileURL == nil)
+		#expect(fixture.report.failure == fixture.report.missingFolderReason)
+		#expect(fixture.report.missingFolderReason.contains("»Schedules«"))
+		#expect(fixture.log.posts.map(\.identifier) == ["morning-overview-failed"])
+	}
+
 	@Test func mondayAddsTheTasksOfMonday() async throws {
 		let fixture = try ReportFixture(now: tuesdayMorning.addingTimeInterval(-24 * 60 * 60))
 		defer { fixture.cleanUp() }
@@ -250,7 +279,7 @@ extension ReportFixture {
 		let allowed = arguments[start...].prefix { !$0.hasPrefix("--") }
 		let transcripts = claudeProjectFolder(of: fixture.folder.path).path
 		#expect(Array(allowed) == ["Read(/\(fixture.folder.path)/**)", "Read(/\(transcripts)/**)",
-			"Read(/\(MorningOverview.plansFolder.path)/**)"] + MorningOverview.jiraReadTools)
+			"Read(/\(MorningOverview.plansFolder.path)/**)", "Read(/\(fixture.overviewFolder.path)/**)"] + MorningOverview.jiraReadTools)
 		// No MCP server from another config, and without a .mcp.json in the folder no server at all.
 		#expect(arguments.contains("--strict-mcp-config"))
 		#expect(fixture.value(of: "--mcp-config") == nil)

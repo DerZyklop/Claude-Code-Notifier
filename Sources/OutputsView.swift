@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -38,6 +39,14 @@ final class SettingsStore: ObservableObject {
 			self.objectWillChange.send()
 			let areas = self.mapping.areas(of: signal).filter { $0 != area }
 			self.mapping.setAreas(isOn ? areas + [area] : areas, of: signal)
+		})
+	}
+
+	/// A text setting. An empty text removes the setting.
+	func text(_ key: String) -> Binding<String> {
+		Binding(get: { self.defaults.object(forKey: key) as? String ?? "" }, set: { value in
+			self.objectWillChange.send()
+			if value.isEmpty { self.defaults.removeObject(forKey: key) } else { self.defaults.set(value, forKey: key) }
 		})
 	}
 
@@ -215,10 +224,32 @@ struct SchedulesView: View {
 						}
 					}
 					DatePicker("Time", selection: settings.time(of: kind), displayedComponents: .hourAndMinute)
+					if let key = kind.folderKey { FolderField(path: settings.text(key)) }
 				}
 			}
 		}
 		.formStyle(.grouped)
 		.frame(width: 600, height: 640)
+	}
+}
+
+/// The folder of the dated files of a report: a path to type, or a folder to choose.
+struct FolderField: View {
+	@Binding var path: String
+
+	var body: some View {
+		LabeledContent("Folder") {
+			HStack {
+				TextField("Folder", text: $path, prompt: Text("Required, e.g. ~/Notes/Morning"))
+					.labelsHidden()
+				Button("Choose …") {
+					let panel = NSOpenPanel()
+					panel.canChooseFiles = false
+					panel.canChooseDirectories = true
+					panel.canCreateDirectories = true
+					if panel.runModal() == .OK, let url = panel.url { path = url.path }
+				}
+			}
+		}
 	}
 }

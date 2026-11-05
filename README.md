@@ -23,11 +23,13 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 
 ## Morning overview
 
-The app writes `morning-overview.md` into the project folder `~/S/plano`. The file is a short list of open tasks in
+Each run writes a new file with the date as its name, for example `2026-11-05.md`. The file goes into the folder that
+you enter in »Setup …« › »Schedules« › »Folder«. Without a folder, the run fails and tells you where to enter it. The
+project folder is `~/S/plano`. The file is a short list of open tasks in
 six sections: the open PRs of others, my open PRs, draft PRs, the tickets of the sprint, open branches and other
 work. »Open branches« lists only the local branches that no listed PR or ticket covers. In each section, the easiest
 tasks come first. Each task has a title line with the links of the PR and the ticket and a short title. Below it,
-each next action is a sub-item with a checkbox. A sub-item without a checkbox is no task and gets no ID. The app adds the file to `.git/info/exclude`, so git never stages it.
+each next action is a sub-item with a checkbox. A sub-item without a checkbox is no task and gets no ID. If the folder is the root of a git repository, the app adds the dated files to `.git/info/exclude`, so git never stages them.
 
 - **When:** the first start, wake or unlock on a weekday from 6:00 on, or a check every 15 minutes. A file updated
   today from 6:00 on skips the run. »Update Now« in the menu starts a run at any time. »Every Weekday at 6:00« turns
@@ -35,7 +37,7 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
 - **Done:** a notification says how many tasks are open. A click on it opens the file in Obsidian, or in VS Code without Obsidian. Until you open
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
 - **Sources:**
-  - The old file. Done tasks leave it.
+  - The newest dated file in the folder. Done tasks leave it.
   - The open PRs on Bitbucket, with their open tasks and newest comments. The repo comes from the remote `origin`.
   - The PRs of other devs that were merged since the last overview, that change `scheduler.frontend.ng2/`, and that
     I did not approve or send back. The app writes them into »Other Devs' Merges« near the end, without Claude. An
@@ -156,7 +158,7 @@ web pages.
 
 - `~/Library/Preferences/local.claude-code-notifier.app.plist` holds the settings that differ from the default.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
-- The app writes no logs and no caches. Its only file is `morning-overview.md` in the project folder.
+- The app writes no logs and no caches. Its only files are the morning overviews in the folder of the setting, and DiDi in the project folder.
 
 To remove the app, delete it. Then delete the settings file with `rm`. Do not use `defaults delete`, because it
 leaves an empty file.

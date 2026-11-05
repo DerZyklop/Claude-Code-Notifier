@@ -207,8 +207,8 @@ enum DiDi {
 			return "- " + Report.hashLinksAsCode(in: "[\(markdownText(channel))](\(permalink))") + " " + markdownText(point["text"] as? String ?? "")
 		}
 		let notes = try notes(in: old)
-		let morningOverview = try? String(contentsOf: report.system.folder.appendingPathComponent(Report.Kind.morningOverview.fileName),
-			encoding: .utf8)
+		let morningOverview = Report.fileURL(of: .morningOverview, system: report.system)
+			.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
 		let jiraBrowseURL = morningOverview.flatMap(jiraBrowseURL(in:))
 
 		let sprint = data["sprint"] as? [String: String] ?? [:]

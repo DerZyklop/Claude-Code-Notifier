@@ -98,6 +98,9 @@ final class Report: ObservableObject {
 		var readyBody: (_ text: String, _ input: Input) -> String
 		/// The file name of the backup of the old file, or `nil` for no backup.
 		var backupName: ((_ old: String) -> String)?
+		/// The setting with the folder of the files, or `nil` for the project folder. With a folder, each run writes a file
+		/// with the date as its name, e.g. `2026-11-05.md`, and ``fileName`` names only the support folder.
+		var folderKey: String? = nil
 
 		private var weekdaysKey: String { notificationID + "-weekdays" }
 		/// The minutes after midnight.
@@ -208,7 +211,44 @@ final class Report: ObservableObject {
 
 	var schedule: Schedule { kind.schedule(in: system.defaults) }
 
-	var fileURL: URL { system.folder.appendingPathComponent(kind.fileName) }
+	/// The folder of the files, or `nil` while the setting of ``Kind/folderKey`` is empty.
+	var outputFolder: URL? { Self.outputFolder(of: kind, system: system) }
+	/// The file of the last run, for the old text and for »Open«. `nil` without a folder, and for a dated file without a file.
+	var fileURL: URL? { Self.fileURL(of: kind, system: system) }
+
+	/// The file that a run writes now, or `nil` without a folder.
+	var newFileURL: URL? {
+		guard let folder = outputFolder else { return nil }
+		guard kind.folderKey != nil else { return folder.appendingPathComponent(kind.fileName) }
+		let formatter = Self.timestampFormatter(system.calendar)
+		formatter.dateFormat = "yyyy-MM-dd"
+		return folder.appendingPathComponent(formatter.string(from: system.now()) + ".md")
+	}
+
+	static func outputFolder(of kind: Kind, system: System) -> URL? {
+		guard let key = kind.folderKey else { return system.folder }
+		let path = (system.defaults.object(forKey: key) as? String ?? "").trimmingCharacters(in: .whitespaces)
+		return path.isEmpty ? nil : URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+	}
+
+	/// See ``fileURL``. Of the dated files, the one with the newest date.
+	static func fileURL(of kind: Kind, system: System) -> URL? {
+		guard let folder = outputFolder(of: kind, system: system) else { return nil }
+		guard kind.folderKey != nil else { return folder.appendingPathComponent(kind.fileName) }
+		let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+		return names.filter(isDatedName).max().map { folder.appendingPathComponent($0) }
+	}
+
+	/// A name such as `2026-11-05.md`.
+	nonisolated static func isDatedName(_ name: String) -> Bool {
+		name.wholeMatch(of: #/[0-9]{4}-[0-9]{2}-[0-9]{2}\.md/#) != nil
+	}
+
+	/// The failure of a run without a folder.
+	var missingFolderReason: String {
+		"No folder for the \(kind.title) is set. Open »Setup …« in the menu, then enter the folder in the tab »Schedules«."
+	}
+
 	/// The folder of the backups and of the copy of the last written file.
 	private var supportFolder: URL { system.supportFolder.appendingPathComponent((kind.fileName as NSString).deletingPathExtension) }
 	/// The copy of the text that the last run wrote, without the changes of the user.
@@ -245,7 +285,7 @@ final class Report: ObservableObject {
 	/// Due on a day of the schedule from its time on, when the `Updated:` time of the file is before that moment.
 	func isDue(at now: Date) -> Bool {
 		guard !isRunning, let dueMoment = schedule.dueMoment(at: now, calendar: system.calendar) else { return false }
-		let text = try? String(contentsOf: fileURL, encoding: .utf8)
+		let text = fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
 		return (text.flatMap { Self.updated(in: $0, calendar: system.calendar) } ?? .distantPast) < dueMoment
 	}
 
@@ -292,6 +332,7 @@ final class Report: ObservableObject {
 	/// The steps of ``update()``. A cancel ends the commands and the requests of the run. After each wait, a cancelled run
 	/// ends without a file.
 	private func run() async {
+		guard let newFileURL else { return fail(missingFolderReason) }
 		guard let prompt = system.prompt(kind.promptResource) else { return fail("The prompt is missing in the app.") }
 
 		let input: Input
@@ -316,7 +357,7 @@ final class Report: ObservableObject {
 		// the write, so that its text is not lost.
 		let old: String?
 		do {
-			old = try String(contentsOf: fileURL, encoding: .utf8)
+			old = try fileURL.map { try String(contentsOf: $0, encoding: .utf8) }
 		} catch CocoaError.fileReadNoSuchFile {
 			old = nil
 		} catch {
@@ -330,8 +371,9 @@ final class Report: ObservableObject {
 		}
 		do {
 			if let old, let name = kind.backupName?(old) { try backUp(old, as: name) }
+			try FileManager.default.createDirectory(at: newFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 			excludeFromGit()
-			try text.write(to: fileURL, atomically: true, encoding: .utf8)
+			try text.write(to: newFileURL, atomically: true, encoding: .utf8)
 			try FileManager.default.createDirectory(at: supportFolder, withIntermediateDirectories: true)
 			try text.write(to: lastWrittenURL, atomically: true, encoding: .utf8)
 		} catch {
@@ -366,7 +408,7 @@ final class Report: ObservableObject {
 	/// Opens the file and removes the mark of a new file.
 	func openFile() {
 		isUnread = false
-		system.open(fileURL)
+		if let fileURL { system.open(fileURL) }
 	}
 
 	/// Keeps the old file in the support folder, one file for each name.
@@ -375,14 +417,16 @@ final class Report: ObservableObject {
 		try old.write(to: supportFolder.appendingPathComponent(name), atomically: true, encoding: .utf8)
 	}
 
-	/// Adds the file to `.git/info/exclude` of the project, so that `git add -A` never stages it.
+	/// Adds the file to `.git/info/exclude` of its folder, if that folder is the root of a repository, so that `git add -A`
+	/// never stages it. The dated files share one pattern.
 	private func excludeFromGit() {
-		let info = system.folder.appendingPathComponent(".git/info")
+		guard let folder = outputFolder else { return }
+		let info = folder.appendingPathComponent(".git/info")
 		// A worktree has a `.git` file, not a folder. Its excludes are in the main repository.
 		guard FileManager.default.fileExists(atPath: info.deletingLastPathComponent().appendingPathComponent("HEAD").path) else { return }
 		let exclude = info.appendingPathComponent("exclude")
 		let text = (try? String(contentsOf: exclude, encoding: .utf8)) ?? ""
-		let pattern = "/" + kind.fileName
+		let pattern = "/" + (kind.folderKey == nil ? kind.fileName : "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md")
 		guard !text.split(separator: "\n").contains(where: { $0 == pattern }) else { return }
 		try? FileManager.default.createDirectory(at: info, withIntermediateDirectories: true)
 		try? (text + (text.isEmpty || text.hasSuffix("\n") ? "" : "\n") + pattern + "\n").write(to: exclude, atomically: true, encoding: .utf8)
@@ -396,7 +440,11 @@ final class Report: ObservableObject {
 		var arguments = ["-p", prompt, "--restricted", "--permission-mode", "dontAsk"]
 		let directory: URL
 		switch kind.access {
-		case .readsProject(let folders, let mcpTools):
+		case .readsProject(var folders, let mcpTools):
+			// Claude reads the old file in a folder of its own.
+			if kind.folderKey != nil, let outputFolder, outputFolder.standardizedFileURL != system.folder.standardizedFileURL {
+				folders.append(outputFolder)
+			}
 			// The read rules cover only the project, its transcripts and `folders`. Commands that Claude Code knows as
 			// read-only, e.g. `git status`, still run.
 			let projectFolder = claudeProjectFolder(of: system.folder.path)

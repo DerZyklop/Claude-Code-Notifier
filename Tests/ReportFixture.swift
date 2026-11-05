@@ -61,6 +61,8 @@ struct ReportFixture {
 		root = FileManager.default.temporaryDirectory.appendingPathComponent("ReportTests-\(UUID().uuidString)")
 		let folder = root.appendingPathComponent("project")
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(at: root.appendingPathComponent("overviews"), withIntermediateDirectories: true)
+		defaults.set(root.appendingPathComponent("overviews").path, forKey: SettingsKey.morningOverviewFolder)
 		let log = log
 		report = Report(kind: kind, system: Report.System(
 			folder: folder, supportFolder: root.appendingPathComponent("support"), weekdayTasks: [2: ["Reflect"]], now: { now },
@@ -88,7 +90,10 @@ struct ReportFixture {
 	}
 
 	var folder: URL { report.system.folder }
-	var fileURL: URL { report.fileURL }
+	/// The folder of the morning overviews, outside the project folder.
+	var overviewFolder: URL { root.appendingPathComponent("overviews") }
+	/// The file that a run writes now.
+	var fileURL: URL { report.newFileURL! }
 
 	/// The run of Claude Code, which gets the JSON on stdin.
 	var claudeRun: Report.Command? {

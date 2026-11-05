@@ -1,7 +1,7 @@
 import Foundation
 
 extension Report.Kind {
-	/// `morning-overview.md`: a short list of the open work of the user. The run reads the project, and the app adds the
+	/// `YYYY-MM-DD.md` in the folder of the setting: a short list of the open work of the user. The run reads the project, and the app adds the
 	/// open pull requests and the state of the git workspaces.
 	static let morningOverview = Report.Kind(
 		title: "Morning Overview",
@@ -15,7 +15,8 @@ extension Report.Kind {
 		collect: MorningOverview.collect,
 		render: MorningOverview.render,
 		readyBody: { text, _ in "\(text.components(separatedBy: "\n- [ ]").count - 1) open tasks. Click to open the file." },
-		backupName: nil
+		backupName: nil,
+		folderKey: SettingsKey.morningOverviewFolder
 	)
 }
 
@@ -34,7 +35,7 @@ enum MorningOverview {
 		let system = report.system
 		let me = await report.me()
 		let branches = await branches(report)
-		let old = try? String(contentsOf: report.fileURL, encoding: .utf8)
+		let old = report.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
 		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches]
 		var appData: [String: Any] = [:]
 		let pullRequests: [[String: Any]]
@@ -81,7 +82,7 @@ enum MorningOverview {
 		let projectFolder = claudeProjectFolder(of: system.folder.path)
 		let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
 		var facts = ["Project folder: \(system.folder.path)"]
-		if exists(report.fileURL) { facts.append("Old overview: \(report.fileURL.path)") }
+		if let file = report.fileURL, exists(file) { facts.append("Old overview: \(file.path)") }
 		let todayTasks = tasks(of: system)
 		if !todayTasks.isEmpty {
 			facts.append("Weekday tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")
@@ -635,7 +636,7 @@ enum MorningOverview {
 	}
 
 	/// Keeps the counts in the headings right while the user ticks tasks in an editor.
-	@MainActor static let countKeeper = SectionCountKeeper(fileURL: Report.morningOverview.fileURL)
+	@MainActor static let countKeeper = SectionCountKeeper { Report.morningOverview.fileURL }
 
 	/// The overview with each sub-item indented by 4 spaces. Claude sometimes writes 2.
 	static func subItemsIndented(in overview: String) -> String {
@@ -839,14 +840,20 @@ enum MorningOverview {
 @MainActor
 final class SectionCountKeeper {
 	static let interval: TimeInterval = 2
-	let fileURL: URL
+	/// The file to watch. It changes when a run writes a file with a new date.
+	let file: @MainActor () -> URL?
+	private var fileURL: URL?
 	private var timer: Timer?
 	/// The change date at the last check, and whether the file changed since the last count.
 	private var lastDate: Date?
 	private var isChanged = false
 
-	init(fileURL: URL) {
-		self.fileURL = fileURL
+	init(file: @escaping @MainActor () -> URL?) {
+		self.file = file
+	}
+
+	convenience init(fileURL: URL) {
+		self.init { fileURL }
 	}
 
 	func start() {
@@ -857,7 +864,12 @@ final class SectionCountKeeper {
 
 	/// Counts again when the file stayed the same since a change.
 	func check() {
-		let date = fileURL.modificationDate
+		let current = file()
+		if current != fileURL {
+			(fileURL, lastDate, isChanged) = (current, current?.modificationDate, false)
+			return
+		}
+		let date = fileURL?.modificationDate
 		if date != lastDate {
 			isChanged = lastDate != nil || isChanged
 			lastDate = date
@@ -870,7 +882,7 @@ final class SectionCountKeeper {
 
 	/// Writes the counts, if they changed.
 	func updateCounts() {
-		guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
+		guard let fileURL, let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
 		let counted = MorningOverview.numbered(text)
 		guard counted != text else { return }
 		try? counted.write(to: fileURL, atomically: true, encoding: .utf8)
