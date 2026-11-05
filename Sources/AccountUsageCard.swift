@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The usage limits of each Claude account, below ``SessionCard``. Each row has two lines, so that the height of the
-/// card does not change while the data loads.
+/// The usage limits of each Claude account, below ``SessionCard``. Each row has the same lines with and without data,
+/// so that the height of the card does not change while the data loads.
 struct AccountUsageCard: View {
 	@ObservedObject var store: AccountUsageStore
 	@ObservedObject var clock: MenuClock
@@ -51,66 +51,78 @@ struct AccountUsageCard: View {
 		.padding(.bottom, 5)
 	}
 
+	/// The name, then one bar for each limit. Without data, the bars stay empty and the name line names the reason.
 	private func row(_ entry: AccountUsageEntry) -> some View {
-		VStack(alignment: .leading, spacing: 1) {
+		VStack(alignment: .leading, spacing: 3) {
 			HStack(spacing: 4) {
 				Text(entry.name)
 					.lineLimit(1)
 					.truncationMode(.middle)
 					.help(entry.directory.path)
-				if entry.failure != nil && entry.usage != nil {
-					Image(systemName: "exclamationmark.triangle.fill")
-						.foregroundStyle(.orange)
-						.help(entry.failure ?? "")
-				}
+				Spacer(minLength: 8)
+				status(entry)
+					.font(.system(size: NSFont.smallSystemFontSize))
+					.lineLimit(1)
 			}
-			detail(entry)
-				.font(.system(size: NSFont.smallSystemFontSize))
-				.foregroundStyle(.secondary)
-				.lineLimit(1)
+			window("5 h", entry.usage?.fiveHour)
+			window("Week", entry.usage?.sevenDay)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding(.horizontal, 6)
-		.padding(.vertical, 3)
+		.padding(.vertical, 4)
 	}
 
 	@ViewBuilder
-	private func detail(_ entry: AccountUsageEntry) -> some View {
-		if let usage = entry.usage {
-			HStack(spacing: 12) {
-				window("5 h", usage.fiveHour)
-				window("Week", usage.sevenDay)
-			}
-		} else if let failure = entry.failure {
-			Text(failure).foregroundStyle(.orange).help(failure)
-		} else {
-			Text("Loading …")
+	private func status(_ entry: AccountUsageEntry) -> some View {
+		if let failure = entry.failure {
+			Label(entry.usage == nil ? failure : "Old data", systemImage: "exclamationmark.triangle.fill")
+				.foregroundStyle(.orange)
+				.help(failure)
+		} else if entry.usage == nil {
+			Text("Loading …").foregroundStyle(.secondary)
 		}
 	}
 
-	/// For example »5 h 12 % · 17:30«. From 80 % on, the percentage is orange.
+	/// For example »5 h ▬▬▬▭▭▭ 12 % 17:30«. From 80 % on, the bar is orange.
 	private func window(_ title: String, _ window: AccountUsage.Window?) -> some View {
-		HStack(spacing: 4) {
+		HStack(spacing: 6) {
 			Text(title)
-			if let window {
-				Text("\(Int(window.percent.rounded())) %")
-					.monospacedDigit()
-					.fontWeight(.semibold)
-					.foregroundStyle(window.percent >= 80 ? Color.orange : Color.primary)
-				if let reset = window.resetsAt {
-					Text("· \(Self.resetText(reset, now: clock.now))")
-						.monospacedDigit()
-						.help("Resets \(reset.formatted(date: .abbreviated, time: .shortened))")
-				}
-			} else {
-				Text("–")
-			}
+				.frame(width: 34, alignment: .leading)
+			UsageBar(fraction: (window?.percent ?? 0) / 100, color: (window?.percent ?? 0) >= 80 ? .orange : .accentColor)
+			Text(window.map { "\(Int($0.percent.rounded())) %" } ?? "–")
+				.monospacedDigit()
+				.fontWeight(.semibold)
+				.foregroundStyle(.primary)
+				.frame(width: 38, alignment: .trailing)
+			Text(window?.resetsAt.map { Self.resetText($0, now: clock.now) } ?? "")
+				.monospacedDigit()
+				.frame(width: 72, alignment: .trailing)
+				.help(window?.resetsAt.map { "Resets \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "")
 		}
+		.font(.system(size: NSFont.smallSystemFontSize))
+		.foregroundStyle(.secondary)
 	}
 
 	/// The time for a reset in the next 24 hours, else also the weekday: »17:30« or »Mon 08:00«.
 	static func resetText(_ reset: Date, now: Date) -> String {
 		let soon = reset.timeIntervalSince(now) < 24 * 3600
 		return reset.formatted(soon ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute())
+	}
+}
+
+/// A thin bar that fills from the left. The fraction goes from 0 to 1.
+struct UsageBar: View {
+	let fraction: Double
+	let color: Color
+
+	var body: some View {
+		GeometryReader { geometry in
+			ZStack(alignment: .leading) {
+				Capsule().fill(Color.primary.opacity(0.12))
+				Capsule().fill(color)
+					.frame(width: geometry.size.width * min(max(fraction, 0), 1))
+			}
+		}
+		.frame(height: 5)
 	}
 }

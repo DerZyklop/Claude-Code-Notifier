@@ -98,14 +98,33 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 }
 
 @Suite struct AccountUsageNewDirectoryTests {
-	@Test func acceptsOnlyFreeSimpleNames() throws {
+	@Test func takesTheFirstFreeNumberAndMarksTheFolder() throws {
 		let home = FileManager.default.temporaryDirectory.appendingPathComponent("AccountUsageTests-\(UUID().uuidString)")
 		defer { try? FileManager.default.removeItem(at: home) }
-		try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude-taken"), withIntermediateDirectories: true)
-		#expect(AccountUsageStore.newDirectory(named: "work-2", home: home)?.lastPathComponent == ".claude-work-2")
-		for name in ["", "Work", "a b", "../x", "taken"] {
-			#expect(AccountUsageStore.newDirectory(named: name, home: home) == nil, "\(name)")
-		}
+		try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude-account-1"), withIntermediateDirectories: true)
+		let directory = try AccountUsageStore.createDirectory(home: home)
+		#expect(directory.lastPathComponent == ".claude-account-2")
+		#expect(AccountUsageStore.isCreatedByApp(directory))
+		#expect(!AccountUsageStore.isCreatedByApp(home.appendingPathComponent(".claude-account-1")))
+	}
+}
+
+@MainActor @Suite struct AccountUsageRemoveTests {
+	/// A folder without the marker of the app only leaves the list, also after the next read of the folders.
+	@Test func hidesAFolderOfClaudeCode() async throws {
+		let home = FileManager.default.temporaryDirectory.appendingPathComponent("AccountUsageTests-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: home) }
+		let folder = home.appendingPathComponent(".claude-work")
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		let defaults = MemoryDefaults()
+		let store = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a"), folder] }, fetch: { _ in .init() }, defaults: defaults)
+		store.refreshIfStale()
+		#expect(store.entries.count == 2)
+		await store.remove(folder)
+		store.refreshAll()
+		#expect(store.entries.map(\.directory.path) == ["/a"])
+		#expect(FileManager.default.fileExists(atPath: folder.path))
+		#expect(defaults.stringArray(forKey: AccountUsageStore.hiddenKey) == [folder.path])
 	}
 }
 
@@ -119,5 +138,17 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 		let height = { (store: AccountUsageStore) in NSHostingView(rootView: AccountUsageCard(store: store, clock: MenuClock())).fittingSize.height }
 		#expect(height(one) > 40)
 		#expect(height(store) > height(one))
+	}
+}
+
+@Suite struct AccountLoginTests {
+	@Test(arguments: [
+		("Opening browser to sign in…\nPaste code here if prompted > Login failed: Request failed with status code 400\n",
+			"The login failed: Request failed with status code 400."),
+		("\u{1B}[31mError: timed out.\u{1B}[0m\n\n", "The login failed: Error: timed out."),
+		("", "The login failed. Try again."),
+	])
+	func namesTheLastLine(output: String, expected: String) {
+		#expect(AccountLogin.failureText(output: output) == expected)
 	}
 }

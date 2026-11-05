@@ -64,9 +64,12 @@ Below the sessions, a second card shows the limits of each Claude account: the 5
 with its reset time. From 80 % on, the percentage is orange.
 
 - **Accounts:** the default folder `~/.claude`, and each folder `~/.claude-*` with a `.claude.json` in it.
-- **Add an account:** click »Accounts …« in the card. The Accounts tab of the setup window lists the accounts. Enter a
-  name and click »Add Account«. The app runs `claude auth login` for the folder `~/.claude-<name>`, which opens the
-  login page of Claude. If the page shows a code, paste it into the tab. An account without a login gets »Log In«.
+- **Add an account:** click »Accounts …« in the card, then »Add Account …«. The app creates the folder
+  `~/.claude-account-<n>` and runs `claude auth login` for it, which opens the login page of Claude. The page decides
+  the account. If the account is in the list already, the app logs
+  out of the new folder and deletes it. An account without a login gets »Log In«.
+- **Remove an account:** the minus button in the Accounts tab. For a folder that the app created, the app logs out and
+  deletes the folder. Any other folder, for example `~/.claude`, only leaves the list.
 - **How:** the app runs `claude -p` with a prompt of one token for each account, and reads the limits from its
   output. The app never reads a login token. The run skips all hooks, so it does not show as a session.
 - **When:** when you open the menu and the data is older than 10 minutes, or when you click the arrow in the card.

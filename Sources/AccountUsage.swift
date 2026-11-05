@@ -75,14 +75,31 @@ final class AccountUsageStore: ObservableObject {
 		var needsLogin = false
 	}
 
+	/// The folders that »Remove« took off the list, but that the app did not create, see ``remove(_:)``.
+	static let hiddenKey = "hiddenAccountFolders"
+
 	@Published private(set) var entries: [AccountUsageEntry] = []
 	private let directories: () -> [URL]
 	private let fetch: (URL) async -> Fetch
+	private let defaults: UserDefaults
 
 	init(directories: @escaping () -> [URL] = { AccountUsageStore.configDirectories() },
-		fetch: @escaping (URL) async -> Fetch = AccountUsageProbe.run) {
+		fetch: @escaping (URL) async -> Fetch = AccountUsageProbe.run, defaults: UserDefaults = .standard) {
 		self.directories = directories
 		self.fetch = fetch
+		self.defaults = defaults
+	}
+
+	/// The new folders of logins that run now. They join the list in ``adopt(_:)``.
+	private var held: Set<String> = []
+
+	func hold(_ directory: URL) {
+		held.insert(directory.path)
+	}
+
+	private var hidden: Set<String> {
+		get { Set(defaults.stringArray(forKey: Self.hiddenKey) ?? []) }
+		set { defaults.set(newValue.sorted(), forKey: Self.hiddenKey) }
 	}
 
 	var isLoading: Bool { entries.contains(where: \.isLoading) }
@@ -100,7 +117,8 @@ final class AccountUsageStore: ObservableObject {
 
 	private func syncDirectories() {
 		let old = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
-		let new = directories().map { old[$0.path] ?? AccountUsageEntry(directory: $0) }
+		let excluded = hidden.union(held)
+		let new = directories().filter { !excluded.contains($0.path) }.map { old[$0.path] ?? AccountUsageEntry(directory: $0) }
 		if new != entries { entries = new }
 	}
 
@@ -123,12 +141,52 @@ final class AccountUsageStore: ObservableObject {
 		}
 	}
 
-	/// The folder of a new account, `~/.claude-<name>`, or `nil` for a name that is not lowercase letters, digits and
-	/// `-`, or that an account has already.
-	nonisolated static func newDirectory(named name: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
-		guard !name.isEmpty, name.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }) else { return nil }
-		let directory = home.appendingPathComponent(".claude-\(name)", isDirectory: true)
-		return FileManager.default.fileExists(atPath: directory.path) ? nil : directory
+	/// Takes the account off the list. A folder that the app created loses its login and goes away. Any other folder
+	/// stays as it is, because Claude Code can use it, and only leaves the list.
+	func remove(_ directory: URL) async {
+		held.remove(directory.path)
+		if Self.isCreatedByApp(directory) {
+			await AccountUsageProbe.logout(directory: directory)
+			try? FileManager.default.removeItem(at: directory)
+		} else {
+			hidden.insert(directory.path)
+		}
+		syncDirectories()
+	}
+
+	/// Keeps the folder of a new login, unless another folder has the same account. Then the new folder goes away, and
+	/// the other folder is on the list again. Gives the reason when the new folder goes away.
+	func adopt(_ directory: URL) async -> String? {
+		held.remove(directory.path)
+		let email = await AccountUsageProbe.email(directory: directory)
+		let others = directories().filter { $0.path != directory.path }
+		if let email {
+			for other in others where await AccountUsageProbe.email(directory: other)?.lowercased() == email.lowercased() {
+				await remove(directory)
+				hidden.remove(other.path)
+				refreshAll()
+				return "\(email) is in the list already."
+			}
+		}
+		refreshAll()
+		return nil
+	}
+
+	/// The name of the marker file in each folder that the app creates.
+	nonisolated static let markerName = ".claude-code-pulse"
+
+	nonisolated static func isCreatedByApp(_ directory: URL) -> Bool {
+		FileManager.default.fileExists(atPath: directory.appendingPathComponent(markerName).path)
+	}
+
+	/// A new folder `~/.claude-account-<n>` with the first free number, with the marker of the app.
+	nonisolated static func createDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> URL {
+		var number = 1
+		while FileManager.default.fileExists(atPath: home.appendingPathComponent(".claude-account-\(number)").path) { number += 1 }
+		let directory = home.appendingPathComponent(".claude-account-\(number)", isDirectory: true)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		FileManager.default.createFile(atPath: directory.appendingPathComponent(markerName).path, contents: Data())
+		return directory
 	}
 
 	/// The default folder first, then each folder `~/.claude-*` that Claude Code uses: it holds a `.claude.json`.
@@ -163,6 +221,18 @@ enum AccountUsageProbe {
 			return .init(email: auth.email, failure: failureText(probe) ?? "Claude Code sent no usage limits.")
 		}
 		return .init(email: auth.email, usage: usage)
+	}
+
+	/// The email of the login in the folder, or `nil` without a login.
+	static func email(directory: URL) async -> String? {
+		let status = await claude(["auth", "status"], directory: directory, timeout: 20)
+		guard let auth = try? JSONDecoder().decode(AuthStatus.self, from: Data(status.output.utf8)), auth.loggedIn else { return nil }
+		return auth.email
+	}
+
+	/// Removes the login of the folder from the Keychain.
+	static func logout(directory: URL) async {
+		_ = await claude(["auth", "logout"], directory: directory, timeout: 20)
 	}
 
 	private struct AuthStatus: Decodable {
