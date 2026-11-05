@@ -418,6 +418,38 @@ extension ReportFixture {
 		#expect(branches[1]["lastCommit"] as? String == "2026-10-20")
 	}
 
+	@Test func branchesWithoutBaseBranches() {
+		let output = ["main", "master", "dev", "develop", "feature/dev"].map { "\($0)\t\t\t2026-10-26\tWork" }.joined(separator: "\n")
+		#expect(MorningOverview.branches(in: output).map { $0["name"] as? String } == ["feature/dev"])
+	}
+
+	@Test func remoteBranchesOfMeWithoutLocalOrBaseBranches() {
+		let output = [
+			"origin/HEAD\tNils\t2026-10-26\tMerge", "origin/dev\tNils\t2026-10-26\tMerge", "origin/feature/old\tNils\t2026-10-20\tFix\tit",
+			"origin/feature/local\tNils\t2026-10-21\tWork", "origin/feature/theirs\tRui\t2026-10-22\tWork", "upstream/feature/x\tNils\t2026-10-23\tWork",
+		].joined(separator: "\n")
+		let branches = MorningOverview.remoteBranches(in: output, me: "Nils", local: ["feature/local"])
+		#expect(branches.map { $0["name"] as? String } == ["origin/feature/old"])
+		#expect(branches[0]["subject"] as? String == "Fix\tit")
+		#expect(branches[0]["lastCommit"] as? String == "2026-10-20")
+	}
+
+	@Test func mergedBranchIsEmptyIfItsTipIsOnTheFirstParentLine() {
+		var branches: [[String: Any]] = [["name": "feature/new"], ["name": "feature/done"], ["name": "feature/open"]]
+		MorningOverview.markMerges(&branches, base: "origin/dev", merged: ["feature/new", "feature/done"],
+			tips: ["feature/new": "a1", "feature/done": "b2", "feature/open": "a1"], firstParent: ["a1", "c3"])
+		#expect(branches[0]["mergedInto"] as? [String] == ["origin/dev"] && branches[0]["empty"] as? Bool == true)
+		#expect(branches[1]["mergedInto"] as? [String] == ["origin/dev"] && branches[1]["empty"] == nil)
+		#expect(branches[2]["mergedInto"] == nil && branches[2]["empty"] == nil)
+	}
+
+	@Test func branchesOfMeByTheAuthorOfTheNewestCommit() {
+		let branches: [[String: Any]] = [["name": "mine"], ["name": "theirs"], ["name": "empty", "empty": true], ["name": "unknown"]]
+		let authors = ["mine": "Nils", "theirs": "elMui"]
+		#expect(MorningOverview.ofMe(branches, authors: authors, me: "Nils", keepingEmpty: true).map { $0["name"] as? String } == ["mine", "empty"])
+		#expect(MorningOverview.ofMe(branches, authors: authors, me: "Nils", keepingEmpty: false).map { $0["name"] as? String } == ["mine"])
+	}
+
 	@Test func worktreesWithBranchOrDetached() {
 		let worktrees = MorningOverview.worktrees(in: worktreeList)
 		#expect(worktrees.map(\.path) == ["/work/repo", "/work/repo/.claude/worktrees/scratch"])
@@ -753,6 +785,14 @@ extension ReportFixture {
 		let overview = "# Morning overview\n\n## Cleanup Work\n\n- [x] Delete a\n- [ ] Delete b\n- [X] Delete c\n\n## Optional Work\n\nNothing open.\n"
 		#expect(MorningOverview.withoutDoneCleanupTasks(in: overview)
 			== "# Morning overview\n\n## Cleanup Work\n\n- [ ] Delete b\n\n## Optional Work\n\nNothing open.\n")
+	}
+
+	@Test func cleanupSubheadingWithOnlyDoneTasksIsRemoved() {
+		let overview = "# Morning overview\n\n## Cleanup Work\n\n- [ ] Plan\n\n### Local and remote\n\n- [x] Delete a\n\n### Local\n\n- [ ] Delete b\n"
+		#expect(MorningOverview.withoutDoneCleanupTasks(in: overview)
+			== "# Morning overview\n\n## Cleanup Work\n\n- [ ] Plan\n\n### Local\n\n- [ ] Delete b\n")
+		#expect(MorningOverview.withoutDoneCleanupTasks(in: "# Morning overview\n\n## Cleanup Work\n\n### Remote\n\n- [x] Delete a\n")
+			== "# Morning overview\n\n## Cleanup Work\n\nNothing open.\n")
 	}
 
 	@Test func cleanupWorkWithOnlyDoneTasksIsNothingOpen() {

@@ -34,9 +34,10 @@ enum MorningOverview {
 	static func collect(_ report: Report) async throws -> Report.Input {
 		let system = report.system
 		let me = await report.me()
-		let branches = await branches(report)
+		let branches = await branches(report, me: me)
 		let old = report.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches]
+		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches,
+			"remoteBranches": await remoteBranches(report, me: me, local: Set(branches.compactMap { $0["name"] as? String }))]
 		var appData: [String: Any] = [:]
 		let pullRequests: [[String: Any]]
 		do {
@@ -298,13 +299,19 @@ enum MorningOverview {
 	/// The section that Claude writes and the app moves below »My Notes«.
 	static let cleanupSection = "Cleanup Work"
 
-	/// The overview without the ticked tasks of »Cleanup Work«. A section with no task left gets »Nothing open.«.
+	/// The overview without the ticked tasks of »Cleanup Work«, and without a `###` subheading with no task left. A section
+	/// with no task left gets »Nothing open.«.
 	static func withoutDoneCleanupTasks(in overview: String) -> String {
 		var parts = overview.components(separatedBy: "\n## ")
 		guard let index = index(ofSection: cleanupSection, in: parts) else { return overview }
 		let ending = String(parts[index].reversed().prefix { $0 == "\n" })
-		let lines = parts[index].components(separatedBy: "\n").filter { !isTicked($0) }
-		var section = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+		var lines = parts[index].components(separatedBy: "\n").filter { !isTicked($0) }
+		lines = lines.indices.filter { line in
+			guard lines[line].hasPrefix("### ") else { return true }
+			return lines[(line + 1)...].prefix { !$0.hasPrefix("### ") }.contains { $0.hasPrefix("- ") }
+		}.map { lines[$0] }
+		var section = lines.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
+			.trimmingCharacters(in: .newlines)
 		if !lines.contains(where: { $0.hasPrefix("- ") || $0 == "Nothing open." }) { section += "\n\nNothing open." }
 		parts[index] = section + ending
 		return parts.joined(separator: "\n## ")
@@ -669,29 +676,105 @@ enum MorningOverview {
 
 	/// The remote branches that other branches merge into, if the remote has them.
 	static let baseBranches = ["origin/HEAD", "origin/dev", "origin/develop"]
+	/// The local base branches. The input leaves them out.
+	static let localBaseBranches: Set<String> = ["main", "master", "dev", "develop"]
 	/// The most local branches in the input, the newest first.
 	static let branchLimit = 100
 
-	/// The local branches, the newest first, with their upstream state and the base branches that hold all their commits.
+	/// The local branches of `me` and the empty local branches, the newest first, with their upstream state and the base
+	/// branches that hold all their commits.
 	@MainActor
-	private static func branches(_ report: Report) async -> [[String: Any]] {
+	private static func branches(_ report: Report, me: String) async -> [[String: Any]] {
 		let format = "%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:short)%09%(subject)"
 		var result = branches(in: await report.git(["for-each-ref", "--sort=-committerdate", "--count=\(branchLimit)", "--format=\(format)", "refs/heads"]))
-		for base in baseBranches {
-			guard !(await report.git(["rev-parse", "--verify", "--quiet", base])).isEmpty else { continue }
-			let merged = Set(await report.git(["branch", "--merged", base, "--format=%(refname:short)"]).split(separator: "\n").map(String.init))
-			for index in result.indices where merged.contains(result[index]["name"] as? String ?? "") {
-				result[index]["mergedInto"] = (result[index]["mergedInto"] as? [String] ?? []) + [base]
-			}
+		await addMerges(to: &result, report: report, remote: false)
+		return ofMe(result, authors: await authors(of: result, report: report, prefix: "refs/heads/"), me: me, keepingEmpty: true)
+	}
+
+	/// The author of the newest commit that is no merge commit, for each branch in `branches` that is not empty.
+	@MainActor
+	private static func authors(of branches: [[String: Any]], report: Report, prefix: String) async -> [String: String] {
+		var result: [String: String] = [:]
+		for branch in branches where branch["empty"] == nil {
+			guard let name = branch["name"] as? String else { continue }
+			result[name] = await report.git(["log", "-1", "--no-merges", "--format=%an", prefix + name]).trimmingCharacters(in: .whitespacesAndNewlines)
 		}
 		return result
 	}
 
-	/// The branches in the output of `git for-each-ref` with the format of ``branches(_:)``.
+	/// The branches in `branches` whose author in `authors` is `me`. A merge commit does not count, so a merge of `dev`
+	/// into the branch of a colleague does not make it a branch of `me`. Git cannot tell who made an empty branch, so
+	/// `keepingEmpty` decides about them.
+	static func ofMe(_ branches: [[String: Any]], authors: [String: String], me: String, keepingEmpty: Bool) -> [[String: Any]] {
+		branches.filter { branch in
+			if branch["empty"] as? Bool == true { return keepingEmpty }
+			return authors[branch["name"] as? String ?? ""] == me
+		}
+	}
+
+	/// Adds `mergedInto` to each branch in `branches` that a base branch holds, and `empty: true` if it also has no commit of
+	/// its own. A merge commit puts the commits of a branch beside the first-parent line of the base. The newest commit of an
+	/// empty branch is on that line.
+	@MainActor
+	private static func addMerges(to branches: inout [[String: Any]], report: Report, remote: Bool) async {
+		var tips: [String: String]?
+		for base in baseBranches {
+			guard !(await report.git(["rev-parse", "--verify", "--quiet", base])).isEmpty else { continue }
+			let merged = Set(await report.git(["branch"] + (remote ? ["-r"] : []) + ["--merged", base, "--format=%(refname:short)"])
+				.split(separator: "\n").map(String.init))
+			guard branches.contains(where: { merged.contains($0["name"] as? String ?? "") }) else { continue }
+			if tips == nil {
+				let names = branches.compactMap { $0["name"] as? String }
+				let hashes = await report.git(["rev-parse"] + names.map { (remote ? "refs/remotes/" : "refs/heads/") + $0 }).split(separator: "\n").map(String.init)
+				tips = hashes.count == names.count ? Dictionary(zip(names, hashes), uniquingKeysWith: { first, _ in first }) : [:]
+			}
+			let firstParent = Set(await report.git(["rev-list", "--first-parent", base]).split(separator: "\n").map(String.init))
+			markMerges(&branches, base: base, merged: merged, tips: tips ?? [:], firstParent: firstParent)
+		}
+	}
+
+	/// Adds `base` to `mergedInto` of each branch in `merged`, and `empty: true` if the newest commit of the branch in `tips`
+	/// is in `firstParent`.
+	static func markMerges(_ branches: inout [[String: Any]], base: String, merged: Set<String>, tips: [String: String], firstParent: Set<String>) {
+		for index in branches.indices {
+			let name = branches[index]["name"] as? String ?? ""
+			guard merged.contains(name) else { continue }
+			branches[index]["mergedInto"] = (branches[index]["mergedInto"] as? [String] ?? []) + [base]
+			if let tip = tips[name], firstParent.contains(tip) { branches[index]["empty"] = true }
+		}
+	}
+
+	/// The branches on `origin` of `me` that a base branch holds and that have no local branch, the newest first. An empty
+	/// branch does not count, because git cannot tell who made it.
+	@MainActor
+	private static func remoteBranches(_ report: Report, me: String, local: Set<String>) async -> [[String: Any]] {
+		let format = "%(refname:short)%09%(authorname)%09%(committerdate:short)%09%(subject)"
+		var result = remoteBranches(in: await report.git(["for-each-ref", "--sort=-committerdate", "--format=\(format)", "refs/remotes/origin"]),
+			me: me, local: local)
+		await addMerges(to: &result, report: report, remote: true)
+		result = result.filter { $0["mergedInto"] != nil }
+		return Array(ofMe(result, authors: await authors(of: result, report: report, prefix: "refs/remotes/"), me: me, keepingEmpty: false)
+			.prefix(branchLimit))
+	}
+
+	/// The branches in the output of `git for-each-ref` with the format of ``remoteBranches(_:me:local:)``, without
+	/// `origin/HEAD`, the base branches and the branches in `local`. Only a branch whose newest commit has `me` as author
+	/// counts. This keeps the later checks of the authors few.
+	static func remoteBranches(in output: String, me: String, local: Set<String>) -> [[String: Any]] {
+		output.split(separator: "\n").compactMap { line in
+			let fields = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+			guard fields.count == 4, fields[1] == me, fields[0].hasPrefix("origin/") else { return nil }
+			let name = String(fields[0].dropFirst("origin/".count))
+			guard name != "HEAD", !localBaseBranches.contains(name), !local.contains(name) else { return nil }
+			return ["name": fields[0], "lastCommit": fields[2], "subject": fields[3]]
+		}
+	}
+
+	/// The branches in the output of `git for-each-ref` with the format of ``branches(_:)``, without the local base branches.
 	static func branches(in output: String) -> [[String: Any]] {
 		output.split(separator: "\n").compactMap { line in
 			let fields = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
-			guard fields.count == 5 else { return nil }
+			guard fields.count == 5, !localBaseBranches.contains(fields[0]) else { return nil }
 			var branch: [String: Any] = ["name": fields[0], "lastCommit": fields[3], "subject": fields[4]]
 			if !fields[1].isEmpty { branch["upstream"] = fields[1] }
 			if !fields[2].isEmpty { branch["track"] = fields[2] }
