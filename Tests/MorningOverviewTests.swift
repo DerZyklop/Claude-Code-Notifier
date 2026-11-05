@@ -902,6 +902,27 @@ extension ReportFixture {
 			== "# Morning overview\n\n## 2 × My Open PRs\n\n- [ ] `M1` 🏓 ⌛ 🚫 [`#1`](https://x) A\n- [ ] `M2` 🚫 [`#2`](https://x) B\n")
 	}
 
+	@Test func pullRequestWithTheBlockedMarkInItsTitleGetsTheMarkInEachSection() {
+		let overview = "# Morning overview\n\n## 1 × My Open PRs\n\n- [ ] `M1` [`#1`](https://x) A\n\n## 2 × Draft PRs\n\n"
+			+ "- [ ] `D1` [`#2`](https://x) B\n- [ ] `D2` 🚫 [`#3`](https://x) C\n"
+		#expect(MorningOverview.withMarks(othersTurn: [1, 2], stale: [], blocked: [1, 2], in: overview)
+			== "# Morning overview\n\n## 1 × My Open PRs\n\n- [ ] `M1` 🏓 🚫 [`#1`](https://x) A\n\n## 2 × Draft PRs\n\n"
+			+ "- [ ] `D1` 🚫 [`#2`](https://x) B\n- [ ] `D2` 🚫 [`#3`](https://x) C\n")
+	}
+
+	@Test func blockedTasksGoToTheEndOfTheirList() {
+		let overview = "## My Open PRs\n\n- [ ] 🚫 [`#1`](https://x) A\n    - [ ] Do A.\n- [ ] B\n- [ ] 🏓 🚫 C\n- [ ] D\n    - [ ] Do D.\n\n"
+			+ "## Cleanup Work\n\n### Local\n\n- [ ] 🚫 E\n- [ ] F\n"
+		#expect(MorningOverview.withBlockedTasksLast(in: overview)
+			== "## My Open PRs\n\n- [ ] B\n- [ ] D\n    - [ ] Do D.\n- [ ] 🚫 [`#1`](https://x) A\n    - [ ] Do A.\n- [ ] 🏓 🚫 C\n\n"
+			+ "## Cleanup Work\n\n### Local\n\n- [ ] F\n- [ ] 🚫 E\n")
+	}
+
+	@Test func blockedMarkInTheTitleDoesNotCount() {
+		let overview = "- [ ] Fix the 🚫 sign\n- [ ] B\n"
+		#expect(MorningOverview.withBlockedTasksLast(in: overview) == overview)
+	}
+
 	@Test func taskKeyIgnoresTheMarks() {
 		#expect(MorningOverview.taskKey(of: "- [ ] `M1` 🏓 ⌛ 🚫 [`#1`](https://x) A") == MorningOverview.taskKey(of: "- [ ] [`#1`](https://x) A"))
 	}

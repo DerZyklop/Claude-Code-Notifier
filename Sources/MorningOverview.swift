@@ -50,6 +50,7 @@ enum MorningOverview {
 			data["pullRequests"] = pullRequests
 			appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
 			appData[staleKey] = ids(of: pullRequests.filter { $0["isStale"] as? Bool == true })
+			appData[blockedKey] = ids(of: pullRequests.filter { ($0["title"] as? String)?.contains(blockedMark) == true })
 			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
 		} catch let error as URLError {
@@ -232,9 +233,10 @@ enum MorningOverview {
 		var text = withoutDoneCleanupTasks(in: withoutAppSections(output))
 		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
 		text = withWeekdayTasks(tasks(of: system), done: isSameDay ? doneWeekdayTasks(in: old) : [], in: text)
-		text = Report.hashLinksAsCode(in: numbered(subItemsIndented(in: text)))
+		text = Report.hashLinksAsCode(in: subItemsIndented(in: text))
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
-			in: text)
+			blocked: input.appData[blockedKey] as? Set<Int> ?? [], in: text)
+		text = numbered(withBlockedTasksLast(in: text))
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
 			+ (otherMergesSection(merges, old: old) ?? "")
@@ -369,6 +371,8 @@ enum MorningOverview {
 	static let marks = [othersTurnMark, staleMark]
 	/// The sign that Claude puts before the first link of a task whose ticket is blocked. It comes after ``marks``.
 	static let blockedMark = "🚫"
+	/// The key of the IDs of the pull requests with ``blockedMark`` in their title, in ``Report/Input/appData``.
+	static let blockedKey = "blocked"
 	/// The sections where a pull request gets ``marks``.
 	static let turnSections = ["Their Open PRs", "My Open PRs"]
 
@@ -382,24 +386,58 @@ enum MorningOverview {
 	}
 
 	/// The overview with ``othersTurnMark`` and ``staleMark`` before the link of each task in ``turnSections`` whose pull
-	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away, but ``blockedMark`` stays.
-	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, in overview: String) -> String {
+	/// request is in `othersTurn` and in `stale`. A mark of Claude goes away, but ``blockedMark`` stays. A task in any
+	/// section whose pull request is in `blocked` gets ``blockedMark``.
+	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, blocked: Set<Int> = [], in overview: String) -> String {
 		let anyMark = (marks + [blockedMark]).joined(separator: "|")
 		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)((?:(?:\#(anyMark)) )*)(\[`#(\d+)`\])"#)
 		else { return overview }
 		var parts = overview.components(separatedBy: "\n## ")
-		for index in parts.indices.dropFirst() where turnSections.contains(title(of: parts[index])) {
+		for index in parts.indices.dropFirst() {
+			let isTurnSection = turnSections.contains(title(of: parts[index]))
 			parts[index] = parts[index].components(separatedBy: "\n").map { line in
 				guard let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
 					let start = Range(match.range(at: 1), in: line), let old = Range(match.range(at: 2), in: line),
 					let link = Range(match.range(at: 3), in: line),
 					let id = Range(match.range(at: 4), in: line).flatMap({ Int(line[$0]) }) else { return line }
-				let mark = (othersTurn.contains(id) ? othersTurnMark + " " : "") + (stale.contains(id) ? staleMark + " " : "")
-					+ (line[old].contains(blockedMark) ? blockedMark + " " : "")
+				let mark = (isTurnSection && othersTurn.contains(id) ? othersTurnMark + " " : "")
+					+ (isTurnSection && stale.contains(id) ? staleMark + " " : "")
+					+ (line[old].contains(blockedMark) || blocked.contains(id) ? blockedMark + " " : "")
 				return line[start] + mark + line[link.lowerBound...]
 			}.joined(separator: "\n")
 		}
 		return parts.joined(separator: "\n## ")
+	}
+
+	/// The overview with each task that has ``blockedMark`` at the end of its list. A list is a run of tasks with their
+	/// sub-items. A blank line or a heading ends it. The other tasks keep their order.
+	static func withBlockedTasksLast(in overview: String) -> String {
+		var result: [String] = []
+		var tasks: [(isBlocked: Bool, lines: [String])] = []
+		func flush() {
+			result += (tasks.filter { !$0.isBlocked } + tasks.filter(\.isBlocked)).flatMap(\.lines)
+			tasks = []
+		}
+		for line in overview.components(separatedBy: "\n") {
+			if line.hasPrefix("- ") {
+				tasks.append((isBlocked(line), [line]))
+			} else if !tasks.isEmpty, line.first == " " || line.first == "\t", !line.trimmingCharacters(in: .whitespaces).isEmpty {
+				tasks[tasks.count - 1].lines.append(line)
+			} else {
+				flush()
+				result.append(line)
+			}
+		}
+		flush()
+		return result.joined(separator: "\n")
+	}
+
+	/// The task line has ``blockedMark`` before its first link.
+	private static func isBlocked(_ line: String) -> Bool {
+		let anyMark = (marks + [blockedMark]).joined(separator: "|")
+		guard let range = line.range(of: #"^- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?((\#(anyMark)) )*"#, options: .regularExpression)
+		else { return false }
+		return line[range].contains(blockedMark)
 	}
 
 	/// A task of the old overview that a new overview keeps as it is: the section title, and the lines of the task with

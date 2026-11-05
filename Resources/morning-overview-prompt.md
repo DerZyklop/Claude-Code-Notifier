@@ -128,7 +128,7 @@ Rules:
 - Use the time from the facts for the `Updated:` line.
 - Write the section headings exactly as shown, without a number. The app adds the number of tasks to each heading.
 - Copy the description line below »Optional Work« exactly as shown.
-- If the ticket of a task is blocked, write 🚫 before the first link of the title line: ``- [ ] 🚫 [`#1234`](<PR URL>) [PROJ-123](<ticket URL>) Short title``. A ticket is blocked if its Jira state is »Blocked«, or if it has an »is blocked by« link to a ticket that is not »Done«. Use the links and states that you already have. Write no other sign before a link.
+- If the ticket of a task is blocked, write 🚫 before the first link of the title line: ``- [ ] 🚫 [`#1234`](<PR URL>) [PROJ-123](<ticket URL>) Short title``. A ticket is blocked if its Jira state is »Blocked«, or if it has an »is blocked by« link to a ticket that is not »Done«. A task is also blocked if the title of its PR has 🚫. Use the links and states that you already have. Write no other sign before a link.
 - Write no IDs for the tasks. The app adds an ID like `M2` or `M2a` to each task and each next action.
 - Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items. A task with no next action is also only one line.
   - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
@@ -143,6 +143,7 @@ Rules:
   4. The pipeline of the PR already succeeded. In the JSON, the newest entry of `buildStatuses` has the state `SUCCESSFUL`.
   5. The ticket blocks other tickets. Use the links of the ticket that you already have, and look for a »blocks« link.
   6. The plan blocks other plans or tickets. The plan text names them.
+- A task with 🚫 comes last in its list, after all other tasks. The criteria above sort the tasks with 🚫 among themselves.
 - The criteria decide only the order. Do not write them down as sub-items.
 - The reply rules of a CLAUDE.md file, for example »start with the result«, do not apply to the overview.
 - Write only open tasks. Write »Nothing open.« in an empty section.
