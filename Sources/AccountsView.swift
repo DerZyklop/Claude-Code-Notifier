@@ -80,6 +80,14 @@ final class AccountLogin: ObservableObject {
 		input = stdin.fileHandleForWriting
 	}
 
+	/// Sends the code from the login page to the command. The browser shows the code when it cannot give the login
+	/// back to the command by itself.
+	func send(code: String) {
+		let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !code.isEmpty, let input else { return }
+		try? input.write(contentsOf: Data((code + "\n").utf8))
+	}
+
 	func cancel() {
 		process?.terminationHandler = nil
 		process?.terminate()
@@ -142,6 +150,12 @@ struct AccountsView: View {
 	@ObservedObject private var store = AccountUsageStore.shared
 	@ObservedObject private var login = AccountLogin.shared
 	@State private var removal: AccountUsageEntry?
+	@State private var code = ""
+
+	private func sendCode() {
+		login.send(code: code)
+		code = ""
+	}
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
@@ -240,12 +254,17 @@ struct AccountsView: View {
 
 	private var loginBox: some View {
 		VStack(alignment: .leading, spacing: 8) {
-			Text("Log in to the account in your browser. The list updates when the login is done.")
+			Text("Log in to the account in your browser. The list updates when the login is done. If the browser shows a code, paste it here.")
 				.fixedSize(horizontal: false, vertical: true)
-			if let url = login.url {
-				Link("Open the login page again", destination: url)
-			}
 			HStack {
+				TextField("Code", text: $code)
+					.textFieldStyle(.roundedBorder)
+					.onSubmit(sendCode)
+				Button("Send", action: sendCode)
+					.disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+				if let url = login.url {
+					Link("Open the login page again", destination: url)
+				}
 				Spacer()
 				Button("Cancel") { login.cancel() }
 			}
