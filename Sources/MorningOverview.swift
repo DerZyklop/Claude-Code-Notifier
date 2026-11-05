@@ -390,7 +390,7 @@ enum MorningOverview {
 	/// section whose pull request is in `blocked` gets ``blockedMark``.
 	static func withMarks(othersTurn: Set<Int>, stale: Set<Int>, blocked: Set<Int> = [], in overview: String) -> String {
 		let anyMark = (marks + [blockedMark]).joined(separator: "|")
-		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[ xX]\] (?:`[A-Z]\d+` )?)((?:(?:\#(anyMark)) )*)(\[`#(\d+)`\])"#)
+		guard let regex = try? NSRegularExpression(pattern: #"^(- \[[^\]]\] (?:`[A-Z]\d+` )?)((?:(?:\#(anyMark)) )*)(\[`#(\d+)`\])"#)
 		else { return overview }
 		var parts = overview.components(separatedBy: "\n## ")
 		for index in parts.indices.dropFirst() {
@@ -435,7 +435,7 @@ enum MorningOverview {
 	/// The task line has ``blockedMark`` before its first link.
 	private static func isBlocked(_ line: String) -> Bool {
 		let anyMark = (marks + [blockedMark]).joined(separator: "|")
-		guard let range = line.range(of: #"^- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?((\#(anyMark)) )*"#, options: .regularExpression)
+		guard let range = line.range(of: #"^- (\[[^\]]\] )?(`[A-Z]\d+[a-z]*` )?((\#(anyMark)) )*"#, options: .regularExpression)
 		else { return false }
 		return line[range].contains(blockedMark)
 	}
@@ -449,7 +449,7 @@ enum MorningOverview {
 
 	/// The text of a task line without its indent, checkbox, ID, ``marks`` and ``blockedMark``, or `nil` for another line.
 	static func taskKey(of line: String) -> String? {
-		guard let range = line.range(of: #"^\s*- (\[[ xX]\] )?(`[A-Z]\d+[a-z]*` )?"#, options: .regularExpression) else { return nil }
+		guard let range = line.range(of: #"^\s*- (\[[^\]]\] )?(`[A-Z]\d+[a-z]*` )?"#, options: .regularExpression) else { return nil }
 		var rest = line[range.upperBound...]
 		while let mark = (marks + [blockedMark]).first(where: { rest.hasPrefix($0 + " ") }) { rest = rest.dropFirst(mark.count + 1) }
 		return rest.trimmingCharacters(in: .whitespaces)
@@ -627,9 +627,9 @@ enum MorningOverview {
 			guard let letter, body.hasPrefix("- ") else { return line }
 			body = body.dropFirst(2)
 			var box = ""
-			if ["[ ] ", "[x] ", "[X] "].contains(where: { body.hasPrefix($0) }) {
-				box = String(body.prefix(4))
-				body = body.dropFirst(4)
+			if let range = body.range(of: #"^\[[^\]]\] "#, options: .regularExpression) {
+				box = String(body[range])
+				body = body[range.upperBound...]
 			}
 			if let old = body.range(of: #"^`[A-Z]\d+[a-z]*` "#, options: .regularExpression) { body = body[old.upperBound...] }
 			let id: String
@@ -662,7 +662,7 @@ enum MorningOverview {
 				writeCount()
 				heading = appSections.contains(title(of: String(lines[index].dropFirst(3)))) ? nil : index
 				count = 0
-			} else if lines[index].hasPrefix("- [ ]") {
+			} else if lines[index].range(of: #"^- \[[^\]xX]\] "#, options: .regularExpression) != nil {
 				count += 1
 			}
 		}

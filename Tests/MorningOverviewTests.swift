@@ -574,6 +574,13 @@ extension ReportFixture {
 			""")
 	}
 
+	@Test func aTaskInProgressGetsItsIDAfterTheCheckbox() {
+		let overview = "## My Open PRs\n\n- [/] `M3` First\n    - [/] Review it\n- [ ] Second\n"
+		let numbered = "## 2 × My Open PRs\n\n- [/] `M1` First\n    - [/] `M1a` Review it\n- [ ] `M2` Second\n"
+		#expect(MorningOverview.numbered(overview) == numbered)
+		#expect(MorningOverview.numbered(numbered) == numbered)
+	}
+
 	@Test func plansGetTheFactsThatTheAppFinds() throws {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
