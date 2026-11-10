@@ -933,14 +933,22 @@ extension ReportFixture {
 	@Test func blockedTasksGoToTheEndOfTheirList() {
 		let overview = "## My Open PRs\n\n- [ ] 🚫 [`#1`](https://x) A\n    - [ ] Do A.\n- [ ] B\n- [ ] 🏓 🚫 C\n- [ ] D\n    - [ ] Do D.\n\n"
 			+ "## Cleanup Work\n\n### Local\n\n- [ ] 🚫 E\n- [ ] F\n"
-		#expect(MorningOverview.withBlockedTasksLast(in: overview)
+		#expect(MorningOverview.withTasksSorted(in: overview)
 			== "## My Open PRs\n\n- [ ] B\n- [ ] D\n    - [ ] Do D.\n- [ ] 🚫 [`#1`](https://x) A\n    - [ ] Do A.\n- [ ] 🏓 🚫 C\n\n"
 			+ "## Cleanup Work\n\n### Local\n\n- [ ] F\n- [ ] 🚫 E\n")
 	}
 
+	@Test func tasksOfTheTurnOfOthersGoBelowTheTasksOfTheUser() {
+		let overview = "## Their Open PRs\n\n- [ ] `R1` 🏓 [`#1`](https://x) A\n- [ ] `R2` ⌛ [`#2`](https://x) B\n"
+			+ "    - [ ] Review B.\n- [ ] `R3` 🏓 ⌛ [`#3`](https://x) C\n- [ ] `R4` [`#4`](https://x) D\n"
+		#expect(MorningOverview.withTasksSorted(in: overview)
+			== "## Their Open PRs\n\n- [ ] `R2` ⌛ [`#2`](https://x) B\n    - [ ] Review B.\n- [ ] `R4` [`#4`](https://x) D\n"
+			+ "- [ ] `R1` 🏓 [`#1`](https://x) A\n- [ ] `R3` 🏓 ⌛ [`#3`](https://x) C\n")
+	}
+
 	@Test func blockedMarkInTheTitleDoesNotCount() {
-		let overview = "- [ ] Fix the 🚫 sign\n- [ ] B\n"
-		#expect(MorningOverview.withBlockedTasksLast(in: overview) == overview)
+		let overview = "- [ ] Fix the 🚫 sign\n- [ ] Fix the 🏓 sign\n- [ ] B\n"
+		#expect(MorningOverview.withTasksSorted(in: overview) == overview)
 	}
 
 	@Test func taskKeyIgnoresTheMarks() {

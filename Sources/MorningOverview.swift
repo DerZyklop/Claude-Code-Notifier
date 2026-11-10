@@ -236,7 +236,7 @@ enum MorningOverview {
 		text = Report.hashLinksAsCode(in: subItemsIndented(in: text))
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
 			blocked: input.appData[blockedKey] as? Set<Int> ?? [], in: text)
-		text = numbered(withBlockedTasksLast(in: text))
+		text = numbered(withTasksSorted(in: text))
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		if let file = report.newFileURL { text = withVSCodeLink(to: file, in: text) }
 		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
@@ -410,18 +410,20 @@ enum MorningOverview {
 		return parts.joined(separator: "\n## ")
 	}
 
-	/// The overview with each task that has ``blockedMark`` at the end of its list. A list is a run of tasks with their
-	/// sub-items. A blank line or a heading ends it. The other tasks keep their order.
-	static func withBlockedTasksLast(in overview: String) -> String {
+	/// The overview with the tasks of each list in 3 groups: first the tasks of the user, then the tasks with
+	/// ``othersTurnMark``, then the tasks with ``blockedMark``. A list is a run of tasks with their sub-items. A blank line
+	/// or a heading ends it. In a group, the tasks keep their order.
+	static func withTasksSorted(in overview: String) -> String {
 		var result: [String] = []
-		var tasks: [(isBlocked: Bool, lines: [String])] = []
+		var tasks: [(rank: Int, lines: [String])] = []
 		func flush() {
-			result += (tasks.filter { !$0.isBlocked } + tasks.filter(\.isBlocked)).flatMap(\.lines)
+			result += (0...2).flatMap { rank in tasks.filter { $0.rank == rank } }.flatMap(\.lines)
 			tasks = []
 		}
 		for line in overview.components(separatedBy: "\n") {
 			if line.hasPrefix("- ") {
-				tasks.append((isBlocked(line), [line]))
+				let marks = leadingMarks(of: line)
+				tasks.append((marks.contains(blockedMark) ? 2 : marks.contains(othersTurnMark) ? 1 : 0, [line]))
 			} else if !tasks.isEmpty, line.first == " " || line.first == "\t", !line.trimmingCharacters(in: .whitespaces).isEmpty {
 				tasks[tasks.count - 1].lines.append(line)
 			} else {
@@ -433,12 +435,12 @@ enum MorningOverview {
 		return result.joined(separator: "\n")
 	}
 
-	/// The task line has ``blockedMark`` before its first link.
-	private static func isBlocked(_ line: String) -> Bool {
+	/// The start of a task up to the end of its marks. A mark in the title does not count.
+	private static func leadingMarks(of line: String) -> Substring {
 		let anyMark = (marks + [blockedMark]).joined(separator: "|")
 		guard let range = line.range(of: #"^- (\[[^\]]\] )?(`[A-Z]\d+[a-z]*` )?((\#(anyMark)) )*"#, options: .regularExpression)
-		else { return false }
-		return line[range].contains(blockedMark)
+		else { return "" }
+		return line[range]
 	}
 
 	/// A task of the old overview that a new overview keeps as it is: the section title, and the lines of the task with
