@@ -16,7 +16,7 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 
 - **Menu bar icon:** always 70 pt wide. With two or more sessions, the icon shows their number, for example »×2«.
 - **Card:** one row for each session, with its state, title and running time. Sessions that ask you come first.
-  Archived sessions are not in the card.
+  Archived sessions are not in the card. A click on a row opens the chat of the session in VS Code.
 - **Notifications:** one for each session. A newer one replaces the older one. A click brings VS Code to the front.
 - **Sound:** only the ring of the bubble. It stops after 5 minutes without an answer. It does not play while a macOS
   Focus is on. »Play Sounds« in the menu turns it off.
@@ -122,6 +122,9 @@ update fails and does not change the file. To get the token:
 6. Optional: run `npm run install-extension`, and reload VS Code. The extension in `vscode-extension/` tells the app
    which Claude tab you look at. The app then closes the notifications of that session, and sends none for it while
    the tab stays in front. This only works for a Claude tab in the editor area, not for Claude in the sidebar.
+   The extension also tells the app which VS Code windows are open. A click on a row in the card then opens the chat
+   in the window of the session. Without the extension, VS Code opens the folder of the session, and it can open a
+   new window for it.
 
 If the wave shows a gap later, select »Hook Setup …« in the menu. The app honors `CLAUDE_CONFIG_DIR`.
 
