@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		INFocusStatusCenter.default.requestAuthorization(completionHandler: nil)
 
 		server.start(
-			onEvent: { data in Task { @MainActor in SessionStore.shared.handle(data) } },
+			onEvent: { data in Task { @MainActor in if !VSCodeWindows.shared.handle(data) { SessionStore.shared.handle(data) } } },
 			onStateChange: { error in Task { @MainActor in self.listenerStateChanged(error: error) } }
 		)
 

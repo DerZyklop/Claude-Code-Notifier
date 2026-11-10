@@ -11,13 +11,15 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``.
+/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``. A click on a row opens the chat of the session in VS Code.
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
 	@ObservedObject var setup: HookSetup
 	@ObservedObject var clock: MenuClock
 	/// The running ones get a row above the sessions. The card reads them again with each tick of the clock.
 	var reports: [Report] = Report.all
+	/// Opens the chat of the session, see ``VSCodeWindows/open(_:)``.
+	var open: (Session) -> Void = { _ in }
 	@State private var hoveredID: String?
 
 	var body: some View {
@@ -125,6 +127,7 @@ struct SessionCard: View {
 				.fill(Color.primary.opacity(hoveredID == session.id ? 0.07 : 0))
 		)
 		.contentShape(Rectangle())
+		.onTapGesture { open(session) }
 		.onHover { isHovered in
 			if isHovered {
 				hoveredID = session.id

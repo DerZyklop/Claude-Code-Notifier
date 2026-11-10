@@ -1,5 +1,6 @@
 // Tells Claude Code Pulse which Claude tab the front VS Code window shows. The app closes the notifications of that
-// session and sends none for it while the tab stays in front.
+// session and sends none for it while the tab stays in front. It also tells the app which windows are open, so that a
+// click on a session in the app opens its chat in the window of its folder.
 const vscode = require('vscode');
 const http = require('http');
 
@@ -14,20 +15,38 @@ function focusedTab() {
 	return { title: tab.label, folders: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath) };
 }
 
-// The last body that the app received. A failed request sends again with the next change.
-let lastBody;
+// The folders and the workspace file of the window.
+function thisWindow() {
+	return {
+		folders: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
+		workspaceFile: vscode.workspace.workspaceFile?.scheme === 'file' ? vscode.workspace.workspaceFile.fsPath : null,
+	};
+}
+
+// The last bodies that the app received, by event. A failed request sends again with the next change.
+const lastBodies = {};
 
 function report() {
-	const body = JSON.stringify({ hook_event_name: 'TabFocus', tab: focusedTab() });
-	if (body === lastBody) return;
-	lastBody = body;
-	const request = http.request({
-		host: '127.0.0.1', port: PORT, path: '/event', method: 'POST', timeout: 1000,
-		headers: { 'X-Claude-Hook': '1', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+	send('TabFocus', JSON.stringify({ hook_event_name: 'TabFocus', tab: focusedTab() }));
+	send('Window', JSON.stringify({ hook_event_name: 'Window', window: thisWindow(), focused: vscode.window.state.focused }));
+}
+
+function send(name, body) {
+	if (body === lastBodies[name]) return;
+	lastBodies[name] = body;
+	return post(body, () => { lastBodies[name] = undefined; });
+}
+
+function post(body, onError) {
+	return new Promise((resolve) => {
+		const request = http.request({
+			host: '127.0.0.1', port: PORT, path: '/event', method: 'POST', timeout: 1000,
+			headers: { 'X-Claude-Hook': '1', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+		}, (response) => { response.resume(); resolve(); });
+		request.on('error', () => { onError?.(); resolve(); });
+		request.on('timeout', () => request.destroy());
+		request.end(body);
 	});
-	request.on('error', () => { lastBody = undefined; });
-	request.on('timeout', () => request.destroy());
-	request.end(body);
 }
 
 function activate(context) {
@@ -40,4 +59,9 @@ function activate(context) {
 	report();
 }
 
-module.exports = { activate };
+// VS Code waits for the promise when the window closes.
+function deactivate() {
+	return post(JSON.stringify({ hook_event_name: 'Window', window: thisWindow(), focused: false, closed: true }));
+}
+
+module.exports = { activate, deactivate };

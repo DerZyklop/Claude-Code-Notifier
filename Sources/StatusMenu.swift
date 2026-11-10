@@ -240,7 +240,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	}
 
 	private func sessionCard() -> SessionCard {
-		SessionCard(store: SessionStore.shared, setup: HookSetup.shared, clock: clock)
+		SessionCard(store: SessionStore.shared, setup: HookSetup.shared, clock: clock) { [weak menu] session in
+			menu?.cancelTracking()
+			VSCodeWindows.shared.open(session)
+		}
 	}
 
 	/// Gives the card the height of its rows, e.g. when a session starts while the menu is open.
