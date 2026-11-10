@@ -935,23 +935,31 @@ enum MorningOverview {
 		Bitbucket.isAuthor(of: pullRequest, me: me) || myReview(of: pullRequest, me: me) != nil
 	}
 
-	/// The author waits for the user: the user reviews the pull request and did not approve it yet, and it is no draft
-	/// and has no open task. An open task is for the author, so with one, it is the author's turn.
+	/// The author waits for the user: the user reviews the pull request, it is no draft, and the user did not pass it
+	/// to the author.
 	static func waitsForReview(_ pullRequest: [String: Any], me: String) -> Bool {
-		guard let mine = myReview(of: pullRequest, me: me) else { return false }
-		return mine["approved"] as? Bool != true && pullRequest["draft"] as? Bool != true && (pullRequest["openTasks"] as? [Any])?.isEmpty == true
+		myReview(of: pullRequest, me: me) != nil && pullRequest["draft"] as? Bool != true && !isPassedToAuthor(pullRequest, me: me)
 	}
 
-	/// The user has the next step. In a pull request of another author, the author waits for the review of the user,
-	/// and the user did not ask for changes. In a pull request of the user, it has an open task, a merge conflict, a
+	/// The user passed the pull request of another author to the author: the user approved it or asked for changes,
+	/// it has an open task of the user, or the newest comment is of the user. A comment of an app does not count.
+	static func isPassedToAuthor(_ pullRequest: [String: Any], me: String) -> Bool {
+		let mine = participants(of: pullRequest).first { userName(of: $0) == me }
+		let tasks = pullRequest["openTasks"] as? [[String: Any]] ?? []
+		let newestComment = (pullRequest["newestComments"] as? [[String: Any]])?
+			.first { ($0["user"] as? [String: Any])?["type"] as? String != "app_user" }
+		return mine?["approved"] as? Bool == true || mine?["state"] as? String == "changes_requested"
+			|| tasks.contains { ($0["creator"] as? [String: Any])?["display_name"] as? String == me }
+			|| newestComment.map { userName(of: $0) == me } ?? false
+	}
+
+	/// The user has the next step. In a pull request of another author, the author waits for the review of the user.
+	/// In a pull request of the user, it has an open task, a merge conflict, a
 	/// failed newest build, a request for changes, a newest comment of another person, or the approval of each reviewer.
 	/// A comment of an app, for example of the pipeline, does not count.
 	static func isMyTurn(_ pullRequest: [String: Any], me: String) -> Bool {
 		let participants = participants(of: pullRequest)
-		guard Bitbucket.isAuthor(of: pullRequest, me: me) else {
-			let mine = participants.first { userName(of: $0) == me }
-			return waitsForReview(pullRequest, me: me) && mine?["state"] as? String != "changes_requested"
-		}
+		guard Bitbucket.isAuthor(of: pullRequest, me: me) else { return waitsForReview(pullRequest, me: me) }
 		let reviewers = participants.filter { $0["role"] as? String == "REVIEWER" }
 		let newestComment = (pullRequest["newestComments"] as? [[String: Any]])?
 			.first { ($0["user"] as? [String: Any])?["type"] as? String != "app_user" }

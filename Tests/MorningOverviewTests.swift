@@ -845,9 +845,11 @@ extension ReportFixture {
 		(false, false, [], true),
 		(true, false, [], false), // already approved
 		(false, true, [], false), // draft
-		(false, false, ["task"], false), // the author's turn
+		(false, false, ["Nils"], false), // a task of the user is for the author
+		(false, false, ["Rui"], true), // a task of the author does not pass the turn
 	] as [(Bool, Bool, [String], Bool)])
-	func waitsForReviewOnlyWithoutOpenTasks(approved: Bool, draft: Bool, tasks: [String], waits: Bool) {
+	func waitsForReviewUntilTheUserPassesIt(approved: Bool, draft: Bool, taskCreators: [String], waits: Bool) {
+		let tasks = taskCreators.map { ["creator": ["display_name": $0]] }
 		let pullRequest: [String: Any] = ["draft": draft, "openTasks": tasks,
 			"participants": [["user": ["display_name": "Nils"], "role": "REVIEWER", "approved": approved]]]
 		#expect(MorningOverview.waitsForReview(pullRequest, me: "Nils") == waits)
@@ -861,7 +863,11 @@ extension ReportFixture {
 		var changes = reviewer
 		changes["state"] = "changes_requested"
 		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["participants": [changes]]) { $1 }, me: "Nils"))
-		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["openTasks": ["task"]]) { $1 }, me: "Nils"))
+		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["openTasks": [["creator": ["display_name": "Nils"]]]]) { $1 }, me: "Nils"))
+		#expect(MorningOverview.isMyTurn(pullRequest.merging(["openTasks": [["creator": ["display_name": "Rui"]]]]) { $1 }, me: "Nils"))
+		#expect(!MorningOverview.isMyTurn(pullRequest.merging(["newestComments": [["user": ["display_name": "Nils"]]]]) { $1 }, me: "Nils"))
+		#expect(MorningOverview.isMyTurn(pullRequest.merging(["newestComments": [["user": ["display_name": "Rui"]],
+			["user": ["display_name": "Nils"]]]]) { $1 }, me: "Nils"))
 	}
 
 	@Test(arguments: [
