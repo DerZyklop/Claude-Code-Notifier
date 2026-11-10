@@ -157,8 +157,8 @@ extension ReportFixture {
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
 		#expect(text == MorningOverview.withKeptSections(from: "", keepingTicks: false,
-			in: Report.hashLinksAsCode(in: MorningOverview.numbered(overviewText + "\n"))))
-		#expect(text.contains("Updated: 2026-10-27 07:00\n\n## My Notes\n\n## Daily\n\n## 0 × Their Open PRs\n"))
+			in: MorningOverview.withVSCodeLink(to: fixture.fileURL, in: Report.hashLinksAsCode(in: MorningOverview.numbered(overviewText + "\n")))))
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\(fixture.vsCodeLink)\n\n## My Notes\n\n## Daily\n\n## 0 × Their Open PRs\n"))
 		#expect(text.contains("- [ ] `M1` [`#12`]("))
 		#expect(text.contains("## 0 × Their Open PRs\n") && text.contains("## 1 × My Open PRs\n") && text.contains("## 0 × Draft PRs\n"))
 		#expect(text.contains("[`#12`](") && !text.contains("[#"))
@@ -206,7 +206,7 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text.contains("Updated: 2026-10-27 07:00\n\n- [ ] Reflect\n\n## My Notes\n"))
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\(fixture.vsCodeLink)\n\n- [ ] Reflect\n\n## My Notes\n"))
 		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Weekday tasks: Reflect."))
 	}
 
@@ -219,7 +219,7 @@ extension ReportFixture {
 			.write(to: fixture.fileURL, atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
-		#expect(text.contains("Updated: 2026-10-27 07:00\n\n\(notes)\n## Daily\n\n- [ ] Mail\n    - [ ] Inbox\n- [ ] Slack\n\n## 0 × Their"))
+		#expect(text.contains("Updated: 2026-10-27 07:00\n\(fixture.vsCodeLink)\n\n\(notes)\n## Daily\n\n- [ ] Mail\n    - [ ] Inbox\n- [ ] Slack\n\n## 0 × Their"))
 		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("»My Notes«, »Daily«, »Other Devs' Merges« and »Notifier App«"))
 	}
 
@@ -487,6 +487,13 @@ extension ReportFixture {
 			- [ ] Reflect
 
 			## My Open PRs
+
+	@Test func vsCodeLinkFollowsTheUpdatedLine() {
+		let file = URL(fileURLWithPath: "/Users/me/My Notes/2026-11-10.md")
+		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n\nUpdated: 2026-11-10 06:00\n\n## Draft PRs\n")
+			== "# Morning overview\n\nUpdated: 2026-11-10 06:00\n[Open in VS Code](vscode://file/Users/me/My%20Notes/2026-11-10.md)\n\n## Draft PRs\n")
+		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n") == "# Morning overview\n")
+	}
 
 			- [ ] [#1](https://x) First
 			    - [ ] A next action

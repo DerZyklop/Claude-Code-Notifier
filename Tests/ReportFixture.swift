@@ -159,3 +159,10 @@ extension Report.Command {
 	/// The run of Claude Code, and not one of the other commands of a report.
 	var isClaudeRun: Bool { arguments.count > 2 && arguments[2] == "claude" }
 }
+
+extension ReportFixture {
+	/// The link of the overview that opens ``fileURL`` in VS Code.
+	var vsCodeLink: String {
+		"[Open in VS Code](vscode://file\(fileURL.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!))"
+	}
+}

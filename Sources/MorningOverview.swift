@@ -238,6 +238,7 @@ enum MorningOverview {
 			blocked: input.appData[blockedKey] as? Set<Int> ?? [], in: text)
 		text = numbered(withBlockedTasksLast(in: text))
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
+		if let file = report.newFileURL { text = withVSCodeLink(to: file, in: text) }
 		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
 			+ (otherMergesSection(merges, old: old) ?? "")
 			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
@@ -684,6 +685,14 @@ enum MorningOverview {
 	@MainActor static let countKeeper = SectionCountKeeper { Report.morningOverview.fileURL }
 
 	/// The overview with each sub-item indented by 4 spaces. Claude sometimes writes 2.
+	/// The overview with a link below its `Updated:` line that opens `file` in the VS Code window that had focus last, e.g.
+	/// from Obsidian or a browser.
+	static func withVSCodeLink(to file: URL, in overview: String) -> String {
+		guard let path = file.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+			let line = overview.range(of: "(?m)^Updated: .*$", options: .regularExpression) else { return overview }
+		return overview.replacingCharacters(in: line, with: overview[line] + "\n[Open in VS Code](vscode://file\(path))")
+	}
+
 	static func subItemsIndented(in overview: String) -> String {
 		overview.replacingOccurrences(of: "(?m)^  (?=- )", with: "    ", options: .regularExpression)
 	}
