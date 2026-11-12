@@ -16,7 +16,9 @@ extension Report.Kind {
 		render: MorningOverview.render,
 		readyBody: { text, _ in "\(text.components(separatedBy: "\n- [ ]").count - 1) open tasks. Click to open the file." },
 		backupName: nil,
-		folderKey: SettingsKey.morningOverviewFolder
+		folderKey: SettingsKey.morningOverviewFolder,
+		heading: "# Morning overview",
+		statsFileName: "stats.md"
 	)
 }
 
@@ -34,25 +36,33 @@ enum MorningOverview {
 	static func collect(_ report: Report) async throws -> Report.Input {
 		let system = report.system
 		let me = await report.me()
+		report.step("Git user name")
 		let branches = await branches(report, me: me)
+		report.step("Local branches")
+		let workspaces = await workspaces(report)
+		report.step("Git workspaces")
+		let remoteBranches = await remoteBranches(report, me: me, local: Set(branches.compactMap { $0["name"] as? String }))
+		report.step("Remote branches")
 		let old = report.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-		var data: [String: Any] = ["me": me, "workspaces": await workspaces(report), "branches": branches,
-			"remoteBranches": await remoteBranches(report, me: me, local: Set(branches.compactMap { $0["name"] as? String }))]
+		var data: [String: Any] = ["me": me, "workspaces": workspaces, "branches": branches, "remoteBranches": remoteBranches]
 		var appData: [String: Any] = [:]
 		let pullRequests: [[String: Any]]
 		do {
 			let bitbucket = try await report.bitbucket()
+			report.step("Bitbucket login")
 			pullRequests = try await Self.pullRequests(bitbucket, me: me).map { pullRequest in
 				var pullRequest = pullRequest
 				pullRequest["isStale"] = isStale(pullRequest, now: system.now())
 				return pullRequest
 			}
+			report.step("Open pull requests")
 			data["pullRequests"] = pullRequests
 			appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
 			appData[staleKey] = ids(of: pullRequests.filter { $0["isStale"] as? Bool == true })
 			appData[blockedKey] = ids(of: pullRequests.filter { ($0["title"] as? String)?.contains(blockedMark) == true })
 			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
+			report.step("Merges of other devs")
 		} catch let error as URLError {
 			// Without a network, the run of the day waits for the next try.
 			throw Report.Failure("No connection to Bitbucket: \(error.localizedDescription)")
@@ -64,9 +74,11 @@ enum MorningOverview {
 				.split(separator: "\n").map { $0.replacingOccurrences(of: #"^origin/"#, with: "", options: .regularExpression) })
 			data["plans"] = plans(in: plansFolder, old: old, now: system.now(), calendar: system.calendar, branches: branches,
 				knownBranches: known, pullRequests: pullRequests)
+			report.step("Plans")
 		}
 		let sessions = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
 			archived: system.archivedSessionIDs() ?? [])
+		report.step("Sessions")
 		data["sessions"] = sessions.open
 		data["archivedSessions"] = sessions.archivedTitles
 		return Report.Input(data: data, facts: facts(report), appData: appData)
@@ -237,8 +249,8 @@ enum MorningOverview {
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
 			blocked: input.appData[blockedKey] as? Set<Int> ?? [], in: text)
 		text = numbered(withTasksSorted(in: text))
-		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		if let file = report.newFileURL { text = withVSCodeLink(to: file, in: text) }
+		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
 			+ (otherMergesSection(merges, old: old) ?? "")
 			+ (system.notifierPlansFolder.flatMap(notifierSection) ?? "")
@@ -321,7 +333,7 @@ enum MorningOverview {
 	}
 
 	/// The overview with the kept sections of `old` above its first section, and »Cleanup Work« below »My Notes«. »My Notes«
-	/// loses only its ticked tasks without sub-items. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.
+	/// loses only its ticked tasks without an open sub-item. The tasks in »Daily« lose their tick on a new day. A section that `old` does not have starts empty.
 	static func withKeptSections(from old: String, keepingTicks: Bool, in overview: String) -> String {
 		let oldSections = sections(in: old)
 		var parts = overview.components(separatedBy: "\n## ")
@@ -344,14 +356,34 @@ enum MorningOverview {
 		return overview.replacingCharacters(in: section, with: "\n" + kept + "## ")
 	}
 
-	/// The text without the ticked tasks that have no sub-item. A sub-item is a next line with more indent. The lines go from
-	/// the bottom up, so that a ticked task whose sub-items are all ticked goes away too.
+	/// The text without the ticked tasks that have no open sub-item. A ticked task goes away with its sub-items, e.g. a note
+	/// without a checkbox. A sub-item is a next line with more indent. An open sub-item has a checkbox without a tick, e.g.
+	/// `[ ]` or `[/]`. The lines go from the bottom up, so that a ticked task whose sub-items are all ticked goes away too.
 	static func withoutDoneLeafTasks(in text: String) -> String {
+		// The kept lines in reverse order, so that `kept.last` is the next line.
 		var kept: [String] = []
+		// A removed task left an empty line below it, so that an empty line above it is one too many.
+		var dropsEmptyLine = false
 		for line in text.components(separatedBy: "\n").reversed() {
+			let isEmpty = line.trimmingCharacters(in: .whitespaces).isEmpty
+			if isEmpty, dropsEmptyLine { continue }
+			dropsEmptyLine = false
 			if line.range(of: #"^\s*[-*] \[[xX]\] "#, options: .regularExpression) != nil {
-				let next = kept.last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-				guard let next, indent(of: next) > indent(of: line) else { continue }
+				// The number of next lines up to the last sub-item. Empty lines after the last sub-item stay.
+				var count = 0
+				var subItems = 0
+				for next in kept.reversed() {
+					count += 1
+					if next.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+					guard indent(of: next) > indent(of: line) else { break }
+					subItems = count
+				}
+				let isOpen = kept.suffix(subItems).contains { $0.range(of: #"^\s*[-*] \[[^xX]\] "#, options: .regularExpression) != nil }
+				if !isOpen {
+					kept.removeLast(subItems)
+					dropsEmptyLine = kept.last?.trimmingCharacters(in: .whitespaces).isEmpty == true
+					continue
+				}
 			}
 			kept.append(line)
 		}
@@ -686,7 +718,6 @@ enum MorningOverview {
 	/// Keeps the counts in the headings right while the user ticks tasks in an editor.
 	@MainActor static let countKeeper = SectionCountKeeper { Report.morningOverview.fileURL }
 
-	/// The overview with each sub-item indented by 4 spaces. Claude sometimes writes 2.
 	/// The overview with a link below its `Updated:` line that opens `file` in the VS Code window that had focus last, e.g.
 	/// from Obsidian or a browser.
 	static func withVSCodeLink(to file: URL, in overview: String) -> String {
@@ -695,6 +726,7 @@ enum MorningOverview {
 		return overview.replacingCharacters(in: line, with: overview[line] + "\n[Open in VS Code](vscode://file\(path))")
 	}
 
+	/// The overview with each sub-item indented by 4 spaces. Claude sometimes writes 2.
 	static func subItemsIndented(in overview: String) -> String {
 		overview.replacingOccurrences(of: "(?m)^  (?=- )", with: "    ", options: .regularExpression)
 	}

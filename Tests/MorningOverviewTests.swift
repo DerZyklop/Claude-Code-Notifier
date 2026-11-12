@@ -172,6 +172,42 @@ extension ReportFixture {
 		#expect(fixture.log.removed == ["morning-overview-failed"])
 	}
 
+	@Test func updateWritesTheTimeOfEachStepNextToTheFile() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		let stats = try String(contentsOf: fixture.overviewFolder.appendingPathComponent("stats.md"), encoding: .utf8)
+		#expect(stats.contains("Started: 2026-10-27 07:00\nResult: Ready\nTotal: "))
+		// »Plans« depends on the plans folder of this machine.
+		#expect(fixture.report.steps.map(\.name).filter { $0 != "Plans" } == ["Git user name", "Local branches", "Git workspaces", "Remote branches",
+			"Bitbucket login", "Open pull requests", "Merges of other devs", "Sessions", "Collect", "Claude run", "Render", "Write file"])
+		for name in fixture.report.steps.map(\.name) { #expect(stats.contains("| \(name) | ")) }
+	}
+
+	@Test func openStatsOpensTheStatsFileAndKeepsTheMark() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		fixture.report.openStats()
+		#expect(fixture.log.opened == [fixture.overviewFolder.appendingPathComponent("stats.md")])
+		#expect(fixture.report.isUnread)
+	}
+
+	@Test func aFailedRunWritesItsStatsToo() async throws {
+		let fixture = try ReportFixture(failure: { _ in URLError(.notConnectedToInternet) })
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		let stats = try String(contentsOf: fixture.overviewFolder.appendingPathComponent("stats.md"), encoding: .utf8)
+		#expect(stats.contains("Result: Failed: No connection to Bitbucket"))
+		#expect(stats.contains("| Bitbucket login | ") && !stats.contains("| Claude run | "))
+	}
+
+	@Test func statsGiveTheShareOfEachStep() {
+		let text = Report.stats([("A", .seconds(1)), ("B", .seconds(299))], started: "2026-10-27 07:00", result: "Ready", title: "T")
+		#expect(text.contains("Total: 5 min 00 s\n"))
+		#expect(text.contains("| A | 1.0 s | 0 % |\n| B | 4 min 59 s | 100 % |\n"))
+	}
+
 	@Test func updateWritesAFileWithTheDateAndReadsTheNewestOldOne() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
@@ -187,6 +223,19 @@ extension ReportFixture {
 		#expect(try String(contentsOf: old, encoding: .utf8).contains("Newest"))
 		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Old overview: \(old.path)\n"))
 		#expect(!FileManager.default.fileExists(atPath: fixture.folder.appendingPathComponent("morning-overview.md").path))
+	}
+
+	@Test func updateSkipsDatedFilesWithoutTheHeadingOfTheOverview() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		let old = fixture.overviewFolder.appendingPathComponent("2026-10-23.md")
+		let note = fixture.overviewFolder.appendingPathComponent("2026-10-26.md")
+		try "# Morning overview\n\nUpdated: 2026-10-23 07:00\n\n## My Notes\n\nMine\n".write(to: old, atomically: true, encoding: .utf8)
+		try "# A daily note\n\nNot an overview\n".write(to: note, atomically: true, encoding: .utf8)
+		#expect(fixture.report.fileURL == old)
+		await fixture.report.update()
+		#expect(try String(contentsOf: fixture.fileURL, encoding: .utf8).contains("## My Notes\n\nMine\n"))
+		#expect(try String(contentsOf: note, encoding: .utf8) == "# A daily note\n\nNot an overview\n")
 	}
 
 	@Test func updateWithoutAFolderFailsWithAHint() async throws {
@@ -475,6 +524,13 @@ extension ReportFixture {
 		#expect(MorningOverview.isDraftOfOthers(pullRequest, me: "Nils") == removed)
 	}
 
+	@Test func vsCodeLinkFollowsTheUpdatedLine() {
+		let file = URL(fileURLWithPath: "/Users/me/My Notes/2026-11-10.md")
+		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n\nUpdated: 2026-11-10 06:00\n\n## Draft PRs\n")
+			== "# Morning overview\n\nUpdated: 2026-11-10 06:00\n[Open in VS Code](vscode://file/Users/me/My%20Notes/2026-11-10.md)\n\n## Draft PRs\n")
+		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n") == "# Morning overview\n")
+	}
+
 	@Test func subItemsGetFourSpaces() {
 		#expect(MorningOverview.subItemsIndented(in: "- [ ] Title\n  - Do it.\n    - Done.\n- [ ] Next\n")
 			== "- [ ] Title\n    - Do it.\n    - Done.\n- [ ] Next\n")
@@ -487,13 +543,6 @@ extension ReportFixture {
 			- [ ] Reflect
 
 			## My Open PRs
-
-	@Test func vsCodeLinkFollowsTheUpdatedLine() {
-		let file = URL(fileURLWithPath: "/Users/me/My Notes/2026-11-10.md")
-		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n\nUpdated: 2026-11-10 06:00\n\n## Draft PRs\n")
-			== "# Morning overview\n\nUpdated: 2026-11-10 06:00\n[Open in VS Code](vscode://file/Users/me/My%20Notes/2026-11-10.md)\n\n## Draft PRs\n")
-		#expect(MorningOverview.withVSCodeLink(to: file, in: "# Morning overview\n") == "# Morning overview\n")
-	}
 
 			- [ ] [#1](https://x) First
 			    - [ ] A next action
@@ -758,6 +807,12 @@ extension ReportFixture {
 		let old = "# Morning overview\n\n## My Notes\n\n- [x] Gone\n\t- [x] Sub\n\t\t- [x] Sub of sub\n- [x] Kept\n\t- [x] Sub\n\t\t- [ ] Open\n\n## Daily\n"
 		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: "# Morning overview\n\n## Optional Work\n")
 			== "# Morning overview\n\n## My Notes\n\n- [x] Kept\n\t- [x] Sub\n\t\t- [ ] Open\n\n## Daily\n\n## Optional Work\n")
+	}
+
+	@Test func myNotesLoseADoneTaskWithItsNotesButKeepOneWithAnOpenSubItem() {
+		let old = "# Morning overview\n\n## My Notes\n\n- [x] Gone\n\t- a note\n\n- [x] Kept\n\t- a note\n\t- [/] Started\n- [ ] Open\n\n## Daily\n"
+		#expect(MorningOverview.withKeptSections(from: old, keepingTicks: true, in: "# Morning overview\n\n## Optional Work\n")
+			== "# Morning overview\n\n## My Notes\n\n- [x] Kept\n\t- a note\n\t- [/] Started\n- [ ] Open\n\n## Daily\n\n## Optional Work\n")
 	}
 
 	@Test func addedTasksAndDoneTasksWithAnOpenSubItemAreKept() {

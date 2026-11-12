@@ -54,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		}
 		MorningOverview.countKeeper.start()
 		Task { @MainActor in await Report.runAllIfDue() }
+		// The first update runs at the start, so the menu has data when it opens.
+		AccountUsageStore.shared.refreshIfStale()
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {

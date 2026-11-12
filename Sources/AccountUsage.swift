@@ -60,9 +60,9 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	var name: String { email ?? (directory.path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The usage of each account. The menu updates it when it opens and the data is older than ``maxAge``. Each update
-/// sends a prompt of one token per account, so it uses a little of the 5-hour limit, and it starts that limit on an
-/// idle account.
+/// The usage of each account. The app updates it once at the start. The menu updates it when it opens and the data is
+/// older than ``maxAge``. Each update sends a prompt of one token per account, so it uses a little of the 5-hour
+/// limit, and it starts that limit on an idle account.
 @MainActor
 final class AccountUsageStore: ObservableObject {
 	static let shared = AccountUsageStore()

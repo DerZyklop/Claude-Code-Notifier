@@ -36,6 +36,9 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   the daily run off.
 - **Done:** a notification says how many tasks are open. A click on it opens the file in Obsidian, or in VS Code without Obsidian. Until you open
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
+- **Stats:** after each run, also after a failure or a stop, the app writes `stats.md` in the same folder. It shows the
+  time of each step of the last run, for example the Bitbucket requests and the Claude run, and its share of the total.
+  »Stats« next to »Open« in the menu opens the file.
 - **Sources:**
   - The newest dated file in the folder. Done tasks leave it.
   - The open PRs on Bitbucket, with their open tasks and newest comments. The repo comes from the remote `origin`.
@@ -74,7 +77,8 @@ with its reset time. From 80 % on, the percentage is orange.
   deletes the folder. Any other folder, for example `~/.claude`, only leaves the list.
 - **How:** the app runs `claude -p` with a prompt of one token for each account, and reads the limits from its
   output. The app never reads a login token. The run skips all hooks, so it does not show as a session.
-- **When:** when you open the menu and the data is older than 10 minutes, or when you click the arrow in the card.
+- **When:** the app updates the data once at its start. A click on the arrow in the card updates it too. If you open
+  the menu and the data is older than 10 minutes, the app updates it.
 - **Cost:** each update uses a little of the 5-hour limit. On an idle account, it starts the 5-hour window.
 - **Remove:** delete `Sources/AccountUsage.swift`, `Sources/AccountUsageCard.swift`, `Sources/AccountsView.swift`
   and `Tests/AccountUsageTests.swift`. Then remove `addUsageCard(to:)` in `Sources/StatusMenu.swift` and the tab
@@ -108,8 +112,8 @@ update fails and does not change the file. To get the token:
 1. On api.slack.com/apps, create an app »From scratch« in your workspace.
 2. Add the User Token Scopes `search:read`, `users:read`, `channels:read`, `groups:read`, `im:read` and `mpim:read`.
 3. Install the app in the workspace. A workspace admin can have to approve it.
-4. Put `export SLACK_USER_TOKEN=xoxp-…` into `~/.zprofile`, next to the `BITBUCKET_API_*` variables. The app reads the
-   login shell, which does not read `~/.zshrc`.
+4. Put `export SLACK_USER_TOKEN=xoxp-…` into the file with the `BITBUCKET_API_*` variables, for example `~/.zprofile`
+   or `~/.zshenv`. The app reads the login shell, which does not read `~/.zshrc`.
 
 ## Setup
 
@@ -161,7 +165,7 @@ web pages.
 
 - `~/Library/Preferences/local.claude-code-notifier.app.plist` holds the settings that differ from the default.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
-- The app writes no logs and no caches. Its only files are the morning overviews in the folder of the setting, and DiDi in the project folder.
+- The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
 
 To remove the app, delete it. Then delete the settings file with `rm`. Do not use `defaults delete`, because it
 leaves an empty file.

@@ -101,6 +101,11 @@ final class Report: ObservableObject {
 		/// The setting with the folder of the files, or `nil` for the project folder. With a folder, each run writes a file
 		/// with the date as its name, e.g. `2026-11-05.md`, and ``fileName`` names only the support folder.
 		var folderKey: String? = nil
+		/// The first line of each file that a run writes, e.g. `# Morning overview`. With ``folderKey``, a dated file
+		/// without this line belongs to another app, e.g. a daily note of Obsidian, and is no old file of a run.
+		var heading: String? = nil
+		/// The file next to the files of the run with the time of each step of the last run, or `nil` for no such file.
+		var statsFileName: String? = nil
 
 		private var weekdaysKey: String { notificationID + "-weekdays" }
 		/// The minutes after midnight.
@@ -231,12 +236,21 @@ final class Report: ObservableObject {
 		return path.isEmpty ? nil : URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
 	}
 
-	/// See ``fileURL``. Of the dated files, the one with the newest date.
+	/// See ``fileURL``. Of the dated files with ``Kind/heading``, the one with the newest date.
 	static func fileURL(of kind: Kind, system: System) -> URL? {
 		guard let folder = outputFolder(of: kind, system: system) else { return nil }
 		guard kind.folderKey != nil else { return folder.appendingPathComponent(kind.fileName) }
 		let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-		return names.filter(isDatedName).max().map { folder.appendingPathComponent($0) }
+		return names.filter(isDatedName).sorted(by: >).lazy.map { folder.appendingPathComponent($0) }
+			.first { hasHeading(of: kind, in: $0) }
+	}
+
+	/// Whether a line of the file is ``Kind/heading``. Always `true` for a kind without a heading, and for a file that the
+	/// app cannot read: then the run stops with a failure and does not lose the text of the file.
+	nonisolated static func hasHeading(of kind: Kind, in file: URL) -> Bool {
+		guard let heading = kind.heading else { return true }
+		guard let text = try? String(contentsOf: file, encoding: .utf8) else { return true }
+		return text.split(separator: "\n", omittingEmptySubsequences: false).contains { $0.trimmingCharacters(in: .whitespaces) == heading }
 	}
 
 	/// A name such as `2026-11-05.md`.
@@ -334,6 +348,9 @@ final class Report: ObservableObject {
 	private func run() async {
 		guard let newFileURL else { return fail(missingFolderReason) }
 		guard let prompt = system.prompt(kind.promptResource) else { return fail("The prompt is missing in the app.") }
+		steps = []
+		stepStart = .now
+		defer { writeStats() }
 
 		let input: Input
 		do {
@@ -341,6 +358,7 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("\(error)")
 		}
+		step("Collect")
 		if Task.isCancelled { return }
 		let command: Command
 		do {
@@ -349,6 +367,7 @@ final class Report: ObservableObject {
 			return fail("The folder of the run could not be made: \(error.localizedDescription)")
 		}
 		let result = await system.run(command)
+		step("Claude run")
 		if Task.isCancelled { return }
 		if result.timedOut { return fail("Claude did not finish within \(Int(kind.timeout / 60)) minutes.") }
 		if result.status == 127 { return fail("The command »claude« was not found.") }
@@ -369,6 +388,7 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("\(error)")
 		}
+		step("Render")
 		do {
 			if let old, let name = kind.backupName?(old) { try backUp(old, as: name) }
 			try FileManager.default.createDirectory(at: newFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -379,6 +399,7 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("The file could not be written: \(error.localizedDescription)")
 		}
+		step("Write file")
 		isUnread = true
 		system.ready()
 		if !system.defaults.bool(forKey: SettingsKey.muted) {
@@ -405,10 +426,75 @@ final class Report: ObservableObject {
 
 	private static let log = Logger(subsystem: "local.claude-code-notifier.app", category: "Report")
 
+	// MARK: - Step times
+
+	/// The steps of the current run with their time, in order.
+	private(set) var steps: [(name: String, time: Duration)] = []
+	/// The end of the last step, or the start of the run.
+	private var stepStart: ContinuousClock.Instant?
+
+	/// Ends a step of the run: the time since the end of the last step gets `name`. ``Kind/collect`` can call it for the
+	/// parts of its work. The step »Collect« then holds only the rest.
+	func step(_ name: String) {
+		guard let start = stepStart else { return }
+		let now = ContinuousClock.now
+		steps.append((name, now - start))
+		stepStart = now
+	}
+
+	/// Writes ``Kind/statsFileName`` in the folder of the files, also after a failure or a stop.
+	private func writeStats() {
+		guard let file = statsFileURL, let runStarted else { return }
+		let result = isStopped ? "Stopped" : failure.map { "Failed: \($0)" } ?? "Ready"
+		let text = Self.stats(steps, started: Self.timestampFormatter(system.calendar).string(from: runStarted), result: result,
+			title: kind.title)
+		try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+		try? text.write(to: file, atomically: true, encoding: .utf8)
+	}
+
+	/// The Markdown of the stats file: the start, the result, the total time and a table of the steps with their share.
+	nonisolated static func stats(_ steps: [(name: String, time: Duration)], started: String, result: String, title: String) -> String {
+		let total = steps.map(\.time).reduce(.zero, +)
+		let rows = steps.map { step in
+			let share = total > .zero ? Int((step.time / total * 100).rounded()) : 0
+			return "| \(step.name) | \(formatted(step.time)) | \(share) % |\n"
+		}.joined()
+		return """
+			# \(title): time of each step
+
+			Started: \(started)
+			Result: \(result)
+			Total: \(formatted(total))
+
+			| Step | Time | Share |
+			| --- | ---: | ---: |
+
+			""" + rows
+	}
+
+	/// A time such as `0.4 s`, `12.3 s` or `4 min 05 s`.
+	nonisolated static func formatted(_ time: Duration) -> String {
+		let seconds = Double(time.components.seconds) + Double(time.components.attoseconds) / 1e18
+		guard seconds >= 60 else { return String(format: "%.1f s", seconds) }
+		let whole = Int(seconds.rounded())
+		return String(format: "%d min %02d s", whole / 60, whole % 60)
+	}
+
 	/// Opens the file and removes the mark of a new file.
 	func openFile() {
 		isUnread = false
 		if let fileURL { system.open(fileURL) }
+	}
+
+	/// The file of ``Kind/statsFileName`` in the folder of the files, or `nil` for a kind without one or without a folder.
+	var statsFileURL: URL? {
+		guard let name = kind.statsFileName else { return nil }
+		return outputFolder?.appendingPathComponent(name)
+	}
+
+	/// Opens ``statsFileURL``. The mark of a new file stays.
+	func openStats() {
+		if let statsFileURL { system.open(statsFileURL) }
 	}
 
 	/// Keeps the old file in the support folder, one file for each name.

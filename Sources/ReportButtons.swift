@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The buttons of a report in the menu, side by side: update, or stop while it runs, and open. The view follows the
-/// report, so a run that starts or ends while the menu is open changes it.
+/// The buttons of a report in the menu, side by side: update, or stop while it runs, open, and stats for a kind with a
+/// stats file. The view follows the report, so a run that starts or ends while the menu is open changes it.
 struct ReportButtons: View {
 	static let updatingTitle = "Updating …"
 	static let stopTitle = "Stop It!"
@@ -28,16 +28,28 @@ struct ReportButtons: View {
 				close()
 			} label: {
 				HStack(spacing: 4) {
-					Text("Open")
+					// The main action of the group.
+					Text("Open").fontWeight(.semibold)
 					if report.isUnread { Text("●").foregroundStyle(Color(nsColor: Spinner.reportColor)) }
 				}
 			}
-			.disabled(!(report.fileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false))
+			.disabled(!Self.exists(report.fileURL))
+			if report.kind.statsFileName != nil {
+				Button("Stats") {
+					report.openStats()
+					close()
+				}
+				.disabled(!Self.exists(report.statsFileURL))
+			}
 			Spacer(minLength: 0)
 		}
 		.controlSize(.small)
 		.padding(.horizontal, 14)
 		.padding(.vertical, 3)
+	}
+
+	private static func exists(_ file: URL?) -> Bool {
+		file.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
 	}
 
 	private var updateTitle: String {
