@@ -714,7 +714,7 @@ extension ReportFixture {
 			.allSatisfy { $0["changedAfterOldOverview"] == nil && $0["newCommits"] == nil })
 	}
 
-	@Test func sessionsGetTheirNewestTitle() throws {
+	@Test func sessionsGetTheirNewestTitle() async throws {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 		defer { try? FileManager.default.removeItem(at: folder) }
@@ -723,7 +723,9 @@ extension ReportFixture {
 		let texts = [
 			"a.jsonl": #"{"type":"ai-title","aiTitle":"Old"}"# + "\n" + #"{"type":"custom-title","customTitle":"Mine"}"# + "\n"
 				+ #"{"type":"ai-title","aiTitle":"New"}"# + "\n",
-			"b.jsonl": #"{"type":"ai-title","aiTitle":"First"}"# + "\n" + #"{"type":"ai-title","aiTitle":"Second"}"# + "\n",
+			// Other lines with the marker do not count. The last line has no line break.
+			"b.jsonl": #"{"type":"ai-title","aiTitle":"First"}"# + "\n" + #"{"type":"user","x-title":"Fake"}"# + "\n"
+				+ #"no JSON -title""# + "\n" + #"{"type":"ai-title","aiTitle":"Second"}"#,
 			"c.jsonl": "{}\n",
 			"old.jsonl": #"{"type":"ai-title","aiTitle":"Gone"}"# + "\n",
 		]
@@ -733,13 +735,23 @@ extension ReportFixture {
 			try text.write(to: file, atomically: true, encoding: .utf8)
 			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-ages[name]! * day)], ofItemAtPath: file.path)
 		}
-		let sessions = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar).open
+		let sessions = await MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar).open
 		#expect(sessions.map { $0["id"] as? String } == ["b", "a", "c"])
 		#expect(sessions.map { $0["title"] as? String } == ["Second", "Mine", nil])
 		#expect(sessions[0]["lastChange"] as? String == Report.timestampFormatter(utcCalendar).string(from: now.addingTimeInterval(-0.1 * day)))
 	}
 
-	@Test func archivedSessionsGiveOnlyTheirTitles() throws {
+	@Test func linesWithTheMarkerComeOutWhole() {
+		let marker = Array("-t\"".utf8)
+		let lines = { (text: String) in MorningOverview.lines(containing: marker, in: Data(text.utf8)).map { String(decoding: $0, as: UTF8.self) } }
+		// A marker at the start of the data, two markers in one line, and a last line without a line break.
+		#expect(lines("-t\" a\nb\nc -t\" d -t\"\n\ne -t\"") == ["-t\" a", "c -t\" d -t\"", "e -t\""])
+		#expect(lines("a\nb\n") == [])
+		#expect(lines("") == [])
+		#expect(lines("a -t\"\n") == ["a -t\""])
+	}
+
+	@Test func archivedSessionsGiveOnlyTheirTitles() async throws {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 		defer { try? FileManager.default.removeItem(at: folder) }
@@ -754,7 +766,7 @@ extension ReportFixture {
 			try (#"{"type":"ai-title","aiTitle":"\#(session.title)"}"# + "\n").write(to: file, atomically: true, encoding: .utf8)
 			try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-session.age * day)], ofItemAtPath: file.path)
 		}
-		let result = MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar,
+		let result = await MorningOverview.sessions(in: folder, now: now, calendar: utcCalendar,
 			archived: ["done", "doneOld", "doneTooOld", "doneTwin"])
 		#expect(result.open.map { $0["id"] as? String } == ["open"])
 		#expect(result.archivedTitles == ["Commit", "Wrapper"])

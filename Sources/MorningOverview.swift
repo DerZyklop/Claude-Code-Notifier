@@ -104,7 +104,7 @@ enum MorningOverview {
 		appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
 		if let old { appData[oldOverviewKey] = old }
 		report.step("Plans")
-		let sessions = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
+		let sessions = await sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
 			archived: system.archivedSessionIDs() ?? [])
 		report.step("Sessions")
 		data["sessions"] = sessions.open
@@ -224,8 +224,9 @@ enum MorningOverview {
 	/// - `archivedTitles`: the titles of the sessions in `archived` that changed in the last 14 days, sorted. A title that
 	///   an open session also has is not in it, because its work can still go on.
 	///
-	/// The title is the newest custom title, else the newest title of Claude.
-	static func sessions(in folder: URL, now: Date, calendar: Calendar, archived: Set<String> = [])
+	/// The title is the newest custom title, else the newest title of Claude. The function runs off the main actor, so the
+	/// menu does not block while it reads.
+	static func sessions(in folder: URL, now: Date, calendar: Calendar, archived: Set<String> = []) async
 		-> (open: [[String: Any]], archivedTitles: [String]) {
 		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
 		let start = days(sessionDays, before: now)
@@ -236,10 +237,10 @@ enum MorningOverview {
 			guard let date = file.modificationDate, date >= (archived.contains(id) ? archivedStart : start) else { return nil }
 			return (file, id, date)
 		}.sorted { $0.date > $1.date }
+		let titles = await titles(of: files.map(\.file))
 		var open: [[String: Any]] = []
 		var archivedTitles: [String: String] = [:]
-		for (file, id, date) in files {
-			let title = title(of: file)
+		for ((_, id, date), title) in zip(files, titles) {
 			if archived.contains(id) {
 				if let title { archivedTitles[title.lowercased()] = title }
 				continue
@@ -252,13 +253,24 @@ enum MorningOverview {
 		return (open, archivedTitles.values.sorted())
 	}
 
-	/// The newest custom title of the transcript `file`, else the newest title of Claude.
+	/// The titles of the transcripts `files`, in the same order. The files load at the same time.
+	private static func titles(of files: [URL]) async -> [String?] {
+		await withTaskGroup(of: (Int, String?).self) { group in
+			for (index, file) in files.enumerated() { group.addTask { (index, title(of: file)) } }
+			var titles = [String?](repeating: nil, count: files.count)
+			for await (index, title) in group { titles[index] = title }
+			return titles
+		}
+	}
+
+	/// The newest custom title of the transcript `file`, else the newest title of Claude. The file is not decoded as text,
+	/// and only its lines with a title get parsed, because a transcript can have many MB.
 	private static func title(of file: URL) -> String? {
 		var custom: String?
 		var ai: String?
-		let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-		for line in text.split(separator: "\n") where line.contains("-title\"") {
-			guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+		let data = (try? Data(contentsOf: file)) ?? Data()
+		for line in lines(containing: Array(#"-title""#.utf8), in: data) {
+			guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
 			switch object["type"] as? String {
 			case "custom-title": custom = object["customTitle"] as? String ?? custom
 			case "ai-title": ai = object["aiTitle"] as? String ?? ai
@@ -266,6 +278,26 @@ enum MorningOverview {
 			}
 		}
 		return custom ?? ai
+	}
+
+	/// The lines of `data` that contain `marker`, in their order and without the line break.
+	static func lines(containing marker: [UInt8], in data: Data) -> [Data] {
+		data.withUnsafeBytes { bytes in
+			guard let base = bytes.baseAddress, !marker.isEmpty else { return [] }
+			var lines: [Data] = []
+			// `position` is always the start of a line.
+			var position = 0
+			while position < bytes.count, let hit = memmem(base + position, bytes.count - position, marker, marker.count) {
+				let offset = base.distance(to: UnsafeRawPointer(hit))
+				var start = offset
+				while start > position, bytes[start - 1] != UInt8(ascii: "\n") { start -= 1 }
+				let end = memchr(base + offset, Int32(UInt8(ascii: "\n")), bytes.count - offset)
+					.map { base.distance(to: UnsafeRawPointer($0)) } ?? bytes.count
+				lines.append(Data(bytes: base + start, count: end - start))
+				position = end + 1
+			}
+			return lines
+		}
 	}
 
 	/// A ticket ID, e.g. `PROJ-123`, in upper case.
