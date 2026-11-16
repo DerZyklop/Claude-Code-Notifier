@@ -10,7 +10,7 @@ extension Report.Kind {
 		settingsKey: SettingsKey.updatesMorningOverview,
 		schedule: Report.Schedule(weekdays: [2, 3, 4, 5, 6], hour: 6),
 		notificationID: "morning-overview",
-		access: .readsProject(folders: [MorningOverview.plansFolder], mcpTools: MorningOverview.jiraReadTools),
+		access: .readsProject(folders: [MorningOverview.plansFolder]),
 		timeout: 15 * 60,
 		collect: MorningOverview.collect,
 		render: MorningOverview.render,
@@ -18,23 +18,26 @@ extension Report.Kind {
 		backupName: nil,
 		folderKey: SettingsKey.morningOverviewFolder,
 		heading: "# Morning overview",
-		statsFileName: "stats.md"
+		statsFileName: "stats.md",
+		didWrite: { report, input in
+			if let heads = input.appData[MorningOverview.headsKey] as? [Int: String] { MorningOverview.saveHeads(heads, report) }
+		}
 	)
 }
 
 enum MorningOverview {
-	/// The read tools of the Atlassian MCP. The run gets no other MCP tool, so it cannot change a ticket.
-	static let jiraReadTools = ["atlassianUserInfo", "getAccessibleAtlassianResources", "searchJiraIssuesUsingJql", "getJiraIssue"]
-		.map { "mcp__com_atlassian_atlassian-mcp-server__\($0)" }
 	/// The plans of Claude Code, for all projects.
 	static let plansFolder = claudeConfigDirectory.appendingPathComponent("plans")
 	/// The most pull requests that get their tasks and comments fetched.
 	static let detailLimit = 20
 
-	/// The open pull requests and the git workspaces on stdin, and the places to read in the facts.
+	/// The open pull requests, the Jira tickets and the git workspaces on stdin, and the places to read in the facts.
 	@MainActor
 	static func collect(_ report: Report) async throws -> Report.Input {
 		let system = report.system
+		let old = report.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+		// The Jira searches run while the other steps run.
+		async let jiraSearch = jiraSearch(report, old: old)
 		let me = await report.me()
 		report.step("Git user name")
 		let branches = await branches(report, me: me)
@@ -43,10 +46,9 @@ enum MorningOverview {
 		report.step("Git workspaces")
 		let remoteBranches = await remoteBranches(report, me: me, local: Set(branches.compactMap { $0["name"] as? String }))
 		report.step("Remote branches")
-		let old = report.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
 		var data: [String: Any] = ["me": me, "workspaces": workspaces, "branches": branches, "remoteBranches": remoteBranches]
 		var appData: [String: Any] = [:]
-		let pullRequests: [[String: Any]]
+		var pullRequests: [[String: Any]]
 		do {
 			let bitbucket = try await report.bitbucket()
 			report.step("Bitbucket login")
@@ -56,8 +58,6 @@ enum MorningOverview {
 				return pullRequest
 			}
 			report.step("Open pull requests")
-			data["pullRequests"] = pullRequests
-			appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
 			appData[staleKey] = ids(of: pullRequests.filter { $0["isStale"] as? Bool == true })
 			appData[blockedKey] = ids(of: pullRequests.filter { ($0["title"] as? String)?.contains(blockedMark) == true })
 			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
@@ -69,18 +69,61 @@ enum MorningOverview {
 		} catch {
 			throw Report.Failure("Bitbucket: \(error)")
 		}
-		if FileManager.default.fileExists(atPath: plansFolder.path) {
-			let known = Set(await report.git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"])
-				.split(separator: "\n").map { $0.replacingOccurrences(of: #"^origin/"#, with: "", options: .regularExpression) })
-			data["plans"] = plans(in: plansFolder, old: old, now: system.now(), calendar: system.calendar, branches: branches,
-				knownBranches: known, pullRequests: pullRequests)
-			report.step("Plans")
+		let heads = heads(of: pullRequests)
+		let lastHeads = lastHeads(report)
+		// A pull request without a known head counts as changed, so that its tasks get checked again.
+		let changedPullRequests = ids(of: pullRequests).filter { id in heads[id].map { lastHeads[String(id)] != $0 } ?? true }
+		// The pull requests that were open at the last run and are merged or declined now.
+		let closedPullRequests = Set(lastHeads.keys.compactMap { Int($0) }).subtracting(ids(of: pullRequests))
+		appData[headsKey] = heads
+		let refs = await report.git(["for-each-ref", "--format=%(refname:short)%09%(committerdate:unix)", "refs/heads", "refs/remotes"])
+			.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
+		let withoutRemote = { (name: String) in name.replacingOccurrences(of: #"^origin/"#, with: "", options: .regularExpression) }
+		let known = Set(refs.compactMap(\.first).map(withoutRemote))
+		// A commit on `origin` counts too, e.g. a push from a worktree without a local branch.
+		let branchDates = Dictionary(refs.filter { $0.count == 2 }
+			.compactMap { fields in Double(fields[1]).map { (withoutRemote(fields[0]), Date(timeIntervalSince1970: $0)) } }, uniquingKeysWith: max)
+		let fileFacts = { (files: [URL]) in
+			Self.plans(of: files, old: old, now: system.now(), calendar: system.calendar, branches: branches, knownBranches: known,
+				pullRequests: pullRequests, branchDates: branchDates, changedPullRequests: changedPullRequests,
+				closedPullRequests: closedPullRequests)
 		}
+		var plans: [[String: Any]] = []
+		if FileManager.default.fileExists(atPath: plansFolder.path) {
+			let names = ((try? FileManager.default.contentsOfDirectory(atPath: plansFolder.path)) ?? []).filter { $0.hasSuffix(".md") }
+			plans = fileFacts(names.map(plansFolder.appendingPathComponent))
+			data["plans"] = plans
+		}
+		let untracked = await report.git(["ls-files", "--others", "--exclude-standard"]).split(separator: "\n").map(String.init)
+		let projectFiles = untracked.filter { $0.hasSuffix(".md") }.map(system.folder.appendingPathComponent)
+		data["projectFiles"] = fileFacts(projectFiles)
+		let reviews = newReviews(in: projectFiles, pullRequests: pullRequests, me: me)
+		appData[newReviewsKey] = reviews
+		pullRequests = withNewReviews(reviews, in: pullRequests)
+		data["pullRequests"] = pullRequests
+		appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
+		if let old { appData[oldOverviewKey] = old }
+		report.step("Plans")
 		let sessions = sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
 			archived: system.archivedSessionIDs() ?? [])
 		report.step("Sessions")
 		data["sessions"] = sessions.open
 		data["archivedSessions"] = sessions.archivedTitles
+		let texts = branches.compactMap { $0["name"] as? String } + remoteBranches.compactMap { $0["name"] as? String }
+			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } }
+			+ plans.flatMap { $0["tickets"] as? [String] ?? [] } + sessions.open.compactMap { $0["title"] as? String }
+			+ untracked.map { ($0 as NSString).lastPathComponent } + [old ?? ""]
+		var search = await jiraSearch
+		// The Bitbucket requests worked, so the network works now, e.g. after a wake.
+		if case .failure(let error) = search.result, error is URLError { search = await Self.jiraSearch(report, old: old) }
+		let jira = await jiraData(search, texts: texts, projectKeys: projectKeys(branches: branches, pullRequests: pullRequests))
+		data["jira"] = jira
+		report.step("Jira")
+		if let old {
+			data["unchangedTasks"] = unchangedTasks(in: old, files: plans + (data["projectFiles"] as? [[String: Any]] ?? []),
+				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
+				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [])
+		}
 		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
 
@@ -112,46 +155,56 @@ enum MorningOverview {
 	/// The days of the plans that Optional Work reads.
 	static let recentDays = 14
 
-	/// The facts of each plan in `folder` that the app can find without Claude, sorted by name:
+	/// The facts of each plan in `files` that the app can find without Claude, sorted by name:
 	/// - `recent`: the plan changed in the last 14 days.
 	/// - `changedAfterOldOverview`: the plan changed at or after the `Updated:` time of `old`. Only with such a time.
+	/// - `changedAfterOldOverview`: `changeDate` of the plan is at or after the `Updated:` time of `old`. Only with such a
+	///   time. The default is the newer of the content and the attribute change, so that a moved file counts as changed.
+	/// - `newCommits`: a pull request in `openPullRequests` is in `changedPullRequests`, the text names a pull request in
+	///   `closedPullRequests`, or a branch that the text names has a commit in `branchDates` at or after the `Updated:`
+	///   time of `old`. Only with such a time.
 	/// - `oldSections`: the sections of `old` that name the plan file.
 	/// - `tickets`: the ticket IDs in the name and the text, with a project key that a branch or a pull request also has.
 	/// - `branches`: the local branches that the text names, with their `mergedInto`.
 	/// - `unknownBranches`: the branch names in the text that git does not know.
 	/// - `openPullRequests`: the IDs of the open pull requests that the text names, by number or by source branch.
 	/// - `openSteps` and `doneSteps`: the number of checkboxes without and with a tick.
-	static func plans(in folder: URL, old: String?, now: Date, calendar: Calendar, branches: [[String: Any]], knownBranches: Set<String>,
-		pullRequests: [[String: Any]]) -> [[String: Any]] {
-		let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
+	static func plans(of files: [URL], old: String?, now: Date, calendar: Calendar, branches: [[String: Any]], knownBranches: Set<String>,
+		pullRequests: [[String: Any]], branchDates: [String: Date] = [:], changedPullRequests: Set<Int> = [],
+		closedPullRequests: Set<Int> = [], changeDate: (URL) -> Date? = changeDate(of:)) -> [[String: Any]] {
 		let since = old.flatMap { Report.updated(in: $0, calendar: calendar) }
 		let oldSections = old.map(sections) ?? [:]
-		let projectKeys = Set((branches.compactMap { $0["name"] as? String }
-			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } })
-			.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.map(projectKey))
+		let projectKeys = projectKeys(branches: branches, pullRequests: pullRequests)
 		let day = DateFormatter()
 		day.calendar = calendar
 		day.timeZone = calendar.timeZone
 		day.locale = Locale(identifier: "en_US_POSIX")
 		day.dateFormat = "yyyy-MM-dd"
-		return names.compactMap { name in
-			let file = folder.appendingPathComponent(name)
+		return files.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { file in
+			let name = file.lastPathComponent
 			guard let text = try? String(contentsOf: file, encoding: .utf8),
 				let date = file.modificationDate else { return nil }
 			var plan: [String: Any] = ["name": name, "url": file.absoluteString, "changedOn": day.string(from: date),
 				"recent": date >= days(recentDays, before: now)]
-			if let since { plan["changedAfterOldOverview"] = date >= since }
+			if let since { plan["changedAfterOldOverview"] = (changeDate(file) ?? date) >= since }
 			plan["oldSections"] = oldSections.filter { $0.value.contains(name) }.keys.sorted()
 			plan["tickets"] = Array(Set(matches(of: ticketPattern, in: (name + "\n" + text).uppercased())
 				.filter { projectKeys.contains(projectKey(of: $0)) })).sorted()
-			plan["branches"] = branches.filter { ($0["name"] as? String).map { text.contains($0) } ?? false }
+			let namedBranches = branches.compactMap { $0["name"] as? String }.filter { text.contains($0) }
+			plan["branches"] = branches.filter { ($0["name"] as? String).map(namedBranches.contains) ?? false }
 				.map { ["name": $0["name"] as Any, "mergedInto": $0["mergedInto"] as? [String] ?? []] }
 			plan["unknownBranches"] = Array(Set(matches(of: branchPattern, in: text).filter { !knownBranches.contains($0) })).sorted()
-			plan["openPullRequests"] = pullRequests.compactMap { pullRequest -> Int? in
+			let numbers = Set(matches(of: #"(?<=#|PR |pull-requests/)\d+\b"#, in: text).compactMap { Int($0) })
+			let openPullRequests = pullRequests.compactMap { pullRequest -> Int? in
 				guard let id = pullRequest["id"] as? Int else { return nil }
-				let byNumber = text.range(of: #"(#|PR |pull-requests/)\#(id)\b"#, options: .regularExpression) != nil
 				let byBranch = sourceBranch(of: pullRequest).map { text.contains($0) } ?? false
-				return byNumber || byBranch ? id : nil
+				return numbers.contains(id) || byBranch ? id : nil
+			}
+			plan["openPullRequests"] = openPullRequests
+			if let since {
+				let datedBranches = Set(namedBranches + matches(of: branchPattern, in: text))
+				plan["newCommits"] = openPullRequests.contains(where: changedPullRequests.contains) || !numbers.isDisjoint(with: closedPullRequests)
+					|| datedBranches.contains { (branchDates[$0] ?? .distantPast) >= since }
 			}
 			plan["openSteps"] = matches(of: #"(?m)^\s*- \[ \]"#, in: text).count
 			plan["doneSteps"] = matches(of: #"(?m)^\s*- \[[xX]\]"#, in: text).count
@@ -227,6 +280,14 @@ enum MorningOverview {
 		((pullRequest["source"] as? [String: Any])?["branch"] as? [String: Any])?["name"] as? String
 	}
 
+	/// The first capture group of the first match of `pattern` in `text`.
+	private static func firstGroup(of pattern: String, in text: String) -> String? {
+		guard let regex = try? NSRegularExpression(pattern: pattern),
+			let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), match.numberOfRanges > 1,
+			let range = Range(match.range(at: 1), in: text) else { return nil }
+		return String(text[range])
+	}
+
 	private static func matches(of pattern: String, in text: String) -> [String] {
 		guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 		return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
@@ -242,8 +303,11 @@ enum MorningOverview {
 		let system = report.system
 		let old = old ?? ""
 		let isSameDay = isSameDay(old, now: system.now(), calendar: system.calendar)
-		var text = withoutDoneCleanupTasks(in: withoutAppSections(output))
+		var text = withKeptByID(in: withoutAppSections(output), old: input.appData[oldOverviewKey] as? String ?? "")
+		text = withoutDoneCleanupTasks(in: text)
 		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
+		text = withNewReviewTasks(input.appData[newReviewsKey] as? [NewReview] ?? [],
+			jiraBrowseURL: (input.data["jira"] as? [String: Any])?["browseURL"] as? String, in: text)
 		text = withWeekdayTasks(tasks(of: system), done: isSameDay ? doneWeekdayTasks(in: old) : [], in: text)
 		text = Report.hashLinksAsCode(in: subItemsIndented(in: text))
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
@@ -388,6 +452,21 @@ enum MorningOverview {
 			kept.append(line)
 		}
 		return kept.reversed().joined(separator: "\n")
+	}
+
+	/// The newer of the content change and the attribute change of `file`. `mv` and `cp -p` keep the content change, but
+	/// set the attribute change to now.
+	static func changeDate(of file: URL) -> Date? {
+		var info = stat()
+		guard stat(file.path, &info) == 0 else { return nil }
+		let date = { (time: timespec) in Date(timeIntervalSince1970: Double(time.tv_sec) + Double(time.tv_nsec) / 1e9) }
+		return max(date(info.st_mtimespec), date(info.st_ctimespec))
+	}
+
+	/// The project keys of the ticket IDs in the branch names, the PR titles and the source branches, e.g. `PROJ`.
+	static func projectKeys(branches: [[String: Any]], pullRequests: [[String: Any]]) -> Set<String> {
+		Set((branches.compactMap { $0["name"] as? String } + pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } })
+			.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.map(projectKey))
 	}
 
 	/// The key of the IDs of the pull requests where it is not the turn of the user, in ``Report/Input/appData``.
@@ -715,8 +794,9 @@ enum MorningOverview {
 		return Report.updated(in: text, calendar: .current) == nil ? nil : text + "\n"
 	}
 
-	/// Keeps the counts in the headings right while the user ticks tasks in an editor.
-	@MainActor static let countKeeper = SectionCountKeeper { Report.morningOverview.fileURL }
+	/// Keeps the counts in the headings right while the user ticks tasks in an editor. It pauses while a run is active,
+	/// so that each ID names the same task for collect, for Claude and for ``withKeptByID(in:old:)``.
+	@MainActor static let countKeeper = SectionCountKeeper(isPaused: { Report.morningOverview.isRunning }) { Report.morningOverview.fileURL }
 
 	/// The overview with a link below its `Updated:` line that opens `file` in the VS Code window that had focus last, e.g.
 	/// from Obsidian or a browser.
@@ -873,6 +953,282 @@ enum MorningOverview {
 		}
 	}
 
+	// MARK: - Changes since the last run
+
+	/// The key of the newest commit of each open pull request, in ``Report/Input/appData``. Render saves them for the next run.
+	static let headsKey = "heads"
+	/// The key of the old overview that Claude read, in ``Report/Input/appData``. ``withKeptByID(in:old:)`` copies its tasks.
+	static let oldOverviewKey = "oldOverview"
+	/// The key of the ``NewReview`` items, in ``Report/Input/appData``.
+	static let newReviewsKey = "newReviews"
+
+	/// The hash of the newest commit of each pull request, by its ID.
+	static func heads(of pullRequests: [[String: Any]]) -> [Int: String] {
+		Dictionary(pullRequests.compactMap { pullRequest in
+			guard let id = pullRequest["id"] as? Int,
+				let hash = ((pullRequest["source"] as? [String: Any])?["commit"] as? [String: Any])?["hash"] as? String else { return nil }
+			return (id, hash)
+		}, uniquingKeysWith: { first, _ in first })
+	}
+
+	/// The file with the heads of the pull requests at the last run that wrote an overview.
+	@MainActor
+	private static func headsFile(_ report: Report) -> URL { report.supportFolder.appendingPathComponent("pull-request-heads.json") }
+
+	/// The heads of the pull requests at the last run that wrote an overview, by the ID as text.
+	@MainActor
+	static func lastHeads(_ report: Report) -> [String: String] {
+		(try? Data(contentsOf: headsFile(report))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
+	}
+
+	/// Saves `heads` for the next run.
+	@MainActor
+	static func saveHeads(_ heads: [Int: String], _ report: Report) {
+		let text = Dictionary(uniqueKeysWithValues: heads.map { (String($0.key), $0.value) })
+		guard let data = try? JSONSerialization.data(withJSONObject: text, options: .sortedKeys) else { return }
+		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
+		try? data.write(to: headsFile(report), options: .atomic)
+	}
+
+	/// An open pull request whose newest commit is not the commit of any of its review reports.
+	struct NewReview: Equatable {
+		var id: Int
+		/// The commit of the newest report that names one.
+		var reviewedCommit: String
+		var url: String
+		var title: String
+		/// The section of the task of the pull request: »Their Open PRs«, »My Open PRs« or »Draft PRs«.
+		var section: String
+		var hasMergeConflict = false
+		var destination = ""
+	}
+
+	/// The open pull requests in `pullRequests` with a review report in `files`, where no report names the newest commit
+	/// of the pull request. A report is a file in a folder `reviews` whose name starts with the number of the pull
+	/// request, e.g. `reviews/4341-fix.md`. Its reviewed commit is the first hash after »reviewed commit« or »reviewed at«
+	/// in its text, else the hash at the end of its name, e.g. `4341-fix-6e460fc.md`. A report without a commit does not
+	/// count.
+	static func newReviews(in files: [URL], pullRequests: [[String: Any]], me: String) -> [NewReview] {
+		var reports: [Int: [(date: Date, commit: String)]] = [:]
+		for file in files where file.deletingLastPathComponent().lastPathComponent == "reviews" {
+			let name = file.deletingPathExtension().lastPathComponent
+			guard let id = matches(of: #"^\d+(?=-)"#, in: name).first.flatMap({ Int($0) }), let date = file.modificationDate else { continue }
+			let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+			guard let commit = reviewedCommit(in: text) ?? matches(of: #"(?<=-)(?=[0-9a-f]*\d)[0-9a-f]{7,40}$"#, in: name).first else { continue }
+			reports[id, default: []].append((date, commit))
+		}
+		return pullRequests.compactMap { pullRequest in
+			guard let id = pullRequest["id"] as? Int, let reports = reports[id], let head = heads(of: [pullRequest])[id],
+				!reports.contains(where: { head.hasPrefix($0.commit) || $0.commit.hasPrefix(head) }),
+				let newest = reports.max(by: { $0.date < $1.date }) else { return nil }
+			let section = !Bitbucket.isAuthor(of: pullRequest, me: me) ? "Their Open PRs" : pullRequest["draft"] as? Bool == true ? "Draft PRs" : "My Open PRs"
+			return NewReview(id: id, reviewedCommit: newest.commit,
+				url: ((pullRequest["links"] as? [String: Any])?["html"] as? [String: Any])?["href"] as? String ?? "",
+				title: pullRequest["title"] as? String ?? "", section: section, hasMergeConflict: pullRequest["hasMergeConflict"] as? Bool == true,
+				destination: ((pullRequest["destination"] as? [String: Any])?["branch"] as? [String: Any])?["name"] as? String ?? "")
+		}
+	}
+
+	/// The first commit hash after »reviewed commit« or »reviewed at« in the text of a review report, in lower case.
+	static func reviewedCommit(in text: String) -> String? {
+		matches(of: #"(?i)(?<=reviewed (?:commit|at))\W{0,6}[0-9a-f]{7,40}\b"#, in: text).first
+			.map { String($0.drop { !$0.isHexDigit }).lowercased() }
+	}
+
+	/// The pull requests with `needsNewReview` and `reviewedCommit` for each pull request in `reviews`. The next step of
+	/// such a pull request is for the user.
+	static func withNewReviews(_ reviews: [NewReview], in pullRequests: [[String: Any]]) -> [[String: Any]] {
+		let byID = Dictionary(reviews.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+		return pullRequests.map { pullRequest in
+			guard let id = pullRequest["id"] as? Int, let review = byID[id] else { return pullRequest }
+			var pullRequest = pullRequest
+			pullRequest["needsNewReview"] = true
+			pullRequest["reviewedCommit"] = review.reviewedCommit
+			pullRequest["isMyTurn"] = true
+			return pullRequest
+		}
+	}
+
+	/// The overview with the next action »Run `/nn-review #<ID>` again« for each pull request in `reviews`: the first
+	/// sub-item of its task, or the one after the merge of a merge conflict. A pull request without a task in a PR section
+	/// gets a new task in its section.
+	static func withNewReviewTasks(_ reviews: [NewReview], jiraBrowseURL: String?, in overview: String) -> String {
+		let parts = overview.components(separatedBy: "\n## ")
+		let tasks = reviews.map { review -> KeptTask in
+			let action = "    - [ ] Run `/nn-review #\(review.id)` again, because the PR has new commits after the review of `\(review.reviewedCommit)`."
+			for part in parts.dropFirst() where (turnSections + ["Draft PRs"]).contains(title(of: part)) {
+				let lines = part.components(separatedBy: "\n")
+				guard let block = taskBlocks(in: part).first(where: { block in
+					let line = lines[block.lowerBound]
+					return line.contains("[`#\(review.id)`](") || line.contains("[#\(review.id)](")
+				}) else { continue }
+				// The merge comes first, because it makes a new commit that the review must see.
+				let merge = review.hasMergeConflict ? lines[block].dropFirst().first { $0.lowercased().contains("merge conflict") } : nil
+				return KeptTask(section: title(of: part), lines: [lines[block.lowerBound]] + (merge.map { [$0] } ?? []) + [action])
+			}
+			let titleLine = DiDi.titleLine(id: review.id, url: review.url, title: review.title, jiraBrowseURL: jiraBrowseURL)
+			let merge = review.hasMergeConflict ? ["    - [ ] Merge `\(review.destination)` into the branch and solve the merge conflict."] : []
+			return KeptTask(section: review.section, lines: ["- [ ] " + titleLine] + merge + [action])
+		}
+		return withKeptTasks(tasks, in: overview)
+	}
+
+	/// The sections where Claude can write `KEEP <ID>`.
+	static let keepSections = ["Remaining Tickets in this Sprint", "Open Branches", "Optional Work", cleanupSection]
+
+	/// The IDs of the old tasks in ``keepSections`` whose plans and reports did not change and got no new commits:
+	/// - The task names at least one file of `files`, by a `file://` link or by a path in backticks that ends in `.md`.
+	/// - Each named file has `changedAfterOldOverview` and `newCommits` false. A file that `files` does not have counts as
+	///   changed, and so does a file of `files` whose name the task text has and that changed.
+	/// - No pull request of the title line is in `changedPullRequests`.
+	/// - With `tickets`, no ticket of the title line is done, and the 🚫 of the title line is still right: a ticket of the
+	///   title line is blocked, or a pull request of the title line is in `blockedPullRequests`.
+	/// A ticked task does not count.
+	static func unchangedTasks(in old: String, files: [[String: Any]], changedPullRequests: Set<Int>, tickets: [String: [String: Any]]? = nil,
+		blockedPullRequests: Set<Int> = []) -> [String] {
+		let isUnchanged = { (file: [String: Any]) in file["changedAfterOldOverview"] as? Bool == false && file["newCommits"] as? Bool == false }
+		var byPath: [String: Bool] = [:]
+		var byName: [String: Bool] = [:]
+		for file in files {
+			guard let url = (file["url"] as? String).flatMap(URL.init(string:)) else { continue }
+			byPath[url.path] = (byPath[url.path] ?? true) && isUnchanged(file)
+			byName[url.lastPathComponent] = (byName[url.lastPathComponent] ?? true) && isUnchanged(file)
+		}
+		let changedNames = byName.filter { !$0.value }.keys
+		return old.components(separatedBy: "\n## ").dropFirst().filter { keepSections.contains(title(of: $0)) }.flatMap { part in
+			let lines = part.components(separatedBy: "\n")
+			return taskBlocks(in: part).compactMap { block -> String? in
+				let title = lines[block.lowerBound]
+				guard !isTicked(title), let id = firstGroup(of: #"^- \[[^\]]\] `([A-Z]\d+)`"#, in: title) else { return nil }
+				let text = lines[block].joined(separator: "\n")
+				let links = matches(of: #"(?<=\]\()file://[^)\s]+(?=\))"#, in: text).compactMap { URL(string: $0)?.path }
+				let codePaths = matches(of: #"(?<=`)[^`\s]+\.md(?=`)"#, in: text).map { ($0 as NSString).lastPathComponent }
+				let pullRequests = matches(of: #"(?<=#)\d+(?=`?\]\()"#, in: title).compactMap { Int($0) }
+				guard !links.isEmpty || !codePaths.isEmpty, links.allSatisfy({ byPath[$0] == true }), codePaths.allSatisfy({ byName[$0] == true }),
+					!changedNames.contains(where: text.contains), pullRequests.allSatisfy({ !changedPullRequests.contains($0) }) else { return nil }
+				if let tickets {
+					let keys = matches(of: #"(?<=\[)[A-Z][A-Z0-9]+-\d+(?=\]\()"#, in: title)
+					guard !keys.contains(where: { tickets[$0]?["done"] as? Bool == true }) else { return nil }
+					let isBlocked = keys.contains { tickets[$0]?["blocked"] as? Bool == true } || pullRequests.contains(where: blockedPullRequests.contains)
+					guard isBlocked == leadingMarks(of: title).contains(blockedMark) else { return nil }
+				}
+				return id
+			}
+		}
+	}
+
+	/// The overview with each KEEP line of Claude, e.g. `- [ ] KEEP O8`, replaced by the task with this ID in the sections
+	/// of Claude in `old`, with its sub-items. A ticked sub-item goes away with its own sub-items. A task whose sub-items
+	/// with a checkbox are all ticked is done and goes away. A KEEP with the ID of a next action, e.g. `O8a`, gives that
+	/// next action as a task. A KEEP line with an ID that `old` does not have goes away.
+	static func withKeptByID(in overview: String, old: String) -> String {
+		let oldLines = withoutAppSections(old).components(separatedBy: "\n")
+		var blocks: [String: [String]] = [:]
+		for (index, line) in oldLines.enumerated() {
+			if let id = firstGroup(of: #"^\s+- \[[^xX\]]\] `([A-Z]\d+[a-z]+)` "#, in: line), blocks[id] == nil {
+				blocks[id] = [String(line.drop { $0 == " " || $0 == "\t" })]
+				continue
+			}
+			guard let id = firstGroup(of: #"^- \[[^\]]\] `([A-Z]\d+)`"#, in: line), blocks[id] == nil else { continue }
+			var block = [line]
+			var skipIndent: Int?
+			var steps = 0
+			var openSteps = 0
+			for next in oldLines[(index + 1)...] {
+				guard indent(of: next) > 0, !next.trimmingCharacters(in: .whitespaces).isEmpty else { break }
+				if let skip = skipIndent, indent(of: next) > skip { continue }
+				let hasBox = next.range(of: #"^\s*- \[[^\]]\] "#, options: .regularExpression) != nil
+				steps += hasBox ? 1 : 0
+				skipIndent = isTicked(next) ? indent(of: next) : nil
+				if skipIndent == nil {
+					openSteps += hasBox ? 1 : 0
+					block.append(next)
+				}
+			}
+			blocks[id] = steps > 0 && openSteps == 0 ? [] : block
+		}
+		return overview.components(separatedBy: "\n").flatMap { line -> [String] in
+			guard let id = firstGroup(of: #"^\s*- \[ \] (?:\S+ )*?KEEP:? `?([A-Z]\d+[a-z]*)`?\.?(?:\s.*)?$"#, in: line) else { return [line] }
+			return blocks[id] ?? []
+		}.joined(separator: "\n")
+	}
+
+	// MARK: - Jira
+
+	/// The open tickets of the user in the open sprints.
+	static let sprintJQL = "sprint in openSprints() AND assignee = currentUser() AND statusCategory != Done"
+	/// The tickets of the user that are in ``forgottenStates`` and in no sprint.
+	static let forgottenJQL = #"assignee = currentUser() AND status in ("In Progress", "Untested") AND sprint is EMPTY"#
+	/// ``forgottenJQL`` for a Jira that does not know one of the states. The app keeps only the tickets in ``forgottenStates``.
+	static let forgottenFallbackJQL = #"assignee = currentUser() AND statusCategory = "In Progress" AND sprint is EMPTY"#
+	static let forgottenStates: Set<String> = ["In Progress", "Untested"]
+	/// The most other tickets that the app fetches, so that a long old overview cannot cause many requests.
+	static let ticketLimit = 300
+
+	/// The Jira searches of a run: the start of the ticket links, if the site is known, and the sprint and forgotten
+	/// tickets, or the reason why Jira is not available.
+	struct JiraSearch {
+		var browseURL: String?
+		var result: Result<(jira: Jira, sprint: [[String: Any]], forgotten: [[String: Any]]), Error>
+	}
+
+	/// Connects to Jira and searches the sprint and the forgotten tickets at the same time.
+	@MainActor
+	static func jiraSearch(_ report: Report, old: String?) async -> JiraSearch {
+		let environment = await report.loginEnvironment(Jira.variables)
+		let browseURL = Jira.site(environment: environment, old: old).map(Jira.browseURL)
+		do {
+			let jira = try await Jira.connect(environment: environment, old: old, get: report.system.get)
+			async let sprint = jira.search(sprintJQL)
+			async let forgotten = forgottenTickets(jira)
+			return JiraSearch(browseURL: browseURL, result: .success((jira, try await sprint, try await forgotten)))
+		} catch {
+			return JiraSearch(browseURL: browseURL, result: .failure(error))
+		}
+	}
+
+	/// The tickets of ``forgottenJQL``. A Jira that does not know one of the states answers with HTTP 400.
+	static func forgottenTickets(_ jira: Jira) async throws -> [[String: Any]] {
+		do {
+			return try await jira.search(forgottenJQL)
+		} catch Jira.Failure.status(400) {
+			return try await jira.search(forgottenFallbackJQL).filter { Jira.status(of: $0).map(forgottenStates.contains) ?? false }
+		}
+	}
+
+	/// The Jira data of the run:
+	/// - `browseURL`: the start of each ticket link, if the site is known.
+	/// - `sprint` and `forgotten`: the IDs of the tickets of the two searches.
+	/// - `tickets`: the facts of each ticket by its ID: of the two searches, and of the other tickets in `texts` with a
+	///   project key in `projectKeys` or of a ticket of the two searches. If the request for the other tickets fails,
+	///   only the tickets of the two searches are in it.
+	/// - `error`: the reason, in place of `sprint`, `forgotten` and `tickets`, if Jira is not available.
+	static func jiraData(_ search: JiraSearch, texts: [String], projectKeys: Set<String>) async -> [String: Any] {
+		var data: [String: Any] = [:]
+		data["browseURL"] = search.browseURL
+		do {
+			let (jira, sprint, forgotten) = try search.result.get()
+			let found = sprint + forgotten
+			let known = Set(found.compactMap { $0["key"] as? String })
+			let keys = ticketKeys(in: texts, projectKeys: projectKeys.union(known.map(projectKey))).filter { !known.contains($0) }
+			let others = (try? await jira.tickets(Array(keys.prefix(ticketLimit)))) ?? []
+			data["browseURL"] = jira.browseURL
+			data["sprint"] = sprint.compactMap { $0["key"] as? String }
+			data["forgotten"] = forgotten.compactMap { $0["key"] as? String }
+			data["tickets"] = Dictionary((found + others).compactMap(Jira.facts), uniquingKeysWith: { first, _ in first })
+		} catch let error as URLError {
+			data["error"] = "No connection to Jira: \(error.localizedDescription)"
+		} catch {
+			data["error"] = "\(error)"
+		}
+		return data
+	}
+
+	/// The ticket IDs in `texts` with a project key in `projectKeys`, sorted. A text like `UTF-8` has no such key.
+	static func ticketKeys(in texts: [String], projectKeys: Set<String>) -> [String] {
+		Set(texts.flatMap { matches(of: ticketPattern, in: $0.uppercased()) }.filter { projectKeys.contains(projectKey(of: $0)) }).sorted()
+	}
+
 	// MARK: - Pull requests
 
 	/// The most pull requests that get their details at the same time. Each one sends four requests.
@@ -883,7 +1239,7 @@ enum MorningOverview {
 	private static func pullRequests(_ bitbucket: Bitbucket, me: String) async throws -> [[String: Any]] {
 		let fields = ["id", "title", "draft", "author.display_name", "participants.role", "participants.approved", "participants.state",
 			"participants.user.display_name", "links.html.href", "comment_count", "task_count", "updated_on", "source.branch.name",
-			"destination.branch.name"]
+			"source.commit.hash", "destination.branch.name"]
 		var pullRequests = try await bitbucket.values("/pullrequests", query: ["state": "OPEN", "pagelen": "50"], fields: fields)
 			.filter { !isDraftOfOthers($0, me: me) }
 		let detailed = pullRequests.indices.filter { concerns(pullRequests[$0], me: me) }.prefix(detailLimit)
@@ -1050,13 +1406,16 @@ final class SectionCountKeeper {
 	static let interval: TimeInterval = 2
 	/// The file to watch. It changes when a run writes a file with a new date.
 	let file: @MainActor () -> URL?
+	/// While this is true, the keeper does not change the file.
+	let isPaused: @MainActor () -> Bool
 	private var fileURL: URL?
 	private var timer: Timer?
 	/// The change date at the last check, and whether the file changed since the last count.
 	private var lastDate: Date?
 	private var isChanged = false
 
-	init(file: @escaping @MainActor () -> URL?) {
+	init(isPaused: @escaping @MainActor () -> Bool = { false }, file: @escaping @MainActor () -> URL?) {
+		self.isPaused = isPaused
 		self.file = file
 	}
 
@@ -1072,6 +1431,7 @@ final class SectionCountKeeper {
 
 	/// Counts again when the file stayed the same since a change.
 	func check() {
+		guard !isPaused() else { return }
 		let current = file()
 		if current != fileURL {
 			(fileURL, lastDate, isChanged) = (current, current?.modificationDate, false)

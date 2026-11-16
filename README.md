@@ -17,6 +17,8 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 - **Menu bar icon:** always 70 pt wide. With two or more sessions, the icon shows their number, for example »×2«.
 - **Card:** one row for each session, with its state, title and running time. Sessions that ask you come first.
   Archived sessions are not in the card. A click on a row opens the chat of the session in VS Code.
+  Between the texts, each row has a wave like the menu bar: green while the session works, purple for a running
+  report, and still in the menu bar color for the other sessions.
 - **Notifications:** one for each session. A newer one replaces the older one. A click opens the chat of the session in VS Code, like a
   click on its row.
 - **Sound:** only the ring of the bubble. It stops after 5 minutes without an answer. It does not play while a macOS
@@ -37,6 +39,16 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   the daily run off.
 - **Done:** a notification says how many tasks are open. A click on it opens the file in Obsidian, or in VS Code without Obsidian. Until you open
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
+- **Unchanged tasks:** outside the PR sections, Claude writes `KEEP <ID>` for an old task that stays the same, and the
+  app copies the old task with its open sub-items. A task whose sub-items are all ticked goes away. While a run is
+  active, the app does not give new IDs in the old file, so each ID names the same task for the app and for Claude.
+  Claude does not read a plan or a review report again if it did not change and its PR or branch got no new commits
+  since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket
+  that is done now also makes Claude write the task again. For this, the app saves the newest commit of each open PR
+  after each run that wrote a file.
+- **New review:** a review report is a file `reviews/<PR>-<name>.md` in the project folder that names its »reviewed
+  commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
+  again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict.
 - **Stats:** after each run, also after a failure or a stop, the app writes `stats.md` in the same folder. It shows the
   time of each step of the last run, for example the Bitbucket requests and the Claude run, and its share of the total.
   »Stats« next to »Open« in the menu opens the file.
@@ -46,21 +58,36 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   - The PRs of other devs that were merged since the last overview, that change `scheduler.frontend.ng2/`, and that
     I did not approve or send back. The app writes them into »Other Devs' Merges« near the end, without Claude. An
     open task stays in the next overview. A ticked task leaves it.
-  - The Jira tickets of the open sprint, from the Atlassian MCP in the `.mcp.json` of the project. »Cleanup Work«
-    also lists your tickets that are »In Progress« or »Untested« and in no sprint.
+  - The Jira tickets of the open sprint, with their states and »blocks« links. »Cleanup Work« also lists your tickets
+    that are »In Progress« or »Untested« and in no sprint.
   - Untracked plan files, uncommitted and unpushed work in every worktree, the plans in `~/.claude/plans`, the Claude
     memory of the project and the titles of recent sessions.
 
-The prompt is `Resources/morning-overview-prompt.md`. The app fetches the PRs itself, with GET requests only. For this,
-the login shell must set `BITBUCKET_API_EMAIL` and `BITBUCKET_API_TOKEN`. Then the app runs `claude -p` through the
-login shell, and Claude only reads:
+The prompt is `Resources/morning-overview-prompt.md`. The app fetches the PRs and the Jira tickets itself. For this,
+the login shell must set these variables:
+
+- `BITBUCKET_API_EMAIL` and `BITBUCKET_API_TOKEN`. The app sends only GET requests to Bitbucket.
+- `JIRA_API_TOKEN`: an Atlassian API token with scopes for the app Jira. Create it on
+  id.atlassian.com/manage-profile/security/api-tokens with »Create API token with scopes«, and give it only the scope
+  `read:jira-work`. The token expires after at most 365 days. Before that date, make a new one. The app uses the email
+  in `JIRA_API_EMAIL`, else the one in `BITBUCKET_API_EMAIL`.
+- `JIRA_SITE`, for example `drplano.atlassian.net`. Without it, the app takes the site of a ticket link that Claude
+  wrote in the old overview. A new, empty folder has no such link.
+
+The app reads the Jira tickets with GET requests, and with POST requests to `issue/bulkfetch` that only read. If Jira
+fails, the run continues, and the overview says »Jira not available« and the reason. After a network error, the app
+tries the Jira requests once more when the Bitbucket requests worked. The app gets the state of each ticket in a PR
+title, a branch name, a plan, a session title, the name of an untracked file or the old overview. Then the app runs
+`claude -p` through the login shell, and Claude only reads:
 
 - `--tools Read,Grep,Glob,Bash` leaves out every tool that writes.
 - `--restricted` ignores the settings files, so their allow rules do not apply.
-- `--permission-mode dontAsk` refuses every call that is not on the allow list, without a prompt. Only the Jira read
-  tools are on it. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
+- `--permission-mode dontAsk` refuses every call that is not on the allow list, without a prompt. Only reads of the
+  project folders are on it. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
+- `--strict-mcp-config` starts no MCP server, also not the servers in the `.mcp.json` of the project.
 
-Claude prints the overview, and the app writes the file. The run never gets `BITBUCKET_API_TOKEN` or `SLACK_USER_TOKEN`.
+Claude prints the overview, and the app writes the file. The run never gets `BITBUCKET_API_TOKEN`, `JIRA_API_TOKEN` or
+`SLACK_USER_TOKEN`.
 If a Bitbucket request fails, the run fails without writing an overview. This includes the request for the details of
 one PR. So missing PR data cannot look like a successful update.
 
@@ -167,6 +194,8 @@ web pages.
 - `~/Library/Preferences/local.claude-code-notifier.app.plist` holds the settings that differ from the default.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
 - The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
+- `~/Library/Application Support/local.claude-code-notifier.app/morning-overview/` holds the last overview that the app
+  wrote and `pull-request-heads.json`, the newest commit of each open PR at the last run.
 
 To remove the app, delete it. Then delete the settings file with `rm`. Do not use `defaults delete`, because it
 leaves an empty file.

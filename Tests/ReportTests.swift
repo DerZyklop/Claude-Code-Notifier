@@ -57,7 +57,7 @@ import Testing
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let run = try #require(fixture.claudeRun)
-		#expect(run.arguments[1] == "exec env -u BITBUCKET_API_TOKEN -u SLACK_USER_TOKEN \"$0\" \"$@\"")
+		#expect(run.arguments[1] == "exec env -u BITBUCKET_API_TOKEN -u JIRA_API_TOKEN -u SLACK_USER_TOKEN \"$0\" \"$@\"")
 		#expect(run.directory.path == fixture.root.appendingPathComponent("support/run").path)
 		#expect(try FileManager.default.contentsOfDirectory(atPath: run.directory.path).isEmpty)
 		#expect(fixture.value(of: "--tools") == "")
@@ -240,11 +240,6 @@ import Testing
 		fixture.report.openFile()
 		#expect(!fixture.report.isUnread)
 		#expect(fixture.log.opened == [fixture.fileURL])
-	}
-
-	@Test func remoteServersOnly() {
-		#expect(Report.remoteServers(in: Data(#"{"mcpServers": {"lint": {"command": "npx"}}}"#.utf8)) == nil)
-		#expect(Report.remoteServers(in: Data("no json".utf8)) == nil)
 	}
 }
 

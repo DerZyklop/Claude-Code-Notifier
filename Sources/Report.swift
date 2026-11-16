@@ -15,7 +15,7 @@ final class Report: ObservableObject {
 	/// An automatic run that failed waits this long before the next try, so that each unlock does not start one.
 	static let retryDelay: TimeInterval = 30 * 60
 	/// The tokens that the run of Claude does not get. Only the app uses them.
-	static let secretVariables = [Bitbucket.tokenVariable, Slack.tokenVariable]
+	static let secretVariables = [Bitbucket.tokenVariable, Jira.tokenVariable, Slack.tokenVariable]
 
 	struct Command {
 		var executable: String
@@ -58,9 +58,9 @@ final class Report: ObservableObject {
 
 	/// What the run of Claude can do.
 	enum Access {
-		/// Reads the project folder, its transcripts and `folders`, runs read-only commands and uses `mcpTools`. Prints
-		/// Markdown.
-		case readsProject(folders: [URL], mcpTools: [String])
+		/// Reads the project folder, its transcripts and `folders`, and runs read-only commands. Has no MCP server.
+		/// Prints Markdown.
+		case readsProject(folders: [URL])
 		/// Has no tool and no MCP server, and runs in an empty folder. It reads only the input and prints JSON in the
 		/// shape of `schema`.
 		case readsInputOnly(schema: String)
@@ -106,6 +106,8 @@ final class Report: ObservableObject {
 		var heading: String? = nil
 		/// The file next to the files of the run with the time of each step of the last run, or `nil` for no such file.
 		var statsFileName: String? = nil
+		/// Runs after the run wrote the file, e.g. to save facts for the next run.
+		var didWrite: (@MainActor (Report, Input) -> Void)? = nil
 
 		private var weekdaysKey: String { notificationID + "-weekdays" }
 		/// The minutes after midnight.
@@ -264,7 +266,7 @@ final class Report: ObservableObject {
 	}
 
 	/// The folder of the backups and of the copy of the last written file.
-	private var supportFolder: URL { system.supportFolder.appendingPathComponent((kind.fileName as NSString).deletingPathExtension) }
+	var supportFolder: URL { system.supportFolder.appendingPathComponent((kind.fileName as NSString).deletingPathExtension) }
 	/// The copy of the text that the last run wrote, without the changes of the user.
 	private var lastWrittenURL: URL { supportFolder.appendingPathComponent("last-written.md") }
 	/// The text that the last run wrote, or `nil` before the first run.
@@ -399,6 +401,7 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("The file could not be written: \(error.localizedDescription)")
 		}
+		kind.didWrite?(self, input)
 		step("Write file")
 		isUnread = true
 		system.ready()
@@ -526,7 +529,7 @@ final class Report: ObservableObject {
 		var arguments = ["-p", prompt, "--restricted", "--permission-mode", "dontAsk"]
 		let directory: URL
 		switch kind.access {
-		case .readsProject(var folders, let mcpTools):
+		case .readsProject(var folders):
 			// Claude reads the old file in a folder of its own.
 			if kind.folderKey != nil, let outputFolder, outputFolder.standardizedFileURL != system.folder.standardizedFileURL {
 				folders.append(outputFolder)
@@ -536,11 +539,10 @@ final class Report: ObservableObject {
 			let projectFolder = claudeProjectFolder(of: system.folder.path)
 			// A leading `//` makes the path of a rule absolute. Each rule is its own argument, so a space in a path is safe.
 			let readRules = ([system.folder, projectFolder] + folders).map { "Read(/\($0.path)/**)" }
-			arguments += ["--tools", "Read,Grep,Glob,Bash", "--allowedTools"] + readRules + mcpTools
+			arguments += ["--tools", "Read,Grep,Glob,Bash", "--allowedTools"] + readRules
 			arguments += ([projectFolder] + folders).flatMap { ["--add-dir", $0.path] }
+			// Without `--mcp-config`, `--strict-mcp-config` starts no MCP server, also not the ones of the project.
 			arguments += ["--output-format", "text", "--no-session-persistence", "--strict-mcp-config"]
-			let mcpConfig = try? Data(contentsOf: system.folder.appendingPathComponent(".mcp.json"))
-			if let servers = mcpConfig.flatMap(Self.remoteServers) { arguments += ["--mcp-config", servers] }
 			directory = system.folder
 		case .readsInputOnly(let schema):
 			// `--tools ""` removes only the built-in tools. The MCP flags remove the servers too. The empty folder has no
@@ -551,18 +553,6 @@ final class Report: ObservableObject {
 			try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		}
 		return loginShell(["claude"] + arguments, input: input, timeout: kind.timeout, in: directory, without: Self.secretVariables)
-	}
-
-	/// The servers of an MCP config that run remotely, as a config of their own. A local server would start a program,
-	/// for example a new `npx` download, for each run. `nil` without a remote server.
-	nonisolated static func remoteServers(in config: Data) -> String? {
-		guard let root = try? JSONSerialization.jsonObject(with: config) as? [String: Any],
-			let servers = root["mcpServers"] as? [String: [String: Any]] else { return nil }
-		let remote = servers.filter { ["http", "sse"].contains($0.value["type"] as? String) }
-		guard !remote.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ["mcpServers": remote], options: .sortedKeys) else {
-			return nil
-		}
-		return String(decoding: data, as: UTF8.self)
 	}
 
 	/// The facts of this machine, below the prompt.

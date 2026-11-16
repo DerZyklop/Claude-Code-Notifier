@@ -41,6 +41,7 @@ extension ReportFixture {
 
 	/// - Parameter frontendMerge: The merged pull request 20 changes a frontend file.
 	nonisolated static func morningBody(of request: URLRequest, frontendMerge: Bool = false) -> Data {
+		if request.url!.host != Bitbucket.host { return jiraBody(of: request) }
 		let path = request.url!.path
 		let isMerged = request.url!.query?.contains("MERGED") == true
 		let values: [[String: Any]] = if isMerged {
@@ -180,7 +181,7 @@ extension ReportFixture {
 		#expect(stats.contains("Started: 2026-10-27 07:00\nResult: Ready\nTotal: "))
 		// »Plans« depends on the plans folder of this machine.
 		#expect(fixture.report.steps.map(\.name).filter { $0 != "Plans" } == ["Git user name", "Local branches", "Git workspaces", "Remote branches",
-			"Bitbucket login", "Open pull requests", "Merges of other devs", "Sessions", "Collect", "Claude run", "Render", "Write file"])
+			"Bitbucket login", "Open pull requests", "Merges of other devs", "Sessions", "Jira", "Collect", "Claude run", "Render", "Write file"])
 		for name in fixture.report.steps.map(\.name) { #expect(stats.contains("| \(name) | ")) }
 	}
 
@@ -315,7 +316,7 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let run = try #require(fixture.claudeRun)
-		#expect(run.arguments[0...1] == ["-lc", "exec env -u BITBUCKET_API_TOKEN -u SLACK_USER_TOKEN \"$0\" \"$@\""])
+		#expect(run.arguments[0...1] == ["-lc", "exec env -u BITBUCKET_API_TOKEN -u JIRA_API_TOKEN -u SLACK_USER_TOKEN \"$0\" \"$@\""])
 		#expect(run.timeout == 15 * 60)
 		#expect(run.directory == fixture.folder)
 		let arguments = Array(run.arguments.dropFirst(3))
@@ -328,19 +329,17 @@ extension ReportFixture {
 		let allowed = arguments[start...].prefix { !$0.hasPrefix("--") }
 		let transcripts = claudeProjectFolder(of: fixture.folder.path).path
 		#expect(Array(allowed) == ["Read(/\(fixture.folder.path)/**)", "Read(/\(transcripts)/**)",
-			"Read(/\(MorningOverview.plansFolder.path)/**)", "Read(/\(fixture.overviewFolder.path)/**)"] + MorningOverview.jiraReadTools)
-		// No MCP server from another config, and without a .mcp.json in the folder no server at all.
-		#expect(arguments.contains("--strict-mcp-config"))
-		#expect(fixture.value(of: "--mcp-config") == nil)
+			"Read(/\(MorningOverview.plansFolder.path)/**)", "Read(/\(fixture.overviewFolder.path)/**)"])
 	}
 
-	@Test func runGetsOnlyTheRemoteServersOfTheProject() async throws {
+	@Test func runStartsNoMCPServerAlsoWithAnMCPConfigInTheProject() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }
-		let config = #"{"mcpServers": {"jira": {"type": "http", "url": "https://x"}, "lint": {"command": "npx", "args": ["lint@latest"]}}}"#
+		let config = #"{"mcpServers": {"jira": {"type": "http", "url": "https://x"}}}"#
 		try config.write(to: fixture.folder.appendingPathComponent(".mcp.json"), atomically: true, encoding: .utf8)
 		await fixture.report.update()
-		#expect(fixture.value(of: "--mcp-config") == #"{"mcpServers":{"jira":{"type":"http","url":"https:\/\/x"}}}"#)
+		#expect(try #require(fixture.claudeRun).arguments.contains("--strict-mcp-config"))
+		#expect(fixture.value(of: "--mcp-config") == nil)
 	}
 
 	@Test func withoutNetworkTheRunFailsAndClaudeDoesNotRun() async throws {
@@ -671,8 +670,11 @@ extension ReportFixture {
 			+ "## 1 × Cleanup Work\n\n- [ ] `C1` Delete [old.md](file:///old.md)\n"
 		let branches: [[String: Any]] = [["name": "feature/PROJ-1-a", "mergedInto": ["origin/dev"]]]
 		let pullRequests: [[String: Any]] = [["id": 42, "title": "PROJ-1 A"], ["id": 43, "source": ["branch": ["name": "bugfix/PROJ-2-c"]]]]
-		let plans = MorningOverview.plans(in: folder, old: old, now: now, calendar: utcCalendar, branches: branches,
-			knownBranches: ["feature/PROJ-1-a", "bugfix/PROJ-2-c"], pullRequests: pullRequests)
+		let files = texts.keys.filter { $0.hasSuffix(".md") }.map(folder.appendingPathComponent)
+		// The test sets old content dates, but the attribute dates are of today.
+		let mtime = { (file: URL) in try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date }
+		let plans = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: branches,
+			knownBranches: ["feature/PROJ-1-a", "bugfix/PROJ-2-c"], pullRequests: pullRequests, changedPullRequests: [42], changeDate: mtime)
 		#expect(plans.map { $0["name"] as? String } == ["old.md", "plan-proj-7-new.md"])
 		let (oldPlan, newPlan) = (plans[0], plans[1])
 		#expect(oldPlan["recent"] as? Bool == false)
@@ -688,8 +690,28 @@ extension ReportFixture {
 		#expect(newPlan["openPullRequests"] as? [Int] == [42])
 		#expect(newPlan["openSteps"] as? Int == 1)
 		#expect(newPlan["doneSteps"] as? Int == 1)
-		#expect(MorningOverview.plans(in: folder, old: nil, now: now, calendar: utcCalendar, branches: [], knownBranches: [], pullRequests: [])
-			.allSatisfy { $0["changedAfterOldOverview"] == nil })
+		// PR 42 got new commits, PR 43 did not.
+		#expect(newPlan["newCommits"] as? Bool == true)
+		#expect(oldPlan["newCommits"] as? Bool == false)
+		// A commit on a named branch after the old overview counts too.
+		let byBranch = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: branches,
+			knownBranches: [], pullRequests: pullRequests, branchDates: ["feature/PROJ-1-a": now.addingTimeInterval(-60)], changeDate: mtime)
+		#expect(byBranch.map { $0["newCommits"] as? Bool } == [false, true])
+		let byOldBranch = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: branches,
+			knownBranches: [], pullRequests: pullRequests, branchDates: ["feature/PROJ-1-a": now.addingTimeInterval(-2 * day)], changeDate: mtime)
+		#expect(byOldBranch.map { $0["newCommits"] as? Bool } == [false, false])
+		// A merged PR that the text names counts. So does a commit on a branch that only `origin` has.
+		let byClosed = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: [], knownBranches: [],
+			pullRequests: [], closedPullRequests: [42], changeDate: mtime)
+		#expect(byClosed.map { $0["newCommits"] as? Bool } == [false, true])
+		let byRemote = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: [], knownBranches: [],
+			pullRequests: [], branchDates: ["bugfix/PROJ-2-c": now.addingTimeInterval(-60)], changeDate: mtime)
+		#expect(byRemote.map { $0["newCommits"] as? Bool } == [true, false])
+		// By default, a file with an old content date but a new attribute date, e.g. after `mv`, counts as changed.
+		let moved = MorningOverview.plans(of: files, old: old, now: now, calendar: utcCalendar, branches: [], knownBranches: [], pullRequests: [])
+		#expect(moved.map { $0["changedAfterOldOverview"] as? Bool } == [true, true])
+		#expect(MorningOverview.plans(of: files, old: nil, now: now, calendar: utcCalendar, branches: [], knownBranches: [], pullRequests: [])
+			.allSatisfy { $0["changedAfterOldOverview"] == nil && $0["newCommits"] == nil })
 	}
 
 	@Test func sessionsGetTheirNewestTitle() throws {
