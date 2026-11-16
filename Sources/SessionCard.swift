@@ -191,8 +191,8 @@ struct SessionCard: View {
 		.help("Remove from the list until the state changes (now: \(session.stateTitle))")
 	}
 
-	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a blue
-	/// badge.
+	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a badge
+	/// in the text color.
 	private func stateIcon(_ session: Session) -> some View {
 		let state = session.shownState
 		// Filled and a little heavier: a thin outline in color has too little contrast on the card.
@@ -227,7 +227,8 @@ extension SessionState {
 		switch self {
 		case .asksYou: .orange
 		case .yourTurn: .white
-		case .working: Color(nsColor: Spinner.segmentColor(of: Spinner.color))
+		// The green wave of the row shows the work, so the icon keeps the text color.
+		case .working: .primary
 		}
 	}
 }

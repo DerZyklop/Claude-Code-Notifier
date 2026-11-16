@@ -142,8 +142,8 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(SessionState.asksYou.color == .orange)
 	}
 
-	@Test func workingIsTheSegmentGreenOfTheWave() {
-		#expect(SessionState.working.color == Color(nsColor: Spinner.segmentColor(of: Spinner.color)))
+	@Test func workingHasTheTextColor() {
+		#expect(SessionState.working.color == .primary)
 	}
 
 	@Test func yourTurnIsWhite() {
