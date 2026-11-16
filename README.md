@@ -207,8 +207,12 @@ web pages.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
 - The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
 - `~/Library/Application Support/local.claude-code-notifier.app/morning-overview/` holds the last overview that the app
-  wrote. It also holds 2 files of the last run: `pull-request-heads.json` with the newest commit of each open PR,
-  and `outdated-files.json` with the outdated plans and reports.
+  wrote. It also holds these files of the last run: `pull-request-heads.json` with the newest commit of each open PR,
+  and `outdated-files.json` with the outdated plans and reports. `last-run.json` and `last-run-input.json` hold the
+  command and the input of the Claude run, without tokens. The same files of DiDi are in the folder `didi`.
+- `python3 scripts/replay-last-run.py default medium low` runs the last Claude run again with each effort level, at
+  the same time. It writes each answer and a table with the time into the folder `replay`, and never the overview.
+  Each replay uses the usage of your Claude plan.
 
 To remove the app, delete it. Then delete the settings file with `rm`. Do not use `defaults delete`, because it
 leaves an empty file.

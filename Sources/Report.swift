@@ -368,6 +368,7 @@ final class Report: ObservableObject {
 		} catch {
 			return fail("The folder of the run could not be made: \(error.localizedDescription)")
 		}
+		saveLastRun(command)
 		let result = await system.run(command)
 		step("Claude run")
 		if Task.isCancelled { return }
@@ -570,6 +571,20 @@ final class Report: ObservableObject {
 		let script = "exec " + (variables.isEmpty ? "" : "env " + variables.map { "-u \($0) " }.joined()) + "\"$0\" \"$@\""
 		return Command(executable: shell, arguments: ["-lc", script] + program, directory: directory ?? system.folder,
 			input: input, timeout: timeout)
+	}
+
+	/// The file with the command of the last Claude run: `last-run.json`, and its input in `last-run-input.json`. A replay
+	/// with other flags uses them, e.g. `scripts/replay-last-run.py`. The command has no token, because it removes them.
+	var lastRunURL: URL { supportFolder.appendingPathComponent("last-run.json") }
+
+	private func saveLastRun(_ command: Command) {
+		let object: [String: Any] = ["executable": command.executable, "arguments": command.arguments, "directory": command.directory.path,
+			"timeout": command.timeout]
+		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+		else { return }
+		try? FileManager.default.createDirectory(at: supportFolder, withIntermediateDirectories: true)
+		try? data.write(to: lastRunURL, options: .atomic)
+		try? command.input.write(to: supportFolder.appendingPathComponent("last-run-input.json"), options: .atomic)
 	}
 
 	/// The values of variables of the login shell. A missing or empty variable is not in the result.
