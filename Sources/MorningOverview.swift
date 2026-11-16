@@ -116,7 +116,13 @@ enum MorningOverview {
 		let lastStates = lastStates(report)
 		// A pull request without a saved state counts as changed.
 		let unchangedPullRequests = Set(pullRequestStates.filter { lastStates[String($0.key)] == $0.value }.keys)
-		if let old { appData[oldOverviewKey] = old }
+		if let old {
+			appData[oldOverviewKey] = old
+			// The same text that KEEP uses, so that Claude needs no read and the app sections do not count.
+			data["oldOverview"] = withoutAppSections(old)
+		}
+		let memoryIndex = claudeProjectFolder(of: system.folder.path).appendingPathComponent("memory/MEMORY.md")
+		if let index = try? String(contentsOf: memoryIndex, encoding: .utf8) { data["memoryIndex"] = index }
 		report.step("Plans")
 		let sessions = await sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
 			archived: system.archivedSessionIDs() ?? [])
@@ -177,7 +183,6 @@ enum MorningOverview {
 		let projectFolder = claudeProjectFolder(of: system.folder.path)
 		let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
 		var facts = ["Project folder: \(system.folder.path)"]
-		if let file = report.fileURL, exists(file) { facts.append("Old overview: \(file.path)") }
 		let todayTasks = tasks(of: system)
 		if !todayTasks.isEmpty {
 			facts.append("Weekday tasks: \(todayTasks.joined(separator: ", ")). The app puts them at the top. Leave them out, and also the tickets that they cover.")

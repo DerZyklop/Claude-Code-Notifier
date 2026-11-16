@@ -54,7 +54,8 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   links. So Claude writes less text, and no link has a wrong URL. A ticket ref needs a project key of Jira, so that
   for example `[UTF-8]` stays text.
 - **File texts:** the JSON has the text of each plan and report that Claude must read, at most 50 KB for each file and
-  150 KB in total. So Claude needs fewer reads, and each read is one turn less.
+  150 KB in total. The JSON also has the old overview and the index of the Claude memory of the project. So Claude
+  needs fewer reads, and each read is one turn less.
 - **Outdated files:** the app finds the plans and reports that »Cleanup Work« needs. An outdated file has no open PR
   that names it, and one of these facts is true: its review PR is closed, a ticket is done, a branch is merged or gone,
   or all its steps are done. If the PR of a report was declined, the app writes »Delete <file>« itself, because the code

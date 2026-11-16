@@ -222,7 +222,9 @@ extension ReportFixture {
 		#expect(fixture.report.fileURL == fixture.fileURL)
 		#expect(try String(contentsOf: fixture.fileURL, encoding: .utf8).contains("## My Notes\n\nNewest\n"))
 		#expect(try String(contentsOf: old, encoding: .utf8).contains("Newest"))
-		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("- Old overview: \(old.path)\n"))
+		// The run gets the old overview in the JSON, without the sections of the app, and no path to read.
+		#expect(try fixture.input["oldOverview"] as? String == "# Morning overview\n\nUpdated: 2026-10-26 07:00\n")
+		#expect(try #require(fixture.claudeRun?.arguments[4]).contains("Old overview") == false)
 		#expect(!FileManager.default.fileExists(atPath: fixture.folder.appendingPathComponent("morning-overview.md").path))
 	}
 
