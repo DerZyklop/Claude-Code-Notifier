@@ -17,7 +17,8 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 - **Menu bar icon:** always 70 pt wide. With two or more sessions, the icon shows their number, for example »×2«.
 - **Card:** one row for each session, with its state, title and running time. Sessions that ask you come first.
   Archived sessions are not in the card. A click on a row opens the chat of the session in VS Code.
-- **Notifications:** one for each session. A newer one replaces the older one. A click brings VS Code to the front.
+- **Notifications:** one for each session. A newer one replaces the older one. A click opens the chat of the session in VS Code, like a
+  click on its row.
 - **Sound:** only the ring of the bubble. It stops after 5 minutes without an answer. It does not play while a macOS
   Focus is on. »Play Sounds« in the menu turns it off.
 

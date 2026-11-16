@@ -123,11 +123,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 		completionHandler([.banner])
 	}
 
-	/// A click on a notification brings VS Code to the front. A click on a ready report opens its file.
+	/// A click on a ready report opens its file. A click on the notification of a session opens its chat, like a click on
+	/// its row in the card. Any other click brings VS Code to the front.
 	func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
 		let identifier = response.notification.request.identifier
 		Task { @MainActor in
-			if let report = Report.forNotification(identifier) { report.openFile() } else { activateVSCode() }
+			if let report = Report.forNotification(identifier) {
+				report.openFile()
+			} else if let session = SessionStore.shared.sessions[identifier] {
+				VSCodeWindows.shared.open(session)
+			} else {
+				activateVSCode()
+			}
 		}
 		completionHandler()
 	}
