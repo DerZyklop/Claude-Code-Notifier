@@ -403,19 +403,33 @@ extension ReportFixture {
 		defer { fixture.cleanUp() }
 		await fixture.report.update()
 		let requests = fixture.log.requests
-		#expect(requests.map { $0.url!.path } == ["/2.0/repositories/ws/repo/pullrequests",
-			"/2.0/repositories/ws/repo/pullrequests/12/tasks", "/2.0/repositories/ws/repo/pullrequests/12/comments",
-			"/2.0/repositories/ws/repo/pullrequests/12/statuses", "/2.0/repositories/ws/repo/pullrequests/12/diffstat",
-			"/2.0/repositories/ws/repo/pullrequests", "/2.0/repositories/ws/repo/pullrequests/20/diffstat",
-			"/2.0/repositories/ws/repo/pullrequests/22/diffstat"])
+		let paths = requests.map { $0.url!.path.replacingOccurrences(of: "/2.0/repositories/ws/repo", with: "") }
+		// The details of a pull request come at the same time, in any order.
+		#expect(paths.first == "/pullrequests")
+		#expect(Set(paths[1...4]) == ["/pullrequests/12/tasks", "/pullrequests/12/comments", "/pullrequests/12/statuses",
+			"/pullrequests/12/diffstat"])
+		#expect(Array(paths[5...]) == ["/pullrequests", "/pullrequests/20/diffstat", "/pullrequests/22/diffstat"])
 		let authorization = "Basic " + Data("me@example.com:token".utf8).base64EncodedString()
 		for request in requests {
 			#expect(request.httpMethod == "GET")
 			#expect(request.value(forHTTPHeaderField: "Authorization") == authorization)
 		}
-		let query = URLComponents(url: requests[1].url!, resolvingAgainstBaseURL: false)?.queryItems
+		let tasks = try #require(requests.first { $0.url!.path.hasSuffix("/tasks") })
+		let query = URLComponents(url: tasks.url!, resolvingAgainstBaseURL: false)?.queryItems
 		#expect(query?.first { $0.name == "q" }?.value == "state=\"UNRESOLVED\"")
-		#expect(requests[1].url!.absoluteString.contains("\"") == false)
+		#expect(tasks.url!.absoluteString.contains("\"") == false)
+	}
+
+	@Test func inParallelKeepsTheOrderAndRunsAtMostTheLimit() async throws {
+		let running = Locked((now: 0, most: 0))
+		let results = try await MorningOverview.inParallel(Array(1...7), limit: 3) { item in
+			running.update { $0.now += 1; $0.most = max($0.most, $0.now) }
+			try await Task.sleep(for: .milliseconds(10 * (8 - item)))
+			running.update { $0.now -= 1 }
+			return item * 10
+		}
+		#expect(results == [10, 20, 30, 40, 50, 60, 70])
+		#expect(running.update { $0.most } == 3)
 	}
 
 	@Test func failedFetchFailsTheRunWithoutWritingAnOverview() async throws {

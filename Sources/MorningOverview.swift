@@ -875,6 +875,9 @@ enum MorningOverview {
 
 	// MARK: - Pull requests
 
+	/// The most pull requests that get their details at the same time. Each one sends four requests.
+	static let parallelDetails = 5
+
 	/// The open pull requests. The ones of the user, as author or reviewer, also get their open tasks, newest comments,
 	/// newest build states and merge conflict.
 	private static func pullRequests(_ bitbucket: Bitbucket, me: String) async throws -> [[String: Any]] {
@@ -883,22 +886,55 @@ enum MorningOverview {
 			"destination.branch.name"]
 		var pullRequests = try await bitbucket.values("/pullrequests", query: ["state": "OPEN", "pagelen": "50"], fields: fields)
 			.filter { !isDraftOfOthers($0, me: me) }
-		for index in pullRequests.indices.filter({ concerns(pullRequests[$0], me: me) }).prefix(detailLimit) {
-			guard let id = pullRequests[index]["id"] as? Int else { continue }
-			let tasks = try await bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
-				fields: ["content.raw", "creator.display_name"], maxPages: 1)
-			let comments = try await bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
-				fields: ["content.raw", "user.display_name", "user.type", "created_on", "inline.path", "deleted"], maxPages: 1)
-			let statuses = try await bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
-				fields: ["state", "name", "updated_on"], maxPages: 1)
-			pullRequests[index]["openTasks"] = tasks.map { Bitbucket.shortened($0) }
-			pullRequests[index]["newestComments"] = comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) }
-			pullRequests[index]["buildStatuses"] = statuses
-			pullRequests[index]["hasMergeConflict"] = try await hasMergeConflict(bitbucket, id: id)
+		let detailed = pullRequests.indices.filter { concerns(pullRequests[$0], me: me) }.prefix(detailLimit)
+			.compactMap { index in (pullRequests[index]["id"] as? Int).map { (index: index, id: $0) } }
+		let allDetails = try await inParallel(detailed.map(\.id), limit: parallelDetails) { try await details(bitbucket, id: $0) }
+		for (pullRequest, details) in zip(detailed, allDetails) {
+			let index = pullRequest.index
+			pullRequests[index].merge(details.values) { $1 }
 			pullRequests[index]["waitsForMyReview"] = waitsForReview(pullRequests[index], me: me)
 			pullRequests[index]["isMyTurn"] = isMyTurn(pullRequests[index], me: me)
 		}
 		return pullRequests
+	}
+
+	/// The fields that ``details(_:id:)`` adds to a pull request.
+	private struct Details: @unchecked Sendable {
+		var values: [String: Any]
+	}
+
+	/// The open tasks, newest comments, newest build states and merge conflict of a pull request. The four requests run at
+	/// the same time.
+	private static func details(_ bitbucket: Bitbucket, id: Int) async throws -> Details {
+		async let tasks = bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
+			fields: ["content.raw", "creator.display_name"], maxPages: 1)
+		async let comments = bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
+			fields: ["content.raw", "user.display_name", "user.type", "created_on", "inline.path", "deleted"], maxPages: 1)
+		async let statuses = bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
+			fields: ["state", "name", "updated_on"], maxPages: 1)
+		async let mergeConflict = hasMergeConflict(bitbucket, id: id)
+		return try await Details(values: [
+			"openTasks": tasks.map { Bitbucket.shortened($0) },
+			"newestComments": comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) },
+			"buildStatuses": statuses,
+			"hasMergeConflict": mergeConflict,
+		])
+	}
+
+	/// The results of `body` for each of `items`, in the order of `items`. At most `limit` calls run at the same time.
+	/// The first error stops the other calls and comes out of this function.
+	static func inParallel<Item: Sendable, Result: Sendable>(_ items: [Item], limit: Int,
+		_ body: @escaping @Sendable (Item) async throws -> Result) async throws -> [Result] {
+		try await withThrowingTaskGroup(of: (Int, Result).self) { group in
+			var results = [Result?](repeating: nil, count: items.count)
+			for index in items.indices {
+				// Each new call waits for the end of an older one.
+				if index >= limit, let (done, result) = try await group.next() { results[done] = result }
+				group.addTask { (index, try await body(items[index])) }
+			}
+			for try await (index, result) in group { results[index] = result }
+			return results.map { $0! }
+		}
 	}
 
 	/// A merged pull request of another dev, for ``otherMergesSection(_:old:)``.
