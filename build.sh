@@ -11,9 +11,10 @@ trap 'rm -rf "$TMPDIR"' EXIT
 SDK="${SDK:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | tail -1)}"
 
 # A new version only when all unit tests in Tests/ pass. SwiftPM gets a home folder in .build for its caches and
-# settings. Only the native build system passes TMPDIR on to the compiler.
+# settings. Only the native build system passes TMPDIR on to the compiler. SwiftPM runs without its own sandbox,
+# because macOS does not allow a sandbox inside another sandbox, for example the sandbox of Claude Code.
 CFFIXED_USER_HOME="$PWD/.build/home" CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" SDKROOT="$SDK" \
-	swift test --build-system native
+	swift test --disable-sandbox --build-system native
 
 APP="build/Claude Code Pulse.app"
 rm -rf "$APP"
