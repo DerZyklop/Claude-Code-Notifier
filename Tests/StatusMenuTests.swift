@@ -167,6 +167,11 @@ private func isClose(_ a: [Double], _ b: [Double]) -> Bool {
 		#expect(isClose(try components(StatusMenu.textColor(isDark: false)), [0, 0, 0, 0.85]))
 	}
 
+	@Test func stillWaveIsMutedInBothModes() throws {
+		#expect(isClose(try components(StatusMenu.stillWaveColor(isDark: true)), [1, 1, 1, 0.4]))
+		#expect(isClose(try components(StatusMenu.stillWaveColor(isDark: false)), [0, 0, 0, 0.4]))
+	}
+
 	@Test(arguments: [1, 5])
 	func bubbleHeightCentersTheBodyOfTheSymbol(count: Int) throws {
 		let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuBarFont(ofSize: 0).pointSize + 4, weight: .regular)

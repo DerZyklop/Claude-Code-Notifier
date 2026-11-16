@@ -3,7 +3,7 @@ import QuartzCore
 
 /// The wave of the menu bar icon, as three layers on the same curve above the image of the button.
 ///
-/// - The still wave in the menu bar color, while no session works.
+/// - The still wave in a muted menu bar color, while no session works.
 /// - A pale green wave, while sessions work. It is purple instead while a report runs, also when sessions work too.
 /// - A dark green segment that runs along the pale green wave from left to right, without a jump between rounds.
 ///
@@ -74,7 +74,7 @@ final class Spinner {
 	/// Shows the waves over the image frame of the button, from `waveStart` to `waveEnd`.
 	/// - Parameters:
 	///   - hasGap: Breaks the still wave in the middle, for a setup problem.
-	///   - stillColor: The menu bar color for the still wave.
+	///   - stillColor: The muted menu bar color for the still wave.
 	///   - isReport: Paints the moving wave in ``reportColor`` instead of ``color``.
 	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false) {
 		guard let imageFrame else {

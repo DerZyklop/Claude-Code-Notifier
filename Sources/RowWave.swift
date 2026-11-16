@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The wave of a row in ``SessionCard``, in the space between the texts on the left and on the right. It looks like
-/// the wave of the menu bar: a moving wave in `color` while the row works, else the still wave in the text color.
+/// the wave of the menu bar: a moving wave in `color` while the row works, else the still wave in ``StatusMenu/stillWaveColor(isDark:)``.
 struct RowWave: NSViewRepresentable {
 	/// The color of the moving wave, `nil` for the still wave.
 	var color: NSColor?
@@ -80,7 +80,7 @@ final class RowWaveView: NSView {
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
 		let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-		still.strokeColor = StatusMenu.textColor(isDark: isDark).cgColor
+		still.strokeColor = StatusMenu.stillWaveColor(isDark: isDark).cgColor
 		still.isHidden = color != nil
 		track.isHidden = color == nil
 		segment.isHidden = color == nil

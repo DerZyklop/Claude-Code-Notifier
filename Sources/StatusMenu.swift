@@ -43,7 +43,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.fitCard() }
 			.store(in: &subscriptions)
-		// The app colors the number and the still wave itself, see ``textColor(isDark:)``.
+		// The app colors the number and the still wave itself, see ``textColor(isDark:)`` and ``stillWaveColor(isDark:)``.
 		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
 			Task { @MainActor in self?.updateIcon() }
 		}
@@ -53,7 +53,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// The icon always has the same width, so that the menu bar never shifts. From the right: the bubble of the waiting
 	/// sessions, the number of working sessions, and the wave in the space that is left. A report file that you did not
 	/// open yet puts a purple dot left of the wave. Without work, the wave stands
-	/// still in the menu bar color, and a setup problem breaks it in the middle. A running report moves the wave in purple. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
+	/// still in a muted menu bar color, and a setup problem breaks it in the middle. A running report moves the wave in purple. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
 	/// The simulation of the setup window adds its signals to the icon and the lights, see ``LightSimulation``.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
@@ -77,7 +77,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		button.layoutSubtreeIfNeeded()
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
-			hasGap: hasProblem, stillColor: Self.textColor(isDark: isDark), isReport: isReporting)
+			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting)
 		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
 		let store = SessionStore.shared
 		let letters = hasProblem ? [:] : Dictionary(uniqueKeysWithValues: store.letters.compactMap { id, letter in
@@ -137,9 +137,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	static let bubbleWidth = bubble(count: 1).size.width
 
-	/// The menu bar color, for the still wave and the number.
+	/// The menu bar color, for the number.
 	static func textColor(isDark: Bool) -> NSColor {
 		isDark ? NSColor.white : NSColor.black.withAlphaComponent(0.85)
+	}
+
+	/// The menu bar color, but muted, for the still wave in the menu bar and in the card. The full color stands out
+	/// too much.
+	static func stillWaveColor(isDark: Bool) -> NSColor {
+		(isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.4)
 	}
 
 	/// The number and the dot in one image, above which ``Spinner`` draws the wave and ``AttentionBubble`` the bubble. The image
