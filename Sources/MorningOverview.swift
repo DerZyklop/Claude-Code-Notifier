@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension Report.Kind {
@@ -21,7 +22,9 @@ extension Report.Kind {
 		statsFileName: "stats.md",
 		didWrite: { report, input in
 			if let heads = input.appData[MorningOverview.headsKey] as? [Int: String] { MorningOverview.saveHeads(heads, report) }
-			if let states = input.appData[MorningOverview.statesKey] as? [Int: String] { MorningOverview.saveStates(states, report) }
+			if let states = input.appData[MorningOverview.statesKey] as? [Int: String] {
+				MorningOverview.saveStates(states, written: report.lastWritten ?? "", report)
+			}
 			if let run = input.appData[MorningOverview.outdatedKey] as? MorningOverview.OutdatedRun {
 				MorningOverview.saveOutdated(run.state(written: report.lastWritten ?? ""), report)
 			}
@@ -113,9 +116,17 @@ enum MorningOverview {
 		let pullRequestStates = Dictionary(pullRequests.compactMap { pullRequest in (pullRequest["id"] as? Int).map { ($0, state(of: pullRequest)) } },
 			uniquingKeysWith: { first, _ in first })
 		appData[statesKey] = pullRequestStates
-		let lastStates = lastStates(report)
-		// A pull request without a saved state counts as changed.
-		let unchangedPullRequests = Set(pullRequestStates.filter { lastStates[String($0.key)] == $0.value }.keys)
+		let lastStates = lastStates(report, old: old)
+		// A pull request without a saved state counts as changed. So does one with a new or changed review report, or with
+		// a commit on its branch since the old overview, e.g. a local commit that is not pushed yet.
+		let changedReports = Set(projectFacts.filter { $0["changedAfterOldOverview"] as? Bool == true }
+			.compactMap { ($0["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest) })
+		let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? .distantFuture
+		let unchangedPullRequests = Set(pullRequestStates.filter { id, state in
+			guard lastStates[String(id)] == state, !changedReports.contains(id) else { return false }
+			let branch = pullRequests.first { $0["id"] as? Int == id }.flatMap(sourceBranch)
+			return (branch.flatMap { branchDates[$0] } ?? .distantPast) < since
+		}.keys)
 		if let old {
 			appData[oldOverviewKey] = old
 			// The same text that KEEP uses, so that Claude needs no read and the app sections do not count.
@@ -1080,31 +1091,55 @@ enum MorningOverview {
 		let number = { (key: String) in (pullRequest[key] as? Int).map(String.init) ?? "" }
 		let flag = { (key: String) in pullRequest[key] as? Bool == true ? "1" : "0" }
 		let build = (pullRequest["buildStatuses"] as? [[String: Any]])?.first.map { "\($0["name"] as? String ?? "")=\($0["state"] as? String ?? "")" }
+		// Bitbucket keeps a review on the participant, so `updated_on` can miss it.
+		let reviews = participants(of: pullRequest).map { participant in
+			[userName(of: participant) ?? "", participant["role"] as? String ?? "", participant["approved"] as? Bool == true ? "1" : "0",
+				participant["state"] as? String ?? ""].joined(separator: ":")
+		}.sorted().joined(separator: ",")
+		// An edited task or comment keeps the counts, so its text counts too.
+		let texts = ((pullRequest["openTasks"] as? [[String: Any]] ?? []) + (pullRequest["newestComments"] as? [[String: Any]] ?? [])).map { item in
+			[(item["creator"] as? [String: Any]).flatMap(userName(ofUser:)) ?? userName(of: item) ?? "", item["created_on"] as? String ?? "",
+				(item["content"] as? [String: Any])?["raw"] as? String ?? ""].joined(separator: ":")
+		}.joined(separator: "\n")
 		return [
 			"head=" + (heads(of: [pullRequest]).values.first ?? ""), "updated=" + (pullRequest["updated_on"] as? String ?? ""),
 			"comments=" + number("comment_count"), "tasks=" + number("task_count"),
 			"openTasks=" + ((pullRequest["openTasks"] as? [Any]).map { String($0.count) } ?? ""), "build=" + (build ?? ""),
 			"conflict=" + flag("hasMergeConflict"), "draft=" + flag("draft"), "myTurn=" + flag("isMyTurn"), "stale=" + flag("isStale"),
 			"newReview=" + flag("needsNewReview"), "reviewed=" + (pullRequest["reviewedCommit"] as? String ?? ""),
-			"title=" + (pullRequest["title"] as? String ?? ""),
+			"title=" + (pullRequest["title"] as? String ?? ""), "reviews=" + reviews,
+			"texts=" + SHA256.hash(data: Data(texts.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined(),
 		].joined(separator: "|")
 	}
 
-	/// The file with the ``state(of:)`` of each open pull request at the last run that wrote an overview.
+	/// The display name of a user object, e.g. the creator of a task.
+	private static func userName(ofUser user: [String: Any]) -> String? { user["display_name"] as? String }
+
+	/// The file with the ``state(of:)`` of each open pull request at the last run that wrote an overview, and the
+	/// `Updated:` time of that overview.
 	@MainActor
 	private static func statesFile(_ report: Report) -> URL { report.supportFolder.appendingPathComponent("pull-request-states.json") }
 
-	/// The states of the open pull requests at the last run that wrote an overview, by the ID as text.
+	/// The states of the open pull requests at the last run that wrote an overview, by the ID as text. They count only
+	/// for the overview of that run, e.g. not after the user deleted it: `old` must have the same `Updated:` time.
 	@MainActor
-	static func lastStates(_ report: Report) -> [String: String] {
-		(try? Data(contentsOf: statesFile(report))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
+	static func lastStates(_ report: Report, old: String?) -> [String: String] {
+		guard let data = try? Data(contentsOf: statesFile(report)),
+			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+			let updated = object["updated"] as? String, updated == old.flatMap(updatedLine) else { return [:] }
+		return object["states"] as? [String: String] ?? [:]
 	}
 
-	/// Saves `states` for the next run. Only the open pull requests of this run are in the file, so it does not grow.
+	/// The text of the `Updated:` line of an overview.
+	private static func updatedLine(of overview: String) -> String? { firstGroup(of: #"(?m)^Updated: (.+)$"#, in: overview) }
+
+	/// Saves `states` for the next run, with the `Updated:` time of `written`. Only the open pull requests of this run are
+	/// in the file, so it does not grow.
 	@MainActor
-	static func saveStates(_ states: [Int: String], _ report: Report) {
-		let text = Dictionary(uniqueKeysWithValues: states.map { (String($0.key), $0.value) })
-		guard let data = try? JSONSerialization.data(withJSONObject: text, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
+	static func saveStates(_ states: [Int: String], written: String, _ report: Report) {
+		let object: [String: Any] = ["updated": updatedLine(of: written) ?? "",
+			"states": Dictionary(uniqueKeysWithValues: states.map { (String($0.key), $0.value) })]
+		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
 		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
 		try? data.write(to: statesFile(report), options: .atomic)
 	}
@@ -1634,14 +1669,19 @@ enum MorningOverview {
 				if isPullRequestSection {
 					// A number of no pull request, e.g. in »finding #2«, does not count.
 					let named = Set(matches(of: #"(?<=#)\d+\b"#, in: text).compactMap { Int($0) })
+					// The user did all next actions, which Bitbucket cannot show. The PR is still open, so its task needs new ones.
+					let boxes = lines[block].dropFirst().filter { $0.range(of: #"^\s*- \[[^\]]\] "#, options: .regularExpression) != nil }
 					guard let first = pullRequests.first, unchangedPullRequests.contains(first),
-						named.intersection(openPullRequests).isSubset(of: unchangedPullRequests), named.isDisjoint(with: closedPullRequests) else { return nil }
+						named.intersection(openPullRequests).isSubset(of: unchangedPullRequests), named.isDisjoint(with: closedPullRequests),
+						boxes.isEmpty || !boxes.allSatisfy(isTicked) else { return nil }
 				} else {
 					guard !links.isEmpty || !codePaths.isEmpty, pullRequests.allSatisfy({ !changedPullRequests.contains($0) }) else { return nil }
 				}
 				if let tickets {
 					let keys = matches(of: #"(?<=\[)[A-Z][A-Z0-9]+-\d+(?=\]\()"#, in: title)
-					let isSettled = links.allSatisfy(settledPaths.contains) && codePaths.allSatisfy(settledNames.contains)
+					// A task without files, e.g. of a PR, has no outdated check that knows the ticket.
+					let isSettled = !(links.isEmpty && codePaths.isEmpty) && links.allSatisfy(settledPaths.contains)
+						&& codePaths.allSatisfy(settledNames.contains)
 					guard isSettled || !keys.contains(where: { tickets[$0]?["done"] as? Bool == true }) else { return nil }
 					let isBlocked = keys.contains { tickets[$0]?["blocked"] as? Bool == true } || pullRequests.contains(where: blockedPullRequests.contains)
 					guard isBlocked == leadingMarks(of: title).contains(blockedMark) else { return nil }

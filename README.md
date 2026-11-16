@@ -41,7 +41,8 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
 - **Unchanged tasks:** Claude writes `KEEP <ID>` for an old task that stays the same, and the app copies the old task
   with its open sub-items. In the PR sections, a task stays the same only for a PR with no change since the last run:
-  no commit, comment, task, build, merge conflict, review or turn. For this, the app saves the state of each open PR. A task whose sub-items are all ticked goes away. While a run is
+  no commit, also no local one, and no comment, task, build, merge conflict, review, review report or turn. For this,
+  the app saves the state of each open PR. A task whose sub-items are all ticked goes away. While a run is
   active, the app does not give new IDs in the old file. So each ID names the same task for the app and for Claude.
   Claude does not read an unchanged plan or review report again. Unchanged means: no change to the file, and no new
   commits on its PR or branch since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket
@@ -212,6 +213,7 @@ web pages.
 - The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
 - `~/Library/Application Support/local.claude-code-notifier.app/morning-overview/` holds the last overview that the app
   wrote. It also holds these files of the last run: `pull-request-heads.json` with the newest commit of each open PR,
+  `pull-request-states.json` with the state of each open PR,
   and `outdated-files.json` with the outdated plans and reports. `last-run.json` and `last-run-input.json` hold the
   command and the input of the Claude run, without tokens. The same files of DiDi are in the folder `didi`.
 - `python3 scripts/replay-last-run.py default medium low` runs the last Claude run again with each effort level, at
