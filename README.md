@@ -39,8 +39,9 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   the daily run off.
 - **Done:** a notification says how many tasks are open. A click on it opens the file in Obsidian, or in VS Code without Obsidian. Until you open
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
-- **Unchanged tasks:** outside the PR sections, Claude writes `KEEP <ID>` for an old task that stays the same, and the
-  app copies the old task with its open sub-items. A task whose sub-items are all ticked goes away. While a run is
+- **Unchanged tasks:** Claude writes `KEEP <ID>` for an old task that stays the same, and the app copies the old task
+  with its open sub-items. In the PR sections, a task stays the same only for a PR with no change since the last run:
+  no commit, comment, task, build, merge conflict, review or turn. For this, the app saves the state of each open PR. A task whose sub-items are all ticked goes away. While a run is
   active, the app does not give new IDs in the old file. So each ID names the same task for the app and for Claude.
   Claude does not read an unchanged plan or review report again. Unchanged means: no change to the file, and no new
   commits on its PR or branch since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket

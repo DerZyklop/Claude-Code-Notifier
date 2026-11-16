@@ -21,6 +21,7 @@ extension Report.Kind {
 		statsFileName: "stats.md",
 		didWrite: { report, input in
 			if let heads = input.appData[MorningOverview.headsKey] as? [Int: String] { MorningOverview.saveHeads(heads, report) }
+			if let states = input.appData[MorningOverview.statesKey] as? [Int: String] { MorningOverview.saveStates(states, report) }
 			if let run = input.appData[MorningOverview.outdatedKey] as? MorningOverview.OutdatedRun {
 				MorningOverview.saveOutdated(run.state(written: report.lastWritten ?? ""), report)
 			}
@@ -109,6 +110,12 @@ enum MorningOverview {
 		pullRequests = withNewReviews(reviews, in: pullRequests)
 		data["pullRequests"] = pullRequests
 		appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
+		let pullRequestStates = Dictionary(pullRequests.compactMap { pullRequest in (pullRequest["id"] as? Int).map { ($0, state(of: pullRequest)) } },
+			uniquingKeysWith: { first, _ in first })
+		appData[statesKey] = pullRequestStates
+		let lastStates = lastStates(report)
+		// A pull request without a saved state counts as changed.
+		let unchangedPullRequests = Set(pullRequestStates.filter { lastStates[String($0.key)] == $0.value }.keys)
 		if let old { appData[oldOverviewKey] = old }
 		report.step("Plans")
 		let sessions = await sessions(in: claudeProjectFolder(of: system.folder.path), now: system.now(), calendar: system.calendar,
@@ -148,7 +155,8 @@ enum MorningOverview {
 		if let old {
 			unchanged = unchangedTasks(in: old, files: checked.files,
 				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
-				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [])
+				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [], closedPullRequests: closedPullRequests,
+				unchangedPullRequests: unchangedPullRequests, openPullRequests: ids(of: pullRequests))
 			data["unchangedTasks"] = unchanged
 		}
 		let files = withTexts(checked.files, old: old, unchangedTasks: unchanged)
@@ -1057,6 +1065,45 @@ enum MorningOverview {
 		try? data.write(to: headsFile(report), options: .atomic)
 	}
 
+	/// The key of the ``state(of:)`` of each open pull request in `appData`, for ``saveStates(_:_:)``.
+	static let statesKey = "pullRequestStates"
+
+	/// The facts of a pull request that change its next action, as one text: its newest commit, the time of its last
+	/// change, its comments and tasks, its newest build, its merge conflict, and whether it is a draft, the turn of the
+	/// user, stale or in need of a new review. Bitbucket changes `updated_on` on a push, a comment, a task and a review.
+	static func state(of pullRequest: [String: Any]) -> String {
+		let number = { (key: String) in (pullRequest[key] as? Int).map(String.init) ?? "" }
+		let flag = { (key: String) in pullRequest[key] as? Bool == true ? "1" : "0" }
+		let build = (pullRequest["buildStatuses"] as? [[String: Any]])?.first.map { "\($0["name"] as? String ?? "")=\($0["state"] as? String ?? "")" }
+		return [
+			"head=" + (heads(of: [pullRequest]).values.first ?? ""), "updated=" + (pullRequest["updated_on"] as? String ?? ""),
+			"comments=" + number("comment_count"), "tasks=" + number("task_count"),
+			"openTasks=" + ((pullRequest["openTasks"] as? [Any]).map { String($0.count) } ?? ""), "build=" + (build ?? ""),
+			"conflict=" + flag("hasMergeConflict"), "draft=" + flag("draft"), "myTurn=" + flag("isMyTurn"), "stale=" + flag("isStale"),
+			"newReview=" + flag("needsNewReview"), "reviewed=" + (pullRequest["reviewedCommit"] as? String ?? ""),
+			"title=" + (pullRequest["title"] as? String ?? ""),
+		].joined(separator: "|")
+	}
+
+	/// The file with the ``state(of:)`` of each open pull request at the last run that wrote an overview.
+	@MainActor
+	private static func statesFile(_ report: Report) -> URL { report.supportFolder.appendingPathComponent("pull-request-states.json") }
+
+	/// The states of the open pull requests at the last run that wrote an overview, by the ID as text.
+	@MainActor
+	static func lastStates(_ report: Report) -> [String: String] {
+		(try? Data(contentsOf: statesFile(report))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
+	}
+
+	/// Saves `states` for the next run. Only the open pull requests of this run are in the file, so it does not grow.
+	@MainActor
+	static func saveStates(_ states: [Int: String], _ report: Report) {
+		let text = Dictionary(uniqueKeysWithValues: states.map { (String($0.key), $0.value) })
+		guard let data = try? JSONSerialization.data(withJSONObject: text, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
+		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
+		try? data.write(to: statesFile(report), options: .atomic)
+	}
+
 	// MARK: - Outdated files
 
 	/// The key of the URLs of the outdated files in `appData`, for ``saveOutdated(_:_:)``.
@@ -1522,21 +1569,28 @@ enum MorningOverview {
 		return withKeptTasks(tasks, in: overview)
 	}
 
-	/// The sections where Claude can write `KEEP <ID>`.
+	/// The sections where Claude can write `KEEP <ID>` for a task with unchanged files.
 	static let keepSections = ["Remaining Tickets in this Sprint", "Open Branches", "Optional Work", cleanupSection]
+	/// The sections of the pull requests. Claude can write `KEEP <ID>` for a task whose pull request did not change.
+	static let pullRequestSections = turnSections + ["Draft PRs"]
 
 	/// The IDs of the old tasks in ``keepSections`` whose plans and reports did not change and got no new commits:
 	/// - The task names at least one file of `files`, by a `file://` link or by a path in backticks that ends in `.md`.
 	/// - Each named file has `changedAfterOldOverview` and `newCommits` false, and no `checkFindings` or `appTask`. A file
 	///   that `files` does not have counts as changed, and so does a file of `files` whose name the task text has and that
 	///   changed.
-	/// - No pull request of the title line is in `changedPullRequests`.
+	/// - No pull request of the title line is in `changedPullRequests` or in `closedPullRequests`.
+	/// The IDs of the old tasks in ``pullRequestSections`` whose pull request did not change, too:
+	/// - The first pull request of the title line is in `unchangedPullRequests`. So is each other pull request of
+	///   `openPullRequests` that the task names, and the task names none of `closedPullRequests`.
+	/// - Each file that the task names did not change. A PR task needs no file.
 	/// - With `tickets`, no ticket of the title line is done, and the 🚫 of the title line is still right: a ticket of the
 	///   title line is blocked, or a pull request of the title line is in `blockedPullRequests`. A done ticket does not
 	///   count when each named file has `outdated` and no `checkFindings`, because the outdated check already knows it.
 	/// A ticked task does not count.
 	static func unchangedTasks(in old: String, files: [[String: Any]], changedPullRequests: Set<Int>, tickets: [String: [String: Any]]? = nil,
-		blockedPullRequests: Set<Int> = []) -> [String] {
+		blockedPullRequests: Set<Int> = [], closedPullRequests: Set<Int> = [], unchangedPullRequests: Set<Int> = [],
+		openPullRequests: Set<Int> = []) -> [String] {
 		// A file that the outdated check gives to Claude or to the app counts as changed.
 		let isUnchanged = { (file: [String: Any]) in
 			file["changedAfterOldOverview"] as? Bool == false && file["newCommits"] as? Bool == false
@@ -1556,8 +1610,9 @@ enum MorningOverview {
 			}
 		}
 		let changedNames = byName.filter { !$0.value }.keys
-		return old.components(separatedBy: "\n## ").dropFirst().filter { keepSections.contains(title(of: $0)) }.flatMap { part in
+		return old.components(separatedBy: "\n## ").dropFirst().filter { (keepSections + pullRequestSections).contains(title(of: $0)) }.flatMap { part in
 			let lines = part.components(separatedBy: "\n")
+			let isPullRequestSection = pullRequestSections.contains(title(of: part))
 			return taskBlocks(in: part).compactMap { block -> String? in
 				let title = lines[block.lowerBound]
 				guard !isTicked(title), let id = firstGroup(of: #"^- \[[^\]]\] `([A-Z]\d+)`"#, in: title) else { return nil }
@@ -1565,8 +1620,16 @@ enum MorningOverview {
 				let links = matches(of: #"(?<=\]\()file://[^)\s]+(?=\))"#, in: text).compactMap { URL(string: $0)?.path }
 				let codePaths = matches(of: #"(?<=`)[^`\s]+\.md(?=`)"#, in: text).map { ($0 as NSString).lastPathComponent }
 				let pullRequests = matches(of: #"(?<=#)\d+(?=`?\]\()"#, in: title).compactMap { Int($0) }
-				guard !links.isEmpty || !codePaths.isEmpty, links.allSatisfy({ byPath[$0] == true }), codePaths.allSatisfy({ byName[$0] == true }),
-					!changedNames.contains(where: text.contains), pullRequests.allSatisfy({ !changedPullRequests.contains($0) }) else { return nil }
+				guard links.allSatisfy({ byPath[$0] == true }), codePaths.allSatisfy({ byName[$0] == true }), !changedNames.contains(where: text.contains),
+					!pullRequests.contains(where: closedPullRequests.contains) else { return nil }
+				if isPullRequestSection {
+					// A number of no pull request, e.g. in »finding #2«, does not count.
+					let named = Set(matches(of: #"(?<=#)\d+\b"#, in: text).compactMap { Int($0) })
+					guard let first = pullRequests.first, unchangedPullRequests.contains(first),
+						named.intersection(openPullRequests).isSubset(of: unchangedPullRequests), named.isDisjoint(with: closedPullRequests) else { return nil }
+				} else {
+					guard !links.isEmpty || !codePaths.isEmpty, pullRequests.allSatisfy({ !changedPullRequests.contains($0) }) else { return nil }
+				}
 				if let tickets {
 					let keys = matches(of: #"(?<=\[)[A-Z][A-Z0-9]+-\d+(?=\]\()"#, in: title)
 					let isSettled = links.allSatisfy(settledPaths.contains) && codePaths.allSatisfy(settledNames.contains)
