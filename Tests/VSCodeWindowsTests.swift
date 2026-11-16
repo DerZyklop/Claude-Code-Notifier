@@ -36,6 +36,23 @@ import Testing
 		#expect(windows.windows.map(\.path) == ["/a"])
 	}
 
+	@Test func findsTheWorkspaceFileAboveTheFolder() throws {
+		let root = FileManager.default.temporaryDirectory.appendingPathComponent("VSCodeWindowsTests-\(UUID().uuidString)").standardized
+		defer { try? FileManager.default.removeItem(at: root) }
+		let app = root.appendingPathComponent("s/app")
+		try FileManager.default.createDirectory(at: app.appendingPathComponent("sub"), withIntermediateDirectories: true)
+		// VS Code allows comments and trailing commas.
+		try #"{ "folders": [ { "path": "./" }, ], // all of s"#.appending("\n}").write(to: root.appendingPathComponent("s/all.code-workspace"), atomically: true, encoding: .utf8)
+		try #"{"folders": [{"path": "app"}, {"path": "/x"}]}"#.write(to: root.appendingPathComponent("s/app.code-workspace"), atomically: true, encoding: .utf8)
+		try "no json".write(to: root.appendingPathComponent("s/broken.code-workspace"), atomically: true, encoding: .utf8)
+
+		let s = root.appendingPathComponent("s").path
+		#expect(VSCodeWindows.workspace(for: app.appendingPathComponent("sub").path)
+			== VSCodeWindow(folders: [app.path, "/x"], workspaceFile: s + "/app.code-workspace"))
+		#expect(VSCodeWindows.workspace(for: s)?.workspaceFile == s + "/all.code-workspace")
+		#expect(VSCodeWindows.workspace(for: root.path) == nil)
+	}
+
 	@Test func ignoresOtherEvents() {
 		#expect(!VSCodeWindows().handle(Data(#"{"hook_event_name":"TabFocus","tab":null}"#.utf8)))
 	}
