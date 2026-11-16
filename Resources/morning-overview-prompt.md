@@ -13,6 +13,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - An old task with a plan or report that is not in `unchangedTasks` can have new facts. Read its plan or report again, and check its findings again. The old tasks of a file with `checkFindings: true` or `appTask: true` are never in `unchangedTasks`. Section 6 tells what to do with them.
    - Do not read a file with `appTask: true` in any section.
    - A file with `outdated` but without `checkFindings` needs no check now. Do not read it in any section, and write no new task for it. Keep its old tasks. If such a task is in `unchangedTasks`, write its KEEP line.
+   - A file of `plans` or `projectFiles` with `text` has its text in the JSON. Use this text, and do not read the file. If `textCut` is true, the text stops early. Then read the file if you need the rest.
 2. The pull requests in the JSON. »me« is the git user name. Bitbucket shows the same name as `display_name`.
    - Their Open PRs: the PRs of others where the user is a reviewer and did not approve yet, or that have `needsNewReview: true`. Give the next action for each PR, for example »review the new commits«.
    - My Open PRs: the user's own PRs that are not drafts. Give the next action for each PR, for example »answer 2 open tasks«.

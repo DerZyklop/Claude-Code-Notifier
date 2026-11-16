@@ -92,3 +92,45 @@ private extension URL {
 		return self
 	}
 }
+
+@Suite struct MorningOverviewFileTextTests {
+	/// A file of the project, with the facts of a run.
+	private func file(_ name: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+		["name": name, "url": "file:///p/\(name)", "changedAfterOldOverview": false, "newCommits": false, "changedOn": "2026-10-20"]
+			.merging(extra) { $1 }
+	}
+
+	@Test func onlyTheFilesThatClaudeMustReadGetTheirText() {
+		let old = """
+			# Morning overview
+
+			## My Open PRs
+
+			- [ ] `M1` [`#12`](https://bb/12) [pr.md](file:///p/pr.md) Fix
+
+			## Optional Work
+
+			- [ ] `O1` Plan [kept.md](file:///p/kept.md)
+			- [x] `O2` Done [ticked.md](file:///p/ticked.md)
+			"""
+		let files = [file("check.md", ["checkFindings": true, "outdated": "x"]), file("changed.md", ["changedAfterOldOverview": true]),
+			file("pr.md"), file("kept.md"), file("ticked.md"), file("waits.md", ["outdated": "x", "changedAfterOldOverview": true]),
+			file("declined.md", ["appTask": true, "newCommits": true]), file("quiet.md")]
+		let result = MorningOverview.withTexts(files, old: old, unchangedTasks: ["O1"]) { "text of \($0.lastPathComponent)" }
+		#expect(result.map { $0["text"] as? String } == ["text of check.md", "text of changed.md", "text of pr.md", nil, nil, nil, nil, nil])
+		// Without an old overview, each file can have new facts.
+		#expect(MorningOverview.withTexts([file("quiet.md")], old: nil, unchangedTasks: []) { _ in "t" }.first?["text"] as? String == "t")
+	}
+
+	@Test func aLongTextStopsAtALineEndAndTheTotalHasALimit() {
+		let line = String(repeating: "a", count: 999) + "\n"
+		let long = String(repeating: line, count: 60)
+		let files = (1...5).map { file("f\($0).md", ["changedAfterOldOverview": true, "changedOn": "2026-10-0\($0)"]) }
+		let result = MorningOverview.withTexts(files, old: "# Morning overview\n", unchangedTasks: []) { _ in long }
+		let texts = result.map { $0["text"] as? String }
+		// The newest files come first, and each text stops at 50 lines. After 3 texts, the total is full.
+		#expect(texts.map { $0 == nil } == [true, true, false, false, false])
+		#expect(texts.compactMap { $0 }.allSatisfy { $0.utf8.count == 50_000 && $0.hasSuffix("\n") })
+		#expect(result.filter { $0["textCut"] as? Bool == true }.count == 3)
+	}
+}

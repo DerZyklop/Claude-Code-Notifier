@@ -132,8 +132,6 @@ enum MorningOverview {
 		// One check for both lists, so that ``checkLimit`` counts all files.
 		let checked = withOutdatedCheck(plans + projectFacts, old: old, last: lastOutdated, jiraTickets: jiraTickets,
 			closedStates: states ?? [:])
-		if FileManager.default.fileExists(atPath: plansFolder.path) { data["plans"] = Array(checked.files.prefix(plans.count)) }
-		data["projectFiles"] = Array(checked.files.dropFirst(plans.count))
 		var run = checked.run
 		if states == nil || jira["error"] != nil || jira[ticketsIncompleteKey] as? Bool == true, let lastOutdated {
 			run = withLastState(run, files: checked.files, last: lastOutdated)
@@ -146,11 +144,16 @@ enum MorningOverview {
 		}, uniquingKeysWith: { first, _ in first }), repository: bitbucket.repository, jiraBrowseURL: jira["browseURL"] as? String,
 			projectKeys: projectKeys(branches: branches, pullRequests: pullRequests).union(jiraTickets.keys.map(projectKey)),
 			files: (plans + projectFacts).compactMap { $0["url"] as? String }, folders: [system.folder.path, plansFolder.path])
+		var unchanged: [String] = []
 		if let old {
-			data["unchangedTasks"] = unchangedTasks(in: old, files: checked.files,
+			unchanged = unchangedTasks(in: old, files: checked.files,
 				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
 				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [])
+			data["unchangedTasks"] = unchanged
 		}
+		let files = withTexts(checked.files, old: old, unchangedTasks: unchanged)
+		if FileManager.default.fileExists(atPath: plansFolder.path) { data["plans"] = Array(files.prefix(plans.count)) }
+		data["projectFiles"] = Array(files.dropFirst(plans.count))
 		return Report.Input(data: data, facts: facts(report), appData: appData)
 	}
 
@@ -1297,6 +1300,63 @@ enum MorningOverview {
 		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
 		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
 		try? data.write(to: outdatedFile(report), options: .atomic)
+	}
+
+	// MARK: - File texts
+
+	/// The most bytes of the text of one file in the JSON.
+	static let fileTextLimit = 50_000
+	/// The most bytes of the texts of all files in the JSON.
+	static let fileTextsLimit = 150_000
+
+	/// `files` with the `text` of each file that the rules make Claude read, so that Claude needs no read for it:
+	/// - a file with `checkFindings`, first,
+	/// - a file that changed or got new commits, and each file without an old overview,
+	/// - a file that an open old task names, if `unchangedTasks` does not have the task, e.g. a task of a PR.
+	/// Only plans with `recent` count, and no file with `appTask` or with `outdated` and no `checkFindings`. The newest
+	/// files come first. A text longer than ``fileTextLimit`` stops at a line end and gets `textCut: true`. When the texts
+	/// reach ``fileTextsLimit``, the other files get no text.
+	static func withTexts(_ files: [[String: Any]], old: String?, unchangedTasks: [String],
+		read: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> [[String: Any]] {
+		let unchanged = Set(unchangedTasks)
+		let oldTasks = openTaskBlocks(in: old).filter { !unchanged.contains($0.id) }.map(\.text)
+		var chosen: [(index: Int, rank: Int, changedOn: String)] = []
+		for (index, file) in files.enumerated() {
+			guard let url = file["url"] as? String, let name = file["name"] as? String, file["appTask"] as? Bool != true else { continue }
+			let isPlan = URL(string: url).map { $0.deletingLastPathComponent().standardizedFileURL == plansFolder.standardizedFileURL } ?? false
+			let checks = file["checkFindings"] as? Bool == true
+			guard checks || file["outdated"] == nil, checks || !isPlan || file["recent"] as? Bool == true else { continue }
+			let isChanged = old == nil || file["changedAfterOldOverview"] as? Bool == true || file["newCommits"] as? Bool == true
+			guard checks || isChanged || oldTasks.contains(where: { names($0, url: url, name: name) }) else { continue }
+			chosen.append((index, checks ? 0 : 1, file["changedOn"] as? String ?? ""))
+		}
+		var result = files
+		var total = 0
+		for file in chosen.sorted(by: { ($0.rank, $1.changedOn, $0.index) < ($1.rank, $0.changedOn, $1.index) }) {
+			guard total < fileTextsLimit, let url = (files[file.index]["url"] as? String).flatMap(URL.init(string:)), let text = read(url) else { continue }
+			let cut = text.utf8.count > fileTextLimit
+			var kept = cut ? String(decoding: text.utf8.prefix(fileTextLimit), as: UTF8.self) : text
+			if cut, let end = kept.lastIndex(of: "\n") { kept = String(kept[...end]) }
+			result[file.index]["text"] = kept
+			if cut { result[file.index]["textCut"] = true }
+			total += kept.utf8.count
+		}
+		return result
+	}
+
+	/// The ID and the text of each open task of `old` in the sections of Claude. A ticked task, and a task whose sub-items
+	/// with a checkbox are all ticked, do not count.
+	private static func openTaskBlocks(in old: String?) -> [(id: String, text: String)] {
+		guard let old else { return [] }
+		return withoutAppSections(old).components(separatedBy: "\n## ").dropFirst().flatMap { part in
+			let lines = part.components(separatedBy: "\n")
+			return taskBlocks(in: part).compactMap { block -> (id: String, text: String)? in
+				let boxes = lines[block].dropFirst().filter { $0.range(of: #"^\s*- \[[^\]]\] "#, options: .regularExpression) != nil }
+				guard !isTicked(lines[block.lowerBound]), boxes.isEmpty || !boxes.allSatisfy(isTicked),
+					let id = firstGroup(of: #"^- \[[^\]]\] `([A-Z]\d+)`"#, in: lines[block.lowerBound]) else { return nil }
+				return (id, lines[block].filter { !isTicked($0) }.joined(separator: "\n"))
+			}
+		}
 	}
 
 	// MARK: - Links
