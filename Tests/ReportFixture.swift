@@ -121,7 +121,7 @@ struct ReportFixture {
 			case ["remote", "get-url", "origin"]: "git@bitbucket.org:ws/repo.git\n"
 			case ["worktree", "list", "--porcelain"]: worktreeList
 			case ["status", "--porcelain"]: " M Sources/a.swift\n"
-			case ["ls-files", "--others", "--exclude-standard"]: "notes/PROJ-5-notes.md\nreviews/13-other.md\n"
+			case ["ls-files", "--others", "--exclude-standard"]: "notes/PROJ-5-notes.md\nreviews/13-other.md\nreviews/14-declined.md\n"
 			default: "abc1234 Local commit\n"
 			}
 			return .init(status: 0, output: output, error: "")

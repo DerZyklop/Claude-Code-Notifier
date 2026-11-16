@@ -41,14 +41,22 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   the file, the menu shows a purple dot behind »Open Morning Overview«, and the menu bar shows one left of the wave. A failure always gets a notification, and the menu shows its reason.
 - **Unchanged tasks:** outside the PR sections, Claude writes `KEEP <ID>` for an old task that stays the same, and the
   app copies the old task with its open sub-items. A task whose sub-items are all ticked goes away. While a run is
-  active, the app does not give new IDs in the old file, so each ID names the same task for the app and for Claude.
-  Claude does not read a plan or a review report again if it did not change and its PR or branch got no new commits
-  since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket
+  active, the app does not give new IDs in the old file. So each ID names the same task for the app and for Claude.
+  Claude does not read an unchanged plan or review report again. Unchanged means: no change to the file, and no new
+  commits on its PR or branch since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket
   that is done now also makes Claude write the task again. For this, the app saves the newest commit of each open PR
   after each run that wrote a file.
 - **New review:** a review report is a file `reviews/<PR>-<name>.md` in the project folder that names its »reviewed
   commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
   again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict.
+- **Outdated files:** the app finds the plans and reports that »Cleanup Work« needs. An outdated file has no open PR
+  that names it, and one of these facts is true: its review PR is closed, a ticket is done, a branch is merged or gone,
+  or all its steps are done. If the PR of a report was declined, the app writes »Delete <file>« itself, because the code
+  never reached `dev`. Claude checks the findings of the other outdated files, at most 5 files in one run. A file with an
+  open task in »Cleanup Work« needs no check. A file with an open task in »Optional Work« needs no check either.
+  The exceptions are a changed file, and a file that was not outdated at the last run. A checked file that no task
+  names, for example a plan of another project, needs no new check until it changes. For this, the app saves the outdated files after each run
+  that wrote a file.
 - **Stats:** after each run, also after a failure or a stop, the app writes `stats.md` in the same folder. It shows the
   time of each step of the last run, for example the Bitbucket requests and the Claude run, and its share of the total.
   »Stats« next to »Open« in the menu opens the file.
@@ -75,9 +83,10 @@ the login shell must set these variables:
   wrote in the old overview. A new, empty folder has no such link.
 
 The app reads the Jira tickets with GET requests, and with POST requests to `issue/bulkfetch` that only read. If Jira
-fails, the run continues, and the overview says »Jira not available« and the reason. After a network error, the app
-tries the Jira requests once more when the Bitbucket requests worked. The app gets the state of each ticket in a PR
-title, a branch name, a plan, a session title, the name of an untracked file or the old overview. Then the app runs
+fails, the run continues, and the overview says »Jira not available« and the reason. If a network error stops Jira and the
+Bitbucket requests work, the app tries the Jira requests once more. The app gets the state of each ticket in a PR
+title, a branch name, a plan or a session title. It also gets the state of each ticket in the name of an untracked
+file or in the old overview. Then the app runs
 `claude -p` through the login shell, and Claude only reads:
 
 - `--tools Read,Grep,Glob,Bash` leaves out every tool that writes.
@@ -195,7 +204,8 @@ web pages.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
 - The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
 - `~/Library/Application Support/local.claude-code-notifier.app/morning-overview/` holds the last overview that the app
-  wrote and `pull-request-heads.json`, the newest commit of each open PR at the last run.
+  wrote. It also holds 2 files of the last run: `pull-request-heads.json` with the newest commit of each open PR,
+  and `outdated-files.json` with the outdated plans and reports.
 
 To remove the app, delete it. Then delete the settings file with `rm`. Do not use `defaults delete`, because it
 leaves an empty file.

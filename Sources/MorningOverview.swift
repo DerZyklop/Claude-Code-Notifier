@@ -21,6 +21,9 @@ extension Report.Kind {
 		statsFileName: "stats.md",
 		didWrite: { report, input in
 			if let heads = input.appData[MorningOverview.headsKey] as? [Int: String] { MorningOverview.saveHeads(heads, report) }
+			if let run = input.appData[MorningOverview.outdatedKey] as? MorningOverview.OutdatedRun {
+				MorningOverview.saveOutdated(run.state(written: report.lastWritten ?? ""), report)
+			}
 		}
 	)
 }
@@ -49,8 +52,9 @@ enum MorningOverview {
 		var data: [String: Any] = ["me": me, "workspaces": workspaces, "branches": branches, "remoteBranches": remoteBranches]
 		var appData: [String: Any] = [:]
 		var pullRequests: [[String: Any]]
+		let bitbucket: Bitbucket
 		do {
-			let bitbucket = try await report.bitbucket()
+			bitbucket = try await report.bitbucket()
 			report.step("Bitbucket login")
 			pullRequests = try await Self.pullRequests(bitbucket, me: me).map { pullRequest in
 				var pullRequest = pullRequest
@@ -92,11 +96,14 @@ enum MorningOverview {
 		if FileManager.default.fileExists(atPath: plansFolder.path) {
 			let names = ((try? FileManager.default.contentsOfDirectory(atPath: plansFolder.path)) ?? []).filter { $0.hasSuffix(".md") }
 			plans = fileFacts(names.map(plansFolder.appendingPathComponent))
-			data["plans"] = plans
 		}
 		let untracked = await report.git(["ls-files", "--others", "--exclude-standard"]).split(separator: "\n").map(String.init)
 		let projectFiles = untracked.filter { $0.hasSuffix(".md") }.map(system.folder.appendingPathComponent)
-		data["projectFiles"] = fileFacts(projectFiles)
+		let projectFacts = fileFacts(projectFiles)
+		// The states of the closed pull requests of the review reports come while the other steps run.
+		let reportIDs = Set(projectFacts.compactMap { ($0["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest) })
+		let closedIDs = reportIDs.subtracting(ids(of: pullRequests)).sorted()
+		async let closedStates = closedStates(bitbucket, ids: closedIDs)
 		let reviews = newReviews(in: projectFiles, pullRequests: pullRequests, me: me)
 		appData[newReviewsKey] = reviews
 		pullRequests = withNewReviews(reviews, in: pullRequests)
@@ -111,7 +118,7 @@ enum MorningOverview {
 		data["archivedSessions"] = sessions.archivedTitles
 		let texts = branches.compactMap { $0["name"] as? String } + remoteBranches.compactMap { $0["name"] as? String }
 			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } }
-			+ plans.flatMap { $0["tickets"] as? [String] ?? [] } + sessions.open.compactMap { $0["title"] as? String }
+			+ (plans + projectFacts).flatMap { $0["tickets"] as? [String] ?? [] } + sessions.open.compactMap { $0["title"] as? String }
 			+ untracked.map { ($0 as NSString).lastPathComponent } + [old ?? ""]
 		var search = await jiraSearch
 		// The Bitbucket requests worked, so the network works now, e.g. after a wake.
@@ -119,8 +126,25 @@ enum MorningOverview {
 		let jira = await jiraData(search, texts: texts, projectKeys: projectKeys(branches: branches, pullRequests: pullRequests))
 		data["jira"] = jira
 		report.step("Jira")
+		let lastOutdated = lastOutdated(report)
+		let jiraTickets = jira["tickets"] as? [String: [String: Any]] ?? [:]
+		let states = await closedStates
+		// One check for both lists, so that ``checkLimit`` counts all files.
+		let checked = withOutdatedCheck(plans + projectFacts, old: old, last: lastOutdated, jiraTickets: jiraTickets,
+			closedStates: states ?? [:])
+		if FileManager.default.fileExists(atPath: plansFolder.path) { data["plans"] = Array(checked.files.prefix(plans.count)) }
+		data["projectFiles"] = Array(checked.files.dropFirst(plans.count))
+		var run = checked.run
+		// Without all facts of Jira or of Bitbucket, a file can seem not outdated. It keeps its state of the last run.
+		if states == nil || jira["error"] != nil || jira[ticketsIncompleteKey] as? Bool == true, let lastOutdated {
+			let urls = Set((plans + projectFacts).compactMap { $0["url"] as? String })
+			run.outdated.formUnion(lastOutdated.outdated.intersection(urls))
+			run.ignored.formUnion(lastOutdated.ignored.intersection(urls).subtracting(run.checked.map(\.url)))
+		}
+		appData[outdatedKey] = run
+		appData[deleteTasksKey] = checked.deleteTasks
 		if let old {
-			data["unchangedTasks"] = unchangedTasks(in: old, files: plans + (data["projectFiles"] as? [[String: Any]] ?? []),
+			data["unchangedTasks"] = unchangedTasks(in: old, files: checked.files,
 				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
 				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [])
 		}
@@ -167,7 +191,8 @@ enum MorningOverview {
 	/// - `tickets`: the ticket IDs in the name and the text, with a project key that a branch or a pull request also has.
 	/// - `branches`: the local branches that the text names, with their `mergedInto`.
 	/// - `unknownBranches`: the branch names in the text that git does not know.
-	/// - `openPullRequests`: the IDs of the open pull requests that the text names, by number or by source branch.
+	/// - `openPullRequests`: the IDs of the open pull requests that the text names, by number or by source branch, and
+	///   the open pull request of a review report (``reviewedPullRequest(of:)``).
 	/// - `openSteps` and `doneSteps`: the number of checkboxes without and with a tick.
 	static func plans(of files: [URL], old: String?, now: Date, calendar: Calendar, branches: [[String: Any]], knownBranches: Set<String>,
 		pullRequests: [[String: Any]], branchDates: [String: Date] = [:], changedPullRequests: Set<Int> = [],
@@ -194,7 +219,9 @@ enum MorningOverview {
 			plan["branches"] = branches.filter { ($0["name"] as? String).map(namedBranches.contains) ?? false }
 				.map { ["name": $0["name"] as Any, "mergedInto": $0["mergedInto"] as? [String] ?? []] }
 			plan["unknownBranches"] = Array(Set(matches(of: branchPattern, in: text).filter { !knownBranches.contains($0) })).sorted()
-			let numbers = Set(matches(of: #"(?<=#|PR |pull-requests/)\d+\b"#, in: text).compactMap { Int($0) })
+			var numbers = Set(matches(of: #"(?<=#|PR |pull-requests/)\d+\b"#, in: text).compactMap { Int($0) })
+			// A review report names its pull request at the start of its name.
+			if let id = reviewedPullRequest(of: file) { numbers.insert(id) }
 			let openPullRequests = pullRequests.compactMap { pullRequest -> Int? in
 				guard let id = pullRequest["id"] as? Int else { return nil }
 				let byBranch = sourceBranch(of: pullRequest).map { text.contains($0) } ?? false
@@ -340,6 +367,7 @@ enum MorningOverview {
 		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
 		text = withNewReviewTasks(input.appData[newReviewsKey] as? [NewReview] ?? [],
 			jiraBrowseURL: (input.data["jira"] as? [String: Any])?["browseURL"] as? String, in: text)
+		text = withDeleteTasks(input.appData[deleteTasksKey] as? [DeleteTask] ?? [], in: text)
 		text = withWeekdayTasks(tasks(of: system), done: isSameDay ? doneWeekdayTasks(in: old) : [], in: text)
 		text = Report.hashLinksAsCode(in: subItemsIndented(in: text))
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
@@ -1022,6 +1050,222 @@ enum MorningOverview {
 		try? data.write(to: headsFile(report), options: .atomic)
 	}
 
+	// MARK: - Outdated files
+
+	/// The key of the URLs of the outdated files in `appData`, for ``saveOutdated(_:_:)``.
+	static let outdatedKey = "outdated"
+	/// The key of the ``DeleteTask``s in `appData`.
+	static let deleteTasksKey = "deleteTasks"
+	/// The file facts that only the outdated check needs. The run does not get them.
+	static let outdatedCheckFields = ["oldSections", "branches", "unknownBranches", "openSteps", "doneSteps"]
+
+	/// The most files that Claude checks in one run, so that a run with many new outdated files ends in time. The other
+	/// files come in the next runs.
+	static let checkLimit = 5
+	/// The most pull requests in one state request.
+	static let stateBatch = 50
+
+	/// A task of »Cleanup Work« that the app writes, with the URL of its file.
+	struct DeleteTask: Equatable {
+		var url: String
+		var line: String
+	}
+
+	/// The number of the pull request of a review report: a file in a folder `reviews` whose name starts with the number,
+	/// e.g. `reviews/4341-fix.md`.
+	static func reviewedPullRequest(of file: URL) -> Int? {
+		guard file.deletingLastPathComponent().lastPathComponent == "reviews" else { return nil }
+		return matches(of: #"^\d+(?=-)"#, in: file.deletingPathExtension().lastPathComponent).first.flatMap { Int($0) }
+	}
+
+	/// The states of the closed pull requests in `ids` by their ID: »MERGED«, »DECLINED« or »SUPERSEDED«. `nil` after a
+	/// failed request, so that the run goes on without them.
+	static func closedStates(_ bitbucket: Bitbucket, ids: [Int]) async -> [Int: String]? {
+		var states: [Int: String] = [:]
+		for start in stride(from: 0, to: ids.count, by: stateBatch) {
+			let numbers = ids[start..<min(start + stateBatch, ids.count)].map { "id=\($0)" }.joined(separator: " OR ")
+			// With `q`, Bitbucket ignores a `state` parameter, so the states go into `q`.
+			let query = "(state=\"MERGED\" OR state=\"DECLINED\" OR state=\"SUPERSEDED\") AND (\(numbers))"
+			guard let values = try? await bitbucket.values("/pullrequests", query: ["q": query, "pagelen": "\(stateBatch)"],
+				fields: ["id", "state"], maxPages: 1) else { return nil }
+			for value in values {
+				if let id = value["id"] as? Int, let state = value["state"] as? String { states[id] = state }
+			}
+		}
+		return states
+	}
+
+	/// Why the file of `facts` is outdated, and whether its pull request was declined. `nil` for a file that is not
+	/// outdated, also for a file that an open pull request names. Else, the first of these facts counts:
+	/// - The file is the review report of a pull request in `closedStates`. Only »DECLINED« counts as declined. The code of
+	///   a superseded pull request can reach the base branch in the pull request that replaces it.
+	/// - A ticket in `tickets` is done in `jiraTickets`.
+	/// - A branch in `branches` has `mergedInto`, or `unknownBranches` names a branch.
+	/// - `openSteps` is 0 and `doneSteps` is more than 0.
+	static func outdatedReason(of facts: [String: Any], jiraTickets: [String: [String: Any]], closedStates: [Int: String])
+		-> (text: String, declined: Bool)? {
+		guard (facts["openPullRequests"] as? [Int] ?? []).isEmpty else { return nil }
+		if let id = (facts["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest), let state = closedStates[id] {
+			switch state {
+			case "DECLINED": return ("#\(id) was declined", true)
+			case "SUPERSEDED": return ("#\(id) was superseded", false)
+			default: return ("#\(id) is merged", false)
+			}
+		}
+		for key in facts["tickets"] as? [String] ?? [] where jiraTickets[key]?["done"] as? Bool == true {
+			return ("\(key) is »\(jiraTickets[key]?["status"] as? String ?? "Done")«", false)
+		}
+		for branch in facts["branches"] as? [[String: Any]] ?? [] {
+			if let name = branch["name"] as? String, let base = (branch["mergedInto"] as? [String])?.first {
+				return ("`\(name)` is merged into `\(base)`", false)
+			}
+		}
+		if let name = (facts["unknownBranches"] as? [String])?.first { return ("the branch `\(name)` is gone", false) }
+		if facts["openSteps"] as? Int == 0, facts["doneSteps"] as? Int ?? 0 > 0 { return ("all its steps are done", false) }
+		return nil
+	}
+
+	/// The outdated files at the last run that wrote an overview, by their URL.
+	struct OutdatedState: Equatable {
+		var outdated: Set<String> = []
+		/// The files that Claude checked, but that no task of the written overview names, e.g. the plans of another
+		/// project. They need no new check until they change.
+		var ignored: Set<String> = []
+	}
+
+	/// The result of the outdated check of one run, for the ``OutdatedState`` after the run.
+	struct OutdatedRun: Equatable {
+		var outdated: Set<String> = []
+		/// The ignored files of the last run that stay ignored.
+		var ignored: Set<String> = []
+		/// The files that Claude checks in this run.
+		var checked: [(url: String, name: String)] = []
+
+		static func == (lhs: OutdatedRun, rhs: OutdatedRun) -> Bool {
+			lhs.outdated == rhs.outdated && lhs.ignored == rhs.ignored && lhs.checked.map(\.url) == rhs.checked.map(\.url)
+		}
+
+		/// The state after the run that wrote `written`.
+		func state(written: String) -> OutdatedState {
+			OutdatedState(outdated: outdated, ignored: ignored.union(checked.filter { !MorningOverview.names(written, url: $0.url, name: $0.name) }.map(\.url)))
+		}
+	}
+
+	/// The file facts for the run, after the outdated check of »Cleanup Work«. Each outdated file
+	/// (``outdatedReason(of:jiraTickets:closedStates:)``) gets the reason in `outdated`. Then:
+	/// - A file of a declined pull request gets `appTask: true` and a ``DeleteTask`` in each run. Its code never reached
+	///   the base branch, so Claude does not read it.
+	/// - An open task in »Cleanup Work« of `old` that names the file means that the file is checked.
+	/// - An open task in another section of Claude names the file: the file is checked when it did not change and got no
+	///   new commits, and when it was outdated at the last run (`last`, each file without it).
+	/// - A file in `ignored` of `last` that did not change is checked too.
+	/// - Each other file gets `checkFindings: true`, so that Claude checks its findings. In one run, only the
+	///   ``checkLimit`` newest of these files get it. The others wait for the next run, and they are not in `outdated`.
+	/// The fields in ``outdatedCheckFields`` go away.
+	static func withOutdatedCheck(_ files: [[String: Any]], old: String?, last: OutdatedState?, jiraTickets: [String: [String: Any]],
+		closedStates: [Int: String]) -> (files: [[String: Any]], run: OutdatedRun, deleteTasks: [DeleteTask]) {
+		let cleanupTasks = openTasks(in: old) { $0 == cleanupSection }
+		let otherTasks = openTasks(in: old) { $0 != cleanupSection }
+		var result = files.map { $0.filter { !outdatedCheckFields.contains($0.key) } }
+		var run = OutdatedRun()
+		var deleteTasks: [DeleteTask] = []
+		var waiting: [(index: Int, url: String, name: String, changedOn: String)] = []
+		for (index, facts) in files.enumerated() {
+			guard let url = facts["url"] as? String, let name = facts["name"] as? String,
+				let reason = outdatedReason(of: facts, jiraTickets: jiraTickets, closedStates: closedStates) else { continue }
+			if reason.declined {
+				result[index]["appTask"] = true
+				deleteTasks.append(DeleteTask(url: url, line: "- [ ] Delete [\(name)](\(url)), because \(reason.text)."))
+				run.outdated.insert(url)
+				continue
+			}
+			result[index]["outdated"] = reason.text
+			let isNamed = { (task: String) in names(task, url: url, name: name) }
+			let isChanged = facts["changedAfterOldOverview"] as? Bool == true || facts["newCommits"] as? Bool == true
+			if !isChanged, last?.ignored.contains(url) == true {
+				run.ignored.insert(url)
+				run.outdated.insert(url)
+			} else if cleanupTasks.contains(where: isNamed)
+				|| (last?.outdated.contains(url) ?? true) && !isChanged && otherTasks.contains(where: isNamed) {
+				run.outdated.insert(url)
+			} else {
+				waiting.append((index, url, name, facts["changedOn"] as? String ?? ""))
+			}
+		}
+		let newestFirst = waiting.sorted { $0.changedOn == $1.changedOn ? $0.index < $1.index : $0.changedOn > $1.changedOn }
+		for file in newestFirst.prefix(checkLimit) {
+			result[file.index]["checkFindings"] = true
+			run.outdated.insert(file.url)
+			run.checked.append((file.url, file.name))
+		}
+		return (result, run, deleteTasks)
+	}
+
+	/// The text of each open task of `old` in the sections of Claude whose title passes `isIncluded`: its title line and
+	/// its sub-items without a tick. A ticked task, and a task whose sub-items with a checkbox are all ticked, do not count.
+	private static func openTasks(in old: String?, where isIncluded: (String) -> Bool) -> [String] {
+		guard let old else { return [] }
+		return withoutAppSections(old).components(separatedBy: "\n## ").dropFirst().filter { isIncluded(title(of: $0)) }.flatMap { part in
+			let lines = part.components(separatedBy: "\n")
+			return taskBlocks(in: part).compactMap { block -> String? in
+				let boxes = lines[block].dropFirst().filter { $0.range(of: #"^\s*- \[[^\]]\] "#, options: .regularExpression) != nil }
+				guard !isTicked(lines[block.lowerBound]), boxes.isEmpty || !boxes.allSatisfy(isTicked) else { return nil }
+				return lines[block].filter { !isTicked($0) }.joined(separator: "\n")
+			}
+		}
+	}
+
+	/// The task text names the file: by a link to `url`, or by its name or a path to it in backticks.
+	static func names(_ text: String, url: String, name: String) -> Bool {
+		text.contains("](\(url))") || text.contains("`\(name)`") || text.contains("/\(name)`")
+	}
+
+	/// The overview with the line of each task of `tasks` in »Cleanup Work«, above its `###` subsections, unless a line of
+	/// »Cleanup Work« already links the file of the task. Without »Cleanup Work«, the section comes at the end.
+	static func withDeleteTasks(_ tasks: [DeleteTask], in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		let cleanup = index(ofSection: cleanupSection, in: parts).map { parts[$0] } ?? ""
+		let new = tasks.filter { !cleanup.contains("](\($0.url))") }.map(\.line)
+		guard !new.isEmpty else { return overview }
+		guard let index = index(ofSection: cleanupSection, in: parts) else {
+			return withKeptTasks(new.map { KeptTask(section: cleanupSection, lines: [$0]) }, in: overview)
+		}
+		var lines = parts[index].components(separatedBy: "\n")
+		let subsection = lines.firstIndex { $0.hasPrefix("### ") }
+		if let last = taskBlocks(in: parts[index]).last(where: { $0.upperBound <= subsection ?? lines.count }) {
+			lines.insert(contentsOf: new, at: last.upperBound)
+		} else if let subsection {
+			lines.insert(contentsOf: new + [""], at: subsection)
+		} else {
+			lines.removeAll { $0 == "Nothing open." }
+			while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+			lines += [""] + new + [""]
+		}
+		parts[index] = lines.joined(separator: "\n")
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The file with the ``OutdatedState`` of the last run that wrote an overview.
+	@MainActor
+	private static func outdatedFile(_ report: Report) -> URL { report.supportFolder.appendingPathComponent("outdated-files.json") }
+
+	/// The ``OutdatedState`` of the last run that wrote an overview, or `nil` before the first such run.
+	@MainActor
+	static func lastOutdated(_ report: Report) -> OutdatedState? {
+		guard let data = try? Data(contentsOf: outdatedFile(report)),
+			let object = try? JSONSerialization.jsonObject(with: data) as? [String: [String]] else { return nil }
+		return OutdatedState(outdated: Set(object["outdated"] ?? []), ignored: Set(object["ignored"] ?? []))
+	}
+
+	/// Saves `state` for the next run.
+	@MainActor
+	static func saveOutdated(_ state: OutdatedState, _ report: Report) {
+		let object = ["outdated": state.outdated.sorted(), "ignored": state.ignored.sorted()]
+		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
+		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
+		try? data.write(to: outdatedFile(report), options: .atomic)
+	}
+
 	/// An open pull request whose newest commit is not the commit of any of its review reports.
 	struct NewReview: Equatable {
 		var id: Int
@@ -1042,9 +1286,9 @@ enum MorningOverview {
 	/// count.
 	static func newReviews(in files: [URL], pullRequests: [[String: Any]], me: String) -> [NewReview] {
 		var reports: [Int: [(date: Date, commit: String)]] = [:]
-		for file in files where file.deletingLastPathComponent().lastPathComponent == "reviews" {
+		for file in files {
 			let name = file.deletingPathExtension().lastPathComponent
-			guard let id = matches(of: #"^\d+(?=-)"#, in: name).first.flatMap({ Int($0) }), let date = file.modificationDate else { continue }
+			guard let id = reviewedPullRequest(of: file), let date = file.modificationDate else { continue }
 			let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
 			guard let commit = reviewedCommit(in: text) ?? matches(of: #"(?<=-)(?=[0-9a-f]*\d)[0-9a-f]{7,40}$"#, in: name).first else { continue }
 			reports[id, default: []].append((date, commit))
@@ -1110,21 +1354,33 @@ enum MorningOverview {
 
 	/// The IDs of the old tasks in ``keepSections`` whose plans and reports did not change and got no new commits:
 	/// - The task names at least one file of `files`, by a `file://` link or by a path in backticks that ends in `.md`.
-	/// - Each named file has `changedAfterOldOverview` and `newCommits` false. A file that `files` does not have counts as
-	///   changed, and so does a file of `files` whose name the task text has and that changed.
+	/// - Each named file has `changedAfterOldOverview` and `newCommits` false, and no `checkFindings` or `appTask`. A file
+	///   that `files` does not have counts as changed, and so does a file of `files` whose name the task text has and that
+	///   changed.
 	/// - No pull request of the title line is in `changedPullRequests`.
 	/// - With `tickets`, no ticket of the title line is done, and the 🚫 of the title line is still right: a ticket of the
-	///   title line is blocked, or a pull request of the title line is in `blockedPullRequests`.
+	///   title line is blocked, or a pull request of the title line is in `blockedPullRequests`. A done ticket does not
+	///   count when each named file has `outdated` and no `checkFindings`, because the outdated check already knows it.
 	/// A ticked task does not count.
 	static func unchangedTasks(in old: String, files: [[String: Any]], changedPullRequests: Set<Int>, tickets: [String: [String: Any]]? = nil,
 		blockedPullRequests: Set<Int> = []) -> [String] {
-		let isUnchanged = { (file: [String: Any]) in file["changedAfterOldOverview"] as? Bool == false && file["newCommits"] as? Bool == false }
+		// A file that the outdated check gives to Claude or to the app counts as changed.
+		let isUnchanged = { (file: [String: Any]) in
+			file["changedAfterOldOverview"] as? Bool == false && file["newCommits"] as? Bool == false
+				&& file["checkFindings"] as? Bool != true && file["appTask"] as? Bool != true
+		}
 		var byPath: [String: Bool] = [:]
 		var byName: [String: Bool] = [:]
+		var settledPaths: Set<String> = []
+		var settledNames: Set<String> = []
 		for file in files {
 			guard let url = (file["url"] as? String).flatMap(URL.init(string:)) else { continue }
 			byPath[url.path] = (byPath[url.path] ?? true) && isUnchanged(file)
 			byName[url.lastPathComponent] = (byName[url.lastPathComponent] ?? true) && isUnchanged(file)
+			if file["outdated"] is String, file["checkFindings"] as? Bool != true {
+				settledPaths.insert(url.path)
+				settledNames.insert(url.lastPathComponent)
+			}
 		}
 		let changedNames = byName.filter { !$0.value }.keys
 		return old.components(separatedBy: "\n## ").dropFirst().filter { keepSections.contains(title(of: $0)) }.flatMap { part in
@@ -1140,7 +1396,8 @@ enum MorningOverview {
 					!changedNames.contains(where: text.contains), pullRequests.allSatisfy({ !changedPullRequests.contains($0) }) else { return nil }
 				if let tickets {
 					let keys = matches(of: #"(?<=\[)[A-Z][A-Z0-9]+-\d+(?=\]\()"#, in: title)
-					guard !keys.contains(where: { tickets[$0]?["done"] as? Bool == true }) else { return nil }
+					let isSettled = links.allSatisfy(settledPaths.contains) && codePaths.allSatisfy(settledNames.contains)
+					guard isSettled || !keys.contains(where: { tickets[$0]?["done"] as? Bool == true }) else { return nil }
 					let isBlocked = keys.contains { tickets[$0]?["blocked"] as? Bool == true } || pullRequests.contains(where: blockedPullRequests.contains)
 					guard isBlocked == leadingMarks(of: title).contains(blockedMark) else { return nil }
 				}
@@ -1196,6 +1453,8 @@ enum MorningOverview {
 	static let forgottenStates: Set<String> = ["In Progress", "Untested"]
 	/// The most other tickets that the app fetches, so that a long old overview cannot cause many requests.
 	static let ticketLimit = 300
+	/// The key in the Jira data that marks the tickets as incomplete: some tickets of the texts have no facts.
+	static let ticketsIncompleteKey = "ticketsIncomplete"
 
 	/// The Jira searches of a run: the start of the ticket links, if the site is known, and the sprint and forgotten
 	/// tickets, or the reason why Jira is not available.
@@ -1243,11 +1502,13 @@ enum MorningOverview {
 			let found = sprint + forgotten
 			let known = Set(found.compactMap { $0["key"] as? String })
 			let keys = ticketKeys(in: texts, projectKeys: projectKeys.union(known.map(projectKey))).filter { !known.contains($0) }
-			let others = (try? await jira.tickets(Array(keys.prefix(ticketLimit)))) ?? []
+			let others = try? await jira.tickets(Array(keys.prefix(ticketLimit)))
 			data["browseURL"] = jira.browseURL
 			data["sprint"] = sprint.compactMap { $0["key"] as? String }
 			data["forgotten"] = forgotten.compactMap { $0["key"] as? String }
-			data["tickets"] = Dictionary((found + others).compactMap(Jira.facts), uniquingKeysWith: { first, _ in first })
+			data["tickets"] = Dictionary((found + (others ?? [])).compactMap(Jira.facts), uniquingKeysWith: { first, _ in first })
+			// The request failed, or the limit left out tickets.
+			if others == nil || keys.count > ticketLimit { data[ticketsIncompleteKey] = true }
 		} catch let error as URLError {
 			data["error"] = "No connection to Jira: \(error.localizedDescription)"
 		} catch {
