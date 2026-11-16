@@ -134,3 +134,30 @@ private extension URL {
 		#expect(result.filter { $0["textCut"] as? Bool == true }.count == 3)
 	}
 }
+
+@Suite struct MorningOverviewFileTextPlanTests {
+	private func file(_ name: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+		["name": name, "url": "file:///p/\(name)", "changedAfterOldOverview": false, "newCommits": false, "changedOn": "2026-10-20"]
+			.merging(extra) { $1 }
+	}
+
+	@Test func aChangedPlanNeedsRecentButAPlanOfAnOldTaskDoesNot() {
+		let old = "# Morning overview\n\n## My Open PRs\n\n- [ ] `M1` [`#12`](https://bb/12) [old-plan.md](file:///p/old-plan.md) Fix\n"
+		let files = [file("old-plan.md", ["recent": false]), file("stale-plan.md", ["recent": false, "changedAfterOldOverview": true]),
+			file("new-plan.md", ["recent": true, "changedAfterOldOverview": true]), file("report.md", ["changedAfterOldOverview": true])]
+		let result = MorningOverview.withTexts(files, planCount: 3, old: old, unchangedTasks: []) { _ in "t" }
+		#expect(result.map { $0["text"] != nil } == [true, false, true, true])
+	}
+
+	@Test func theTotalNeverGoesAboveTheLimit() {
+		let text = String(repeating: String(repeating: "a", count: 99) + "\n", count: 490)
+		let files = (1...4).map { file("f\($0).md", ["changedAfterOldOverview": true, "changedOn": "2026-10-0\($0)"]) }
+			+ [file("small.md", ["changedAfterOldOverview": true, "changedOn": "2026-09-01"])]
+		let result = MorningOverview.withTexts(files, old: "# Morning overview\n", unchangedTasks: []) { $0.lastPathComponent == "small.md" ? "s\n" : text }
+		let texts = result.compactMap { $0["text"] as? String }
+		// 3 texts of 49,000 bytes fit, the 4th does not, and the small file still fits.
+		#expect(texts.count == 4)
+		#expect(texts.reduce(0) { $0 + $1.utf8.count } <= MorningOverview.fileTextsLimit)
+		#expect(result.last?["text"] as? String == "s\n")
+	}
+}

@@ -159,7 +159,7 @@ enum MorningOverview {
 				unchangedPullRequests: unchangedPullRequests, openPullRequests: ids(of: pullRequests))
 			data["unchangedTasks"] = unchanged
 		}
-		let files = withTexts(checked.files, old: old, unchangedTasks: unchanged)
+		let files = withTexts(checked.files, planCount: plans.count, old: old, unchangedTasks: unchanged)
 		if FileManager.default.fileExists(atPath: plansFolder.path) { data["plans"] = Array(files.prefix(plans.count)) }
 		data["projectFiles"] = Array(files.dropFirst(plans.count))
 		return Report.Input(data: data, facts: facts(report), appData: appData)
@@ -1360,30 +1360,34 @@ enum MorningOverview {
 	/// - a file with `checkFindings`, first,
 	/// - a file that changed or got new commits, and each file without an old overview,
 	/// - a file that an open old task names, if `unchangedTasks` does not have the task, e.g. a task of a PR.
-	/// Only plans with `recent` count, and no file with `appTask` or with `outdated` and no `checkFindings`. The newest
-	/// files come first. A text longer than ``fileTextLimit`` stops at a line end and gets `textCut: true`. When the texts
-	/// reach ``fileTextsLimit``, the other files get no text.
-	static func withTexts(_ files: [[String: Any]], old: String?, unchangedTasks: [String],
+	/// The first `planCount` files are plans. A changed plan counts only with `recent`. No file with `appTask`, or with
+	/// `outdated` and no `checkFindings`, counts. The newest files come first. A text longer than ``fileTextLimit`` stops at
+	/// a line end and gets `textCut: true`. A text that does not fit into ``fileTextsLimit`` with the texts before it gets
+	/// no text.
+	static func withTexts(_ files: [[String: Any]], planCount: Int = 0, old: String?, unchangedTasks: [String],
 		read: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> [[String: Any]] {
 		let unchanged = Set(unchangedTasks)
 		let oldTasks = openTaskBlocks(in: old).filter { !unchanged.contains($0.id) }.map(\.text)
 		var chosen: [(index: Int, rank: Int, changedOn: String)] = []
 		for (index, file) in files.enumerated() {
 			guard let url = file["url"] as? String, let name = file["name"] as? String, file["appTask"] as? Bool != true else { continue }
-			let isPlan = URL(string: url).map { $0.deletingLastPathComponent().standardizedFileURL == plansFolder.standardizedFileURL } ?? false
 			let checks = file["checkFindings"] as? Bool == true
-			guard checks || file["outdated"] == nil, checks || !isPlan || file["recent"] as? Bool == true else { continue }
+			guard checks || file["outdated"] == nil else { continue }
+			// Section 5 reads only the recent plans, but an old task can name a plan of any age.
 			let isChanged = old == nil || file["changedAfterOldOverview"] as? Bool == true || file["newCommits"] as? Bool == true
-			guard checks || isChanged || oldTasks.contains(where: { names($0, url: url, name: name) }) else { continue }
+			let isRead = isChanged && (index >= planCount || file["recent"] as? Bool == true)
+			guard checks || isRead || oldTasks.contains(where: { names($0, url: url, name: name) }) else { continue }
 			chosen.append((index, checks ? 0 : 1, file["changedOn"] as? String ?? ""))
 		}
 		var result = files
 		var total = 0
 		for file in chosen.sorted(by: { ($0.rank, $1.changedOn, $0.index) < ($1.rank, $0.changedOn, $1.index) }) {
-			guard total < fileTextsLimit, let url = (files[file.index]["url"] as? String).flatMap(URL.init(string:)), let text = read(url) else { continue }
+			guard let url = (files[file.index]["url"] as? String).flatMap(URL.init(string:)), let text = read(url) else { continue }
 			let cut = text.utf8.count > fileTextLimit
 			var kept = cut ? String(decoding: text.utf8.prefix(fileTextLimit), as: UTF8.self) : text
 			if cut, let end = kept.lastIndex(of: "\n") { kept = String(kept[...end]) }
+			// A text that does not fit stays out, but a shorter text after it can still fit.
+			guard total + kept.utf8.count <= fileTextsLimit else { continue }
 			result[file.index]["text"] = kept
 			if cut { result[file.index]["textCut"] = true }
 			total += kept.utf8.count
