@@ -11,7 +11,7 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``. A click on a row opens the chat of the session in VS Code.
+/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``. A click on a row opens the chat of the session in VS Code. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
 struct SessionCard: View {
 	@ObservedObject var store: SessionStore
 	@ObservedObject var setup: HookSetup
@@ -113,8 +113,10 @@ struct SessionCard: View {
 				.lineLimit(1)
 				.truncationMode(.tail)
 				.frame(maxWidth: 300, alignment: .leading)
+				// The name takes only its own width, so that the wave gets the rest of the row.
+				.fixedSize(horizontal: true, vertical: false)
 				.help(session.project)
-			Spacer(minLength: 16)
+			wave(color: session.shownState == .working ? Spinner.color : nil)
 			if !session.agents.isEmpty { agentCount(session.agents.count) }
 			Text(Self.elapsed(from: session.started, to: clock.now))
 				.monospacedDigit()
@@ -137,7 +139,7 @@ struct SessionCard: View {
 		}
 	}
 
-	/// A running report, with a purple hourglass like the wave during a report.
+	/// A running report, with a purple hourglass and a purple wave like the menu bar during a report.
 	private func reportRow(_ report: Report) -> some View {
 		HStack(alignment: .center, spacing: 8) {
 			Image(systemName: SessionState.working.symbol)
@@ -146,7 +148,7 @@ struct SessionCard: View {
 				.help("updating the report")
 			Text(report.kind.title)
 				.lineLimit(1)
-			Spacer(minLength: 16)
+			wave(color: Spinner.reportColor)
 			if let started = report.runStarted {
 				Text(Self.elapsed(from: started, to: clock.now))
 					.monospacedDigit()
@@ -155,6 +157,13 @@ struct SessionCard: View {
 		}
 		.padding(.horizontal, 6)
 		.padding(.vertical, 3)
+	}
+
+	/// The wave between the texts on the left and on the right of a row: moving in `color`, or still for `nil`.
+	private func wave(color: NSColor?) -> some View {
+		RowWave(color: color)
+			.frame(minWidth: 16, maxWidth: .infinity)
+			.frame(height: RowWaveView.height)
 	}
 
 	/// The subagents that run for the session. The menu bar counts the session only once.

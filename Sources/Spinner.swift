@@ -52,20 +52,23 @@ final class Spinner {
 		paint(Self.color)
 		track.strokeEnd = 0
 		segment.strokeEnd = 0
+		Self.style(still, track, segment, mask: segmentMask)
 		for layer in [still, track, segment] {
-			layer.fillColor = nil
-			layer.lineWidth = Self.lineWidth
-			layer.lineCap = .round
-			layer.lineJoin = .round
 			layer.isHidden = true
 			button.layer?.addSublayer(layer)
 		}
-		segmentMask.fillColor = nil
-		segmentMask.strokeColor = NSColor.black.cgColor
-		segmentMask.lineWidth = Self.lineWidth
-		segmentMask.lineCap = .round
-		segmentMask.lineJoin = .round
-		segment.mask = segmentMask
+	}
+
+	/// Gives the layers of a wave the line of the wave. `mask` shows the last layer, the segment, only inside its own path.
+	static func style(_ layers: CAShapeLayer..., mask: CAShapeLayer) {
+		for layer in layers + [mask] {
+			layer.fillColor = nil
+			layer.lineWidth = lineWidth
+			layer.lineCap = .round
+			layer.lineJoin = .round
+		}
+		mask.strokeColor = NSColor.black.cgColor
+		layers.last?.mask = mask
 	}
 
 	/// Shows the waves over the image frame of the button, from `waveStart` to `waveEnd`.
@@ -113,8 +116,12 @@ final class Spinner {
 
 	/// The pale wave and the dark segment in `color`.
 	private func paint(_ color: NSColor) {
+		Self.paint(color, track: track, segment: segment)
+	}
+
+	static func paint(_ color: NSColor, track: CAShapeLayer, segment: CAShapeLayer) {
 		track.strokeColor = color.withAlphaComponent(0.3).cgColor
-		segment.strokeColor = Self.segmentColor(of: color).cgColor
+		segment.strokeColor = segmentColor(of: color).cgColor
 	}
 
 	/// Lets the waves glow in dark red together with the bubble of the waiting sessions. Without a shown bubble, the glow
@@ -150,6 +157,11 @@ final class Spinner {
 	/// - Parameter entersFromLeft: Starts with the dash just before the left end. In the first round, the end of the
 	///   stroke moves with the front of the dash, so the dash does not also show at the right end.
 	private func runSegment(entersFromLeft: Bool) {
+		Self.run(segment, entersFromLeft: entersFromLeft)
+	}
+
+	/// See ``runSegment(entersFromLeft:)``.
+	static func run(_ segment: CAShapeLayer, entersFromLeft: Bool) {
 		let length = Self.length(of: segment.path)
 		CATransaction.begin()
 		CATransaction.setDisableActions(true)
