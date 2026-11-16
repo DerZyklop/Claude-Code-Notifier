@@ -49,6 +49,9 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
 - **New review:** a review report is a file `reviews/<PR>-<name>.md` in the project folder that names its »reviewed
   commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
   again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict.
+- **Links:** Claude writes short refs, for example `[#1234]`, `[PROJ-123]` and `[plan.md]`, and the app makes the
+  links. So Claude writes less text, and no link has a wrong URL. A ticket ref needs a project key of Jira, so that
+  for example `[UTF-8]` stays text.
 - **Outdated files:** the app finds the plans and reports that »Cleanup Work« needs. An outdated file has no open PR
   that names it, and one of these facts is true: its review PR is closed, a ticket is done, a branch is merged or gone,
   or all its steps are done. If the PR of a report was declined, the app writes »Delete <file>« itself, because the code

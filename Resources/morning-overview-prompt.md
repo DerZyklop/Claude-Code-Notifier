@@ -41,7 +41,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
 5. Optional work:
    - The plan, review and handover files in the project folder that git does not track: the `projectFiles` in the JSON, with the same facts as `plans`. If the facts name no old overview, read all of them. Else read only the files with `changedAfterOldOverview: true` or `newCommits: true`. In both cases, section 1 tells which files you must not read, and section 6 tells what to do with an outdated file. Section 1 tells what to do with the old tasks of the other files. Name only the open steps.
    - The git workspaces in the JSON: uncommitted changes and unpushed commits in the main folder and in each worktree.
-   - The `plans` in the JSON with `recent: true`. Use only the plans that belong to the project folder. Name each open step that no PR, ticket or other task already covers. Put a link to the plan as `[<file name>](<file URL>)` in the title line of each task from a plan. Take the URL from `url`.
+   - The `plans` in the JSON with `recent: true`. Use only the plans that belong to the project folder. Name each open step that no PR, ticket or other task already covers. Put the plan as `[<file name>]` in the title line of each task from a plan.
      - If the facts name an old overview, read only the plans with `changedAfterOldOverview: true` or `newCommits: true`. Do not read the other plans again. Section 1 tells what to do with their old tasks.
    - If the facts name the memory folder of the project, read its open follow-ups.
    - The `sessions` in the JSON: the sessions of the last 3 days, with their titles. Do not read the transcripts. If the title tells of work that is not done, name the session.
@@ -54,12 +54,12 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
      - `### Remote`: the `remoteBranches` in the JSON. These are branches of the user on `origin` with no local branch. A base branch in `mergedInto` has all their commits. Leave out the source branch of an open PR. Use the rule of section 4 for `empty: true`. Write »Delete `<name>`, because `<base>` has all its commits.«, or »…, because it is empty.«
    - Forgotten tickets: the IDs in `jira.forgotten`. These are the tickets of the user that are »In Progress« or »Untested« and in no sprint.
    - If `jira.error` exists, skip the forgotten tickets.
-   - Write one task for each forgotten ticket, also for an »Untested« ticket. Example: »Put [PROJ-123](<ticket URL>) Short title into a sprint, or close it. It is »In Progress« and in no sprint.«
+   - Write one task for each forgotten ticket, also for an »Untested« ticket. Example: »Put [PROJ-123] Short title into a sprint, or close it. It is »In Progress« and in no sprint.«
    - Outdated plans: the app found them in the `plans` and the `projectFiles` of the JSON. Each outdated file has `outdated` with the reason. A file with `checkFindings: true` needs a check now. Check only these files. An old task covers each other outdated file, or the app gives it to a later run. Section 1 tells what to do with such a file.
    - Leave out the plans that do not belong to the project folder.
    - Read the findings of each file with `checkFindings: true`, for example the findings of a review. For each finding, read the code of the project folder, and find out whether the finding still holds.
-   - If no finding of the file holds, the file is ready to delete. Write one task for each of these files, with no sub-items: »Delete [<file name>](<file URL>), because <outdated>.«
-   - If findings of the file still hold, the file is no cleanup work. Put it in »Optional Work« instead, as one task »Solve the open findings of [<file name>](<file URL>)«. Give each finding that still holds one sub-item with the next action, for example »Move the null check in `foo.ts` above the loop.«
+   - If no finding of the file holds, the file is ready to delete. Write one task for each of these files, with no sub-items: »Delete [<file name>], because <outdated>.«
+   - If findings of the file still hold, the file is no cleanup work. Put it in »Optional Work« instead, as one task »Solve the open findings of [<file name>]«. Give each finding that still holds one sub-item with the next action, for example »Move the null check in `foo.ts` above the loop.«
    - The new task of a file with `checkFindings: true` replaces its old tasks. Leave out its old tasks in all sections, also in »Cleanup Work«.
    - The app writes the task for each file with `appTask: true`, because its PR was declined. Do not write a task for such a file in any section. Also leave out its old tasks, and write no KEEP for them.
 7. Read each plan only once. Sections 5 and 6 can need the same plan. Keep what you read in mind, and use it for both sections.
@@ -76,8 +76,7 @@ Total open tasks: N
 
 ## Their Open PRs
 
-- [ ] [`#1234`](https://…) 
-    - Ticket: [PROJ-123](https://…/browse/PROJ-123) Short title of the topic
+- [ ] [#1234] [PROJ-123] Short title of the topic
     - [ ] The next action.
 
 ## My Open PRs
@@ -87,8 +86,8 @@ Total open tasks: N
 
 ## Remaining Tickets in this Sprint
 
-- [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic - The only task.
-- [ ] [PROJ-456](https://…/browse/PROJ-456) Short title of the topic
+- [ ] [PROJ-456] Short title of the topic - The only task.
+- [ ] [PROJ-456] Short title of the topic
     - [ ] The next action.
     - [ ] The action after it.
 
@@ -104,13 +103,13 @@ Total open tasks: N
 Open work that no PR, ticket or branch covers: uncommitted changes, unpushed commits, plan files that are not yet mentioned and handover files, follow-ups in the memory, and unfinished sessions of the last 3 days.
 
 - [ ] Short title of the topic
-- [ ] Solve the open findings of [review.md](file:///…/review.md)
+- [ ] Solve the open findings of [review.md]
     - [ ] The next action for the first finding that still holds.
 
 ## Cleanup Work
 
-- [ ] Check status: [PROJ-789](https://…/browse/PROJ-789) Short title of the topic
-- [ ] Delete [plan.md](file:///…/plan.md), because PROJ-123 is »Done« and no finding holds.
+- [ ] Check status: [PROJ-789] Short title of the topic
+- [ ] Delete [plan.md], because PROJ-123 is »Done« and no finding holds.
 
 ### Local & remote
 
@@ -130,11 +129,12 @@ Rules:
 - Use the time from the facts for the `Updated:` line.
 - Write the section headings exactly as shown, without a number. The app adds the number of tasks to each heading.
 - Copy the description line below »Optional Work« exactly as shown.
-- If the ticket of a task is blocked, write 🚫 before the first link of the title line: ``- [ ] 🚫 [`#1234`](<PR URL>) [PROJ-123](<ticket URL>) Short title``. A ticket is blocked if it has `blocked: true` in `jira.tickets`. If the title of its PR has 🚫, a task is also blocked. Write no other sign before a link.
+- If the ticket of a task is blocked, write 🚫 before the first ref of the title line: `- [ ] 🚫 [#1234] [PROJ-123] Short title`. A ticket with `blocked: true` in `jira.tickets` is blocked. If the title of its PR has 🚫, a task is also blocked. Write no other sign before a ref.
 - Write no IDs for the tasks, except in a KEEP line. The app adds an ID like `M2` or `M2a` to each task and each next action.
 - Each task has a title line and one or more sub-items. A task of »Cleanup Work« is only one line, with no sub-items. A task with no next action is also only one line.
-  - The title line is `- [ ] `, then the links of the task, then a short title of the topic. The first link is the PR as ``[`#1234`](<PR URL>)``, with the number as code. The next link is the ticket as `[PROJ-123](<ticket URL>)`. Write each link that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the link shows it.
-  - Take the PR URL from the JSON. Find the ticket ID in the PR title, the branch name or the name of a plan file. Build the ticket URL from `jira.browseURL` and the ticket ID. If `jira.browseURL` is missing, write the ticket ID as plain text, without a link.
+  - The title line is `- [ ] `, then the refs of the task, then a short title of the topic. A ref is a short name in square brackets, with no URL. The app makes a link of each ref. The first ref is the PR as `[#1234]`. The next ref is the ticket as `[PROJ-123]`. Then come the plan and report files as `[<file name>]`. If two files in the JSON have the same name, write the path from the project folder, for example `[reviews/<file name>]`. Write each ref that exists, in every section, also in »Optional Work«. Leave the ticket ID out of the title, because the ref shows it.
+  - Find the ticket ID in the PR title, the branch name or the name of a plan file.
+  - If no ref fits, write the URL.
   - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
   - A next action is a command that the user can do: »Merge it.«, »Answer Milad's 2 tasks.« A fact alone is no next action. Never write a sub-item that only tells a state, for example »Milad and Rui approved it. The pipeline is green.«
   - If a fact is necessary, put it into the next action that needs it, as a condition or a reason: »If the visual test stays green, merge it.«, »Pull first, because the local branch is 2 commits behind.«

@@ -135,14 +135,17 @@ enum MorningOverview {
 		if FileManager.default.fileExists(atPath: plansFolder.path) { data["plans"] = Array(checked.files.prefix(plans.count)) }
 		data["projectFiles"] = Array(checked.files.dropFirst(plans.count))
 		var run = checked.run
-		// Without all facts of Jira or of Bitbucket, a file can seem not outdated. It keeps its state of the last run.
 		if states == nil || jira["error"] != nil || jira[ticketsIncompleteKey] as? Bool == true, let lastOutdated {
-			let urls = Set((plans + projectFacts).compactMap { $0["url"] as? String })
-			run.outdated.formUnion(lastOutdated.outdated.intersection(urls))
-			run.ignored.formUnion(lastOutdated.ignored.intersection(urls).subtracting(run.checked.map(\.url)))
+			run = withLastState(run, files: checked.files, last: lastOutdated)
 		}
 		appData[outdatedKey] = run
 		appData[deleteTasksKey] = checked.deleteTasks
+		appData[linksKey] = Links(pullRequests: Dictionary(pullRequests.compactMap { pullRequest in
+			guard let id = pullRequest["id"] as? Int, let url = htmlURL(of: pullRequest) else { return nil }
+			return (id, url)
+		}, uniquingKeysWith: { first, _ in first }), repository: bitbucket.repository, jiraBrowseURL: jira["browseURL"] as? String,
+			projectKeys: projectKeys(branches: branches, pullRequests: pullRequests).union(jiraTickets.keys.map(projectKey)),
+			files: (plans + projectFacts).compactMap { $0["url"] as? String }, folders: [system.folder.path, plansFolder.path])
 		if let old {
 			data["unchangedTasks"] = unchangedTasks(in: old, files: checked.files,
 				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
@@ -363,7 +366,8 @@ enum MorningOverview {
 		let old = old ?? ""
 		let isSameDay = isSameDay(old, now: system.now(), calendar: system.calendar)
 		var text = withKeptByID(in: withoutAppSections(output), old: input.appData[oldOverviewKey] as? String ?? "")
-		text = withoutDoneCleanupTasks(in: text)
+		text = withLinks(input.appData[linksKey] as? Links ?? Links(), in: text)
+		text = withoutDoneCleanupTasks(in: withoutDeleteTasksOfGoneFiles(in: text))
 		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
 		text = withNewReviewTasks(input.appData[newReviewsKey] as? [NewReview] ?? [],
 			jiraBrowseURL: (input.data["jira"] as? [String: Any])?["browseURL"] as? String, in: text)
@@ -1201,6 +1205,20 @@ enum MorningOverview {
 		return (result, run, deleteTasks)
 	}
 
+	/// `run` after a run without all facts of Jira or Bitbucket. A file can then seem not outdated, so it keeps its state of
+	/// `last`. This applies only to a file of `files` that got no reason now and did not change. A changed file needs its
+	/// check in a later run.
+	static func withLastState(_ run: OutdatedRun, files: [[String: Any]], last: OutdatedState) -> OutdatedRun {
+		let urls = Set(files.filter { file in
+			file["outdated"] == nil && file["appTask"] == nil && file["changedAfterOldOverview"] as? Bool != true
+				&& file["newCommits"] as? Bool != true
+		}.compactMap { $0["url"] as? String })
+		var run = run
+		run.outdated.formUnion(last.outdated.intersection(urls))
+		run.ignored.formUnion(last.ignored.intersection(urls))
+		return run
+	}
+
 	/// The text of each open task of `old` in the sections of Claude whose title passes `isIncluded`: its title line and
 	/// its sub-items without a tick. A ticked task, and a task whose sub-items with a checkbox are all ticked, do not count.
 	private static func openTasks(in old: String?, where isIncluded: (String) -> Bool) -> [String] {
@@ -1216,8 +1234,23 @@ enum MorningOverview {
 	}
 
 	/// The task text names the file: by a link to `url`, or by its name or a path to it in backticks.
+	/// A ref of Claude that the app could not link counts too, e.g. `[name.md]` for 2 files with this name.
 	static func names(_ text: String, url: String, name: String) -> Bool {
-		text.contains("](\(url))") || text.contains("`\(name)`") || text.contains("/\(name)`")
+		text.contains("](\(url))") || ["`", "]"].contains { text.contains("`\(name)\($0)") || text.contains("[\(name)\($0)") || text.contains("/\(name)\($0)") }
+	}
+
+	/// The overview without each task of »Cleanup Work« that deletes a file that is gone, e.g. after the user deleted it
+	/// without a tick. The task links the file with a `file://` URL.
+	static func withoutDeleteTasksOfGoneFiles(in overview: String, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
+		-> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		guard let index = index(ofSection: cleanupSection, in: parts) else { return overview }
+		parts[index] = parts[index].components(separatedBy: "\n").filter { line in
+			guard line.hasPrefix("- "), line.contains("Delete ["),
+				let path = firstGroup(of: #"\]\((file://[^)\s]+)\)"#, in: line).flatMap(URL.init(string:))?.path else { return true }
+			return exists(path)
+		}.joined(separator: "\n")
+		return parts.joined(separator: "\n## ")
 	}
 
 	/// The overview with the line of each task of `tasks` in »Cleanup Work«, above its `###` subsections, unless a line of
@@ -1264,6 +1297,86 @@ enum MorningOverview {
 		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
 		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
 		try? data.write(to: outdatedFile(report), options: .atomic)
+	}
+
+	// MARK: - Links
+
+	/// The key of the ``Links`` in `appData`.
+	static let linksKey = "links"
+
+	/// The facts that turn the short refs of Claude into links: `[#1234]`, `[PROJ-123]` and `[name.md]`.
+	struct Links {
+		/// The URL of each open pull request.
+		var pullRequests: [Int: String] = [:]
+		/// `workspace/repo` on Bitbucket, for the URL of a pull request that is not open.
+		var repository: String?
+		var jiraBrowseURL: String?
+		/// The project keys of Jira. A ref with another key, e.g. `[UTF-8]`, is no ticket.
+		var projectKeys: Set<String> = []
+		/// The URLs of the plans and the project files.
+		var files: [String] = []
+		/// The paths of the folders of `files`, for a ref with the path from such a folder, e.g. `[reviews/a.md]`.
+		var folders: [String] = []
+	}
+
+	/// The URL of a pull request on Bitbucket.
+	private static func htmlURL(of pullRequest: [String: Any]) -> String? {
+		((pullRequest["links"] as? [String: Any])?["html"] as? [String: Any])?["href"] as? String
+	}
+
+	/// A short ref of Claude, not followed by a link target: a pull request, a ticket or a file.
+	private static let refPattern = #"\[(?:#(\d+)|([A-Z][A-Z0-9]+-\d+)|([^\[\]()`\n]+?\.md))\](?!\()"#
+
+	/// The overview with each short ref of Claude as a link. Code spans and links stay as they are.
+	/// - `[#1234]` becomes the link of the pull request, with the number as code.
+	/// - `[PROJ-123]` with a key of `links.projectKeys` becomes the link of the ticket, or the plain ID without the Jira site.
+	/// - `[name.md]` or `[folder/name.md]` becomes the link of its file: the file with this path from a folder of `links`,
+	///   else the one file whose path ends with it. Another ref of a file stays as it is.
+	static func withLinks(_ links: Links, in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		for index in parts.indices.dropFirst() {
+			parts[index] = parts[index].components(separatedBy: "\n").map { linked($0, links) }.joined(separator: "\n")
+		}
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The line with its refs as links, outside code spans.
+	private static func linked(_ line: String, _ links: Links) -> String {
+		guard line.contains("[") else { return line }
+		var segments = line.components(separatedBy: "`")
+		for index in stride(from: 0, to: segments.count, by: 2) { segments[index] = linkedText(segments[index], links) }
+		return segments.joined(separator: "`")
+	}
+
+	/// The text with its refs as links.
+	private static func linkedText(_ text: String, _ links: Links) -> String {
+		guard let regex = try? NSRegularExpression(pattern: refPattern) else { return text }
+		let result = NSMutableString(string: text)
+		// From the end, so that each range of a match before the change stays right.
+		for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+			let group = { (number: Int) in Range(match.range(at: number), in: text).map { String(text[$0]) } }
+			var replacement: String?
+			if let number = group(1), let id = Int(number) {
+				let url = links.pullRequests[id] ?? links.repository.map { "https://bitbucket.org/\($0)/pull-requests/\(id)" }
+				// The same form as the old overview, so that the tasks of the user find their task again.
+				replacement = url.map { "[`#\(id)`](\($0))" }
+			} else if let ticket = group(2), links.projectKeys.contains(projectKey(of: ticket)) {
+				replacement = links.jiraBrowseURL.map { "[\(ticket)](\($0)\(ticket))" } ?? ticket
+			} else if let file = group(3) {
+				replacement = fileURL(of: file, in: links).map { "[\(file)](\($0))" }
+			}
+			if let replacement { result.replaceCharacters(in: match.range, with: replacement) }
+		}
+		return result as String
+	}
+
+	/// The URL of the file of the ref `file`: the file with this path from a folder of `links`, else the one file whose
+	/// path ends with it.
+	private static func fileURL(of file: String, in links: Links) -> String? {
+		let paths = links.files.map { (url: $0, path: URL(string: $0)?.path ?? "") }
+		if let exact = paths.first(where: { path in links.folders.contains { path.path == $0 + "/" + file } }) { return exact.url }
+		let found = paths.filter { $0.path.hasSuffix("/" + file) }
+		return found.count == 1 ? found[0].url : nil
 	}
 
 	/// An open pull request whose newest commit is not the commit of any of its review reports.

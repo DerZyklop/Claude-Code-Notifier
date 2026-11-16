@@ -290,3 +290,42 @@ private func checked(_ files: [[String: Any]]) -> [String] {
 		#expect(MorningOverview.lastOutdated(fixture.report)?.outdated.contains(file.absoluteString) == false)
 	}
 }
+
+@Suite struct MorningOverviewOutdatedRound3Tests {
+	@Test func aFailedRunKeepsOnlyTheStateOfUnchangedFilesWithoutReason() {
+		let last = MorningOverview.OutdatedState(outdated: ["file:///p/a.md", "file:///p/b.md", "file:///p/c.md"], ignored: ["file:///p/a.md", "file:///p/b.md"])
+		let files = [facts("a.md"), facts("b.md", ["changedAfterOldOverview": true]), facts("c.md", ["outdated": "the branch `x` is gone"])]
+		let run = MorningOverview.withLastState(MorningOverview.OutdatedRun(outdated: ["file:///p/c.md"]), files: files, last: last)
+		// a.md did not change and has no reason now. b.md changed, so it needs a check. c.md got its state in this run.
+		#expect(run.outdated == ["file:///p/a.md", "file:///p/c.md"])
+		#expect(run.ignored == ["file:///p/a.md"])
+	}
+
+	@Test func aRefWithoutLinkStillNamesTheFile() {
+		let run = MorningOverview.OutdatedRun(outdated: ["file:///p/docs/h.md"], checked: [("file:///p/docs/h.md", "h.md")])
+		#expect(run.state(written: "- [ ] Solve the open findings of [h.md]").ignored == [])
+		#expect(run.state(written: "- [ ] Solve the open findings of [docs/h.md]").ignored == [])
+		#expect(run.state(written: "- [ ] Solve the open findings of [gh.md]").ignored == ["file:///p/docs/h.md"])
+	}
+
+	@Test func aDeleteTaskOfAGoneFileGoesAway() {
+		let text = """
+			# Morning overview
+
+			## Cleanup Work
+
+			- [ ] `C1` Delete [gone.md](file:///p/gone.md), because #4 was declined.
+			- [ ] `C2` Delete [here.md](file:///p/here.md), because #5 was declined.
+			- [ ] `C3` Check status: [PROJ-1](https://x/browse/PROJ-1) Old ticket
+
+			## Optional Work
+
+			- [ ] Delete [gone.md](file:///p/gone.md) later.
+			"""
+		let result = MorningOverview.withoutDeleteTasksOfGoneFiles(in: text) { $0 == "/p/here.md" }
+		#expect(!result.contains("`C1`"))
+		#expect(result.contains("`C2`") && result.contains("`C3`"))
+		// Only »Cleanup Work« counts.
+		#expect(result.contains("- [ ] Delete [gone.md](file:///p/gone.md) later."))
+	}
+}
