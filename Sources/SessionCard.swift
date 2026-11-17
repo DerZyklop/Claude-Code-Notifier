@@ -121,6 +121,7 @@ struct SessionCard: View {
 			Text(Self.elapsed(from: session.started, to: clock.now))
 				.monospacedDigit()
 				.foregroundStyle(.secondary)
+				.fixedSize()
 		}
 		.padding(.horizontal, 6)
 		.padding(.vertical, 3)
@@ -153,6 +154,7 @@ struct SessionCard: View {
 				Text(Self.elapsed(from: started, to: clock.now))
 					.monospacedDigit()
 					.foregroundStyle(.secondary)
+					.fixedSize()
 			}
 		}
 		.padding(.horizontal, 6)
