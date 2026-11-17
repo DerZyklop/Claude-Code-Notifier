@@ -111,8 +111,9 @@ one PR. So missing PR data cannot look like a successful update.
 ## Usage of your accounts
 
 Below the sessions, a second card shows the limits of each Claude account. Each account has one line with its name
-and the reset time, and below it one bar. The upper half of the bar shows the weekly limit, the lower half the Fable
-limit. From 80 % on, a half is red. Hover over a half to see its percentage. Hover over the name to see the full email.
+and the reset time, and below it one bar. The upper two thirds of the bar show the weekly limit, the lower third the
+Fable limit. From 80 % on, a part is red. Hover over a part to see its percentage. Hover over the name to see the full
+email.
 A »VS Code« tag marks the account that the VS Code sessions use. That account comes first. The other accounts follow by
 their reset time, the soonest first.
 

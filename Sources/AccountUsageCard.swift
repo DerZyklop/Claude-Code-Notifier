@@ -120,7 +120,7 @@ struct AccountUsageCard: View {
 	}
 }
 
-/// One rounded pipe for both weekly limits: the week fills the upper half, Fable the lower half, each from the left.
+/// One rounded pipe for both weekly limits: the week fills the upper 2/3, Fable the lower 1/3, each from the left.
 /// Each half shows its percentage on hover. Its hover area covers the full width of the half, and also the free space
 /// above or below the pipe. From 80 % on, a half is red. The pipe draws its own tooltip, because the system tooltip of
 /// `help(_:)` does not show in the menu.
@@ -138,21 +138,26 @@ struct UsagePipe: View {
 	static let fullColor = Color(red: 0xdc / 255, green: 0x35 / 255, blue: 0x45 / 255)
 	/// The free space above and below the pipe in the row, see `AccountUsageCard.row(_:)`.
 	static let hoverMargin: CGFloat = 4
+	/// The week gets 2/3 of the height, Fable 1/3.
+	static let weekHeight: CGFloat = 12
+	static let fableHeight: CGFloat = 6
 
 	var body: some View {
 		VStack(spacing: 0) {
 			half(usage?.sevenDay, color: Self.weekColor)
+				.frame(height: Self.weekHeight)
 			half(usage?.fable, color: Self.fableColor)
+				.frame(height: Self.fableHeight)
 		}
-		.frame(height: 18)
 		.background(Color.primary.opacity(0.12))
 		.clipShape(Capsule())
 		.overlay {
 			VStack(spacing: 0) {
 				hoverArea(Self.tooltip("Week", usage?.sevenDay, hasData: usage != nil, reset: usage?.resetsAt, now: now))
+					.frame(height: Self.weekHeight + Self.hoverMargin)
 				hoverArea(Self.tooltip("Fable", usage?.fable, hasData: usage != nil, reset: usage?.resetsAt, now: now))
+					.frame(height: Self.fableHeight + Self.hoverMargin)
 			}
-			.padding(.vertical, -Self.hoverMargin)
 		}
 		.overlay(alignment: .topLeading) {
 			GeometryReader { geometry in
