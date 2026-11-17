@@ -113,7 +113,8 @@ one PR. So missing PR data cannot look like a successful update.
 Below the sessions, a second card shows the limits of each Claude account. Each account has one line with its name
 and the reset time, and below it one bar. The upper half of the bar shows the weekly limit, the lower half the Fable
 limit. From 80 % on, a half is red. Hover over a half to see its percentage. Hover over the name to see the full email.
-A »VS Code« tag marks the account that the VS Code sessions use.
+A »VS Code« tag marks the account that the VS Code sessions use. That account comes first. The other accounts follow by
+their reset time, the soonest first.
 
 - **Accounts:** the default folder `~/.claude`, and each folder `~/.claude-*` with a `.claude.json` in it.
 - **Add an account:** click »Accounts …« in the card, then »Add Account …«. The app creates the folder

@@ -155,6 +155,18 @@ private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#
 }
 
 @MainActor @Suite struct AccountUsageCardTests {
+	@Test func sortsTheAccountOfVSCodeFirstThenBySoonestReset() {
+		func entry(_ name: String, reset: Double?, vsCode: Bool = false) -> AccountUsageEntry {
+			var entry = AccountUsageEntry(directory: URL(fileURLWithPath: "/\(name)"))
+			entry.usage = reset.map { AccountUsage(sevenDay: .init(percent: 1, resetsAt: Date(timeIntervalSince1970: $0))) }
+			entry.isSessionAccount = vsCode
+			return entry
+		}
+		let entries = [entry("a", reset: nil), entry("b", reset: 300), entry("c", reset: 100), entry("d", reset: 900, vsCode: true),
+			entry("e", reset: 100), entry("f", reset: nil)]
+		#expect(AccountUsageCard.sorted(entries).map(\.directory.lastPathComponent) == ["d", "c", "e", "b", "a", "f"])
+	}
+
 	@Test func namesThePercentageOfEachHalf() {
 		let now = Date(timeIntervalSince1970: 0)
 		let week = AccountUsage.Window(percent: 24.6, resetsAt: Date(timeIntervalSince1970: 3600))

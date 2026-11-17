@@ -11,7 +11,7 @@ struct AccountUsageCard: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			header
-			ForEach(Array(store.entries.enumerated()), id: \.element.id) { index, entry in
+			ForEach(Array(Self.sorted(store.entries).enumerated()), id: \.element.id) { index, entry in
 				if index > 0 { Divider().padding(.horizontal, 6) }
 				row(entry)
 			}
@@ -59,14 +59,14 @@ struct AccountUsageCard: View {
 				Text(entry.shortName)
 					.lineLimit(1)
 					.truncationMode(.middle)
-					.help("\(entry.name)\n\(entry.directory.path)")
+					.menuTooltip(entry.name)
 				if entry.isSessionAccount {
 					Text("VS Code")
 						.font(.system(size: NSFont.smallSystemFontSize - 1, weight: .medium))
 						.foregroundStyle(.secondary)
 						.padding(.horizontal, 4)
 						.background(Capsule().fill(Color.primary.opacity(0.1)))
-						.help("The Claude Code sessions in VS Code use this account.")
+						.menuTooltip("Claude Code in VS Code uses this account. Change it with /login in VS Code.")
 				}
 				Spacer(minLength: 8)
 				Group {
@@ -75,7 +75,7 @@ struct AccountUsageCard: View {
 						Text(Self.resetText(reset, now: clock.now))
 							.monospacedDigit()
 							.foregroundStyle(.secondary)
-							.help("Resets \(reset.formatted(date: .abbreviated, time: .shortened))")
+							.menuTooltip("Resets \(reset.formatted(date: .abbreviated, time: .shortened))", alignment: .trailing)
 					}
 				}
 				.font(.system(size: NSFont.smallSystemFontSize))
@@ -93,10 +93,25 @@ struct AccountUsageCard: View {
 		if let failure = entry.failure {
 			Label(entry.usage == nil ? failure : "Old data", systemImage: "exclamationmark.triangle.fill")
 				.foregroundStyle(.orange)
-				.help(failure)
+				.menuTooltip(failure, alignment: .trailing)
 		} else if entry.usage == nil {
 			Text("Loading …").foregroundStyle(.secondary)
 		}
+	}
+
+	/// The account of VS Code first, then the others by their reset time, the soonest first. An account without a reset
+	/// time comes last. Accounts with the same reset time keep their order.
+	static func sorted(_ entries: [AccountUsageEntry]) -> [AccountUsageEntry] {
+		entries.enumerated().sorted { first, second in
+			let (a, b) = (first.element, second.element)
+			if a.isSessionAccount != b.isSessionAccount { return a.isSessionAccount }
+			switch (a.usage?.resetsAt, b.usage?.resetsAt) {
+			case let (x?, y?) where x != y: return x < y
+			case (_?, nil): return true
+			case (nil, _?): return false
+			default: return first.offset < second.offset
+			}
+		}.map(\.element)
 	}
 
 	/// For example »Reset in 8d«.
@@ -129,7 +144,7 @@ struct UsagePipe: View {
 			half(usage?.sevenDay, color: Self.weekColor)
 			half(usage?.fable, color: Self.fableColor)
 		}
-		.frame(height: 14)
+		.frame(height: 21)
 		.background(Color.primary.opacity(0.12))
 		.clipShape(Capsule())
 		.overlay {
@@ -152,17 +167,8 @@ struct UsagePipe: View {
 
 	/// A tooltip above the pipe at the pointer, inside the row.
 	private func bubble(_ text: String) -> some View {
-		Text(text)
-			.font(.system(size: NSFont.smallSystemFontSize))
-			.monospacedDigit()
-			.fixedSize()
-			.padding(.horizontal, 6)
-			.padding(.vertical, 2)
-			.background(RoundedRectangle(cornerRadius: 4).fill(.background))
-			.overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.2)))
-			.shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+		TooltipBubble(text: text)
 			.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bubbleWidth = $0 }
-			.allowsHitTesting(false)
 	}
 
 	private func half(_ window: AccountUsage.Window?, color: Color) -> some View {
@@ -194,5 +200,51 @@ struct UsagePipe: View {
 			text += ", reset in \(SessionCard.elapsed(from: now, to: own, largestUnitOnly: true))"
 		}
 		return text
+	}
+}
+
+/// The small box of a tooltip in the menu, see ``MenuTooltip``.
+struct TooltipBubble: View {
+	let text: String
+
+	var body: some View {
+		Text(text)
+			.font(.system(size: NSFont.smallSystemFontSize))
+			.monospacedDigit()
+			.lineLimit(4)
+			.frame(maxWidth: 280, alignment: .leading)
+			.fixedSize(horizontal: false, vertical: true)
+			.padding(.horizontal, 6)
+			.padding(.vertical, 2)
+			.background(RoundedRectangle(cornerRadius: 4).fill(.background))
+			.overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.2)))
+			.shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+			.fixedSize()
+			.allowsHitTesting(false)
+	}
+}
+
+/// A tooltip that also shows in the menu, where the system tooltip of `help(_:)` does not show. The bubble shows
+/// above the view. It covers only the views that draw before it, so the view above must come earlier in its stack.
+struct MenuTooltip: ViewModifier {
+	let text: String
+	var alignment: HorizontalAlignment = .leading
+	@State private var isHovered = false
+
+	func body(content: Content) -> some View {
+		content
+			.onHover { isHovered = $0 }
+			.overlay(alignment: Alignment(horizontal: alignment, vertical: .top)) {
+				if isHovered {
+					TooltipBubble(text: text)
+						.alignmentGuide(.top) { $0[.bottom] + 2 }
+				}
+			}
+	}
+}
+
+extension View {
+	func menuTooltip(_ text: String, alignment: HorizontalAlignment = .leading) -> some View {
+		modifier(MenuTooltip(text: text, alignment: alignment))
 	}
 }
