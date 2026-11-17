@@ -155,8 +155,19 @@ final class AttentionBubble {
 
 	/// Follows the sound setting of the setup window, see ``SoundMode``, and stays silent while a Focus of macOS is on.
 	private static func playChime() {
-		guard SoundMode.current().allowsSound, INFocusStatusCenter.default.focusStatus.isFocused != true else { return }
+		guard allowsSound else { return }
 		playChimeSound()
+	}
+
+	/// Plays another macOS sound of the app, e.g. the one of a ready report. Follows the same rules as the chime.
+	static func playSound(_ name: String) {
+		guard allowsSound, let sound = NSSound(named: name)?.copy() as? NSSound else { return }
+		sound.play()
+	}
+
+	/// The sound setting of the setup window allows sound, and no Focus of macOS is on.
+	private static var allowsSound: Bool {
+		SoundMode.current().allowsSound && INFocusStatusCenter.default.focusStatus.isFocused != true
 	}
 
 	/// Plays the chime without a check of the settings, e.g. for the »Play« button of the setup window.

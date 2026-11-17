@@ -16,6 +16,7 @@ extension Report.Kind {
 		collect: MorningOverview.collect,
 		render: MorningOverview.render,
 		readyBody: { text, _ in "\(text.components(separatedBy: "\n- [ ]").count - 1) open tasks. Click to open the file." },
+		readySound: "Funk",
 		backupName: nil,
 		folderKey: SettingsKey.morningOverviewFolder,
 		heading: "# Morning overview",

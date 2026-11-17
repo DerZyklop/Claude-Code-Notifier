@@ -129,6 +129,13 @@ import Testing
 		#expect(fixture.log.ready == 1)
 	}
 
+	@Test func readyMorningOverviewPlaysFunk() async throws {
+		let fixture = try ReportFixture()
+		defer { fixture.cleanUp() }
+		await fixture.report.update()
+		#expect(fixture.log.readySounds == ["Funk"])
+	}
+
 	@Test func missingClaudeFailsWithAClearReason() async throws {
 		let fixture = try ReportFixture()
 		defer { fixture.cleanUp() }

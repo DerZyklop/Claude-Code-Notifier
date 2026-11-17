@@ -96,6 +96,8 @@ final class Report: ObservableObject {
 		/// without one.
 		var render: @MainActor (_ report: Report, _ result: CommandResult, _ input: Input, _ old: String?) throws -> String
 		var readyBody: (_ text: String, _ input: Input) -> String
+		/// The macOS sound that plays when a run wrote a new file, e.g. `Funk`, or `nil` for no sound.
+		var readySound: String? = nil
 		/// The file name of the backup of the old file, or `nil` for no backup.
 		var backupName: ((_ old: String) -> String)?
 		/// The setting with the folder of the files, or `nil` for the project folder. With a folder, each run writes a file
@@ -153,8 +155,8 @@ final class Report: ObservableObject {
 		var get: (URLRequest) async throws -> (Data, Int)
 		var post: @MainActor (_ subtitle: String, _ identifier: String, _ title: String, _ body: String) -> Void
 		var removeNotifications: @MainActor ([String]) -> Void
-		/// A run wrote a new file.
-		var ready: @MainActor () -> Void
+		/// A run wrote a new file. Plays the ``Kind/readySound``, if there is one.
+		var ready: @MainActor (_ sound: String?) -> Void
 		/// Opens a file in Obsidian, else in VS Code.
 		var open: @MainActor (URL) -> Void
 
@@ -181,7 +183,10 @@ final class Report: ObservableObject {
 				SessionStore.shared.post(subtitle: subtitle, title: title, body: body, identifier: identifier)
 			},
 			removeNotifications: { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0) },
-			ready: { Blink1.shared.pulse(Spinner.reportColor) },
+			ready: { sound in
+				Blink1.shared.pulse(Spinner.reportColor)
+				if let sound { AttentionBubble.playSound(sound) }
+			},
 			open: { openDocument($0, preferring: ["md.obsidian", "com.microsoft.VSCode"]) }
 		)
 	}
@@ -405,7 +410,7 @@ final class Report: ObservableObject {
 		kind.didWrite?(self, input)
 		step("Write file")
 		isUnread = true
-		system.ready()
+		system.ready(kind.readySound)
 		if !system.defaults.bool(forKey: SettingsKey.muted) {
 			system.post(kind.title, kind.notificationID, "Ready", kind.readyBody(text, input))
 		}

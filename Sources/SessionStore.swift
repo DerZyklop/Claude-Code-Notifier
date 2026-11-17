@@ -491,7 +491,7 @@ final class SessionStore: ObservableObject {
 		let content = UNMutableNotificationContent()
 		content.title = title
 		content.subtitle = subtitle
-		// No sound: the chime of the bubble is the only sound of the app, see ``AttentionBubble``.
+		// No sound: the app plays its own sounds, see ``AttentionBubble``.
 		content.body = body
 		// No thread identifier: macOS then stacks all notifications of the app in one group.
 		system.addNotification(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
