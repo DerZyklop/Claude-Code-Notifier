@@ -26,25 +26,50 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 
 @MainActor @Suite struct SessionCardTests {
 	@Test(arguments: [
-		(0, "0s"),
-		(58, "58s"),
-		(60, "1:00"),
-		(247, "4:07"),
-		(3599, "59:59"),
+		(0, "00s"),
+		(1, "01s"),
+		(56, "56s"),
+		(60, "01m 00s"),
+		(202, "03m 22s"),
+		(3599, "59m 59s"),
 		(3600, "1h 00m"),
-		(4140, "1h 09m"),
+		(8400, "2h 20m"),
 		(86_399, "23h 59m"),
-		(86_400, "1d 0h 00m"),
-		(187_380, "2d 4h 03m"),
+		(86_400, "1d 0h"),
+		(187_380, "2d 4h"),
+		(259_199, "2d 23h"),
+		(259_200, "3d"),
+		(604_799, "6d"),
+		(604_800, "1w"),
+		(60_480_000, "100w"),
 	])
 	func elapsed(seconds: Int, expected: String) {
 		let start = Date(timeIntervalSince1970: 1_000_000)
 		#expect(SessionCard.elapsed(from: start, to: start.addingTimeInterval(Double(seconds))) == expected)
 	}
 
+	@Test(arguments: [
+		(0, "1m"),
+		(59, "1m"),
+		(3599, "59m"),
+		(3600, "1h"),
+		(6839, "1.8h"),
+		(7199, "1.9h"),
+		(7200, "2h"),
+		(86_399, "23h"),
+		(86_400, "1d"),
+		(121_000, "1.4d"),
+		(172_800, "2d"),
+		(734_400, "8d"),
+	])
+	func largestUnitOnly(seconds: Int, expected: String) {
+		let start = Date(timeIntervalSince1970: 1_000_000)
+		#expect(SessionCard.elapsed(from: start, to: start.addingTimeInterval(Double(seconds)), largestUnitOnly: true) == expected)
+	}
+
 	@Test func elapsedIsZeroForAStartInTheFuture() {
 		let now = Date(timeIntervalSince1970: 1_000_000)
-		#expect(SessionCard.elapsed(from: now.addingTimeInterval(5), to: now) == "0s")
+		#expect(SessionCard.elapsed(from: now.addingTimeInterval(5), to: now) == "00s")
 	}
 
 	@Test func cardWithoutSessionsHasASize() throws {

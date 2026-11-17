@@ -158,7 +158,8 @@ private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#
 	@Test func namesThePercentageOfEachHalf() {
 		let now = Date(timeIntervalSince1970: 0)
 		let week = AccountUsage.Window(percent: 24.6, resetsAt: Date(timeIntervalSince1970: 3600))
-		#expect(UsagePipe.tooltip("Week", week, hasData: true, reset: nil, now: now) == "Week: 25 %, resets \(AccountUsageCard.resetText(week.resetsAt!, now: now))")
+		#expect(UsagePipe.tooltip("Week", week, hasData: true, reset: nil, now: now) == "Week: 25 %, reset in 1h")
+		#expect(AccountUsageCard.resetText(week.resetsAt!, now: now) == "Reset in 1h")
 		#expect(UsagePipe.tooltip("Fable", week, hasData: true, reset: week.resetsAt, now: now) == "Fable: 25 %")
 		#expect(UsagePipe.tooltip("Fable", nil, hasData: true, reset: nil, now: now) == "No Fable limit")
 		#expect(UsagePipe.tooltip("Week", nil, hasData: false, reset: nil, now: now) == "Week: no data yet")

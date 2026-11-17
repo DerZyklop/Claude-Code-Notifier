@@ -99,19 +99,23 @@ struct AccountUsageCard: View {
 		}
 	}
 
-	/// The time for a reset in the next 24 hours, else also the weekday: »17:30« or »Mon 08:00«.
+	/// For example »Reset in 8d«.
 	static func resetText(_ reset: Date, now: Date) -> String {
-		let soon = reset.timeIntervalSince(now) < 24 * 3600
-		return reset.formatted(soon ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute())
+		"Reset in \(SessionCard.elapsed(from: now, to: reset, largestUnitOnly: true))"
 	}
 }
 
 /// One rounded pipe for both weekly limits: the week fills the upper half, Fable the lower half, each from the left.
 /// Each half shows its percentage on hover. Its hover area covers the full width of the half, and also the free space
-/// above or below the pipe. From 80 % on, a half is red.
+/// above or below the pipe. From 80 % on, a half is red. The pipe draws its own tooltip, because the system tooltip of
+/// `help(_:)` does not show in the menu.
 struct UsagePipe: View {
 	let usage: AccountUsage?
 	let now: Date
+
+	/// The text of the hovered half, and the x position of the pointer.
+	@State private var hover: (text: String, x: CGFloat)?
+	@State private var bubbleWidth: CGFloat = 0
 
 	/// Bootstrap 4 info, its darker hover color, and Bootstrap danger.
 	static let weekColor = Color(red: 0x17 / 255, green: 0xa2 / 255, blue: 0xb8 / 255)
@@ -135,6 +139,30 @@ struct UsagePipe: View {
 			}
 			.padding(.vertical, -Self.hoverMargin)
 		}
+		.overlay(alignment: .topLeading) {
+			GeometryReader { geometry in
+				if let hover {
+					bubble(hover.text)
+						.offset(x: min(max(hover.x - bubbleWidth / 2, 0), max(geometry.size.width - bubbleWidth, 0)),
+							y: -Self.hoverMargin - 20)
+				}
+			}
+		}
+	}
+
+	/// A tooltip above the pipe at the pointer, inside the row.
+	private func bubble(_ text: String) -> some View {
+		Text(text)
+			.font(.system(size: NSFont.smallSystemFontSize))
+			.monospacedDigit()
+			.fixedSize()
+			.padding(.horizontal, 6)
+			.padding(.vertical, 2)
+			.background(RoundedRectangle(cornerRadius: 4).fill(.background))
+			.overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.2)))
+			.shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+			.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bubbleWidth = $0 }
+			.allowsHitTesting(false)
 	}
 
 	private func half(_ window: AccountUsage.Window?, color: Color) -> some View {
@@ -150,7 +178,12 @@ struct UsagePipe: View {
 			.fill(Color.clear)
 			.frame(maxWidth: .infinity, maxHeight: .infinity)
 			.contentShape(Rectangle())
-			.help(text)
+			.onContinuousHover { phase in
+				switch phase {
+				case .active(let location): hover = (text, location.x)
+				case .ended: if hover?.text == text { hover = nil }
+				}
+			}
 	}
 
 	/// For example »Week: 25 %«. A reset time that differs from `reset`, the time on the name line, is added.
@@ -158,7 +191,7 @@ struct UsagePipe: View {
 		guard let window else { return hasData ? "No \(title) limit" : "\(title): no data yet" }
 		var text = "\(title): \(Int(window.percent.rounded())) %"
 		if let own = window.resetsAt, own != reset {
-			text += ", resets \(AccountUsageCard.resetText(own, now: now))"
+			text += ", reset in \(SessionCard.elapsed(from: now, to: own, largestUnitOnly: true))"
 		}
 		return text
 	}

@@ -210,15 +210,28 @@ struct SessionCard: View {
 			.help(session.stateTitle)
 	}
 
-	/// Seconds for the first minute (»58s«), a ticking clock for the first hour (»4:07«), then hours and minutes
-	/// (»1h 09m«), then also days (»2d 4h 03m«).
-	static func elapsed(from start: Date, to now: Date) -> String {
-		let seconds = max(0, Int(now.timeIntervalSince(start)))
+	/// Two units at most, fewer for a longer time: »01s«, »03m 22s«, »2h 20m«, »2d 2h«, then from 3 days only days
+	/// (»3d«), and from 7 days only weeks (»1w«).
+	/// With `largestUnitOnly`, only the largest unit, rounded down, for a time far away: »8d«, »23h«, »59m«. Below 2 of
+	/// the unit, it has one decimal: »1.4d«, »1.9h«. A time below 1 minute is »1m«.
+	static func elapsed(from start: Date, to now: Date, largestUnitOnly: Bool = false) -> String {
+		let interval = max(0, now.timeIntervalSince(start))
+		if largestUnitOnly {
+			for (unit, size) in [("d", 86_400.0), ("h", 3600.0)] where interval >= size {
+				let value = interval / size
+				let number = value >= 2 ? String(Int(value)) : String(format: "%.1f", (value * 10).rounded(.down) / 10)
+				return (number.hasSuffix(".0") ? String(number.dropLast(2)) : number) + unit
+			}
+			return "\(max(1, Int(interval / 60)))m"
+		}
+		let seconds = Int(interval)
 		let (days, hours, minutes) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60)
-		if days > 0 { return String(format: "%dd %dh %02dm", days, hours, minutes) }
+		if days >= 7 { return "\(days / 7)w" }
+		if days >= 3 { return "\(days)d" }
+		if days > 0 { return "\(days)d \(hours)h" }
 		if hours > 0 { return String(format: "%dh %02dm", hours, minutes) }
-		if minutes > 0 { return String(format: "%d:%02d", minutes, seconds % 60) }
-		return "\(seconds)s"
+		if minutes > 0 { return String(format: "%02dm %02ds", minutes, seconds % 60) }
+		return String(format: "%02ds", seconds)
 	}
 }
 
