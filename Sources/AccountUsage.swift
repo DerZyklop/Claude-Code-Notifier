@@ -16,6 +16,8 @@ struct AccountUsage: Equatable {
 
 	var fiveHour: Window?
 	var sevenDay: Window?
+	/// The weekly Fable limit. Only some accounts have it.
+	var fable: Window?
 
 	/// The limits of the last `rate_limit_event` in the `stream-json` output, or `nil` without one. A window after
 	/// its reset time counts as unused, like in the Claude Code extension.
@@ -40,7 +42,8 @@ struct AccountUsage: Equatable {
 				return Window(percent: raw.utilization * 100, resetsAt: reset)
 			}
 		}
-		return AccountUsage(fiveHour: window("five_hour"), sevenDay: window("seven_day"))
+		return AccountUsage(fiveHour: window("five_hour"), sevenDay: window("seven_day"),
+			fable: window("seven_day_overage_included"))
 	}
 }
 
@@ -57,12 +60,15 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	var isLoading = false
 
 	var id: String { directory.path }
+	/// The sessions in VS Code use this account. They use the login of ``claudeConfigDirectory``, because VS Code sets
+	/// no `CLAUDE_CONFIG_DIR`. Another folder can have the same login, see ``AccountUsageStore/accountID(of:)``.
+	var isSessionAccount = false
 	var name: String { email ?? (directory.path as NSString).abbreviatingWithTildeInPath }
 }
 
 /// The usage of each account. The app updates it once at the start. The menu updates it when it opens and the data is
-/// older than ``maxAge``. Each update sends a prompt of one token per account, so it uses a little of the 5-hour
-/// limit, and it starts that limit on an idle account.
+/// older than ``maxAge``. Each update sends a prompt of one token to Fable per account, so it uses a little of the
+/// 5-hour limit and of the Fable limit. On an idle account, it starts the 5-hour window.
 @MainActor
 final class AccountUsageStore: ObservableObject {
 	static let shared = AccountUsageStore()
@@ -82,12 +88,17 @@ final class AccountUsageStore: ObservableObject {
 	private let directories: () -> [URL]
 	private let fetch: (URL) async -> Fetch
 	private let defaults: UserDefaults
+	private let accountID: (URL) -> String?
+	private let sessionDirectory: URL
 
 	init(directories: @escaping () -> [URL] = { AccountUsageStore.configDirectories() },
-		fetch: @escaping (URL) async -> Fetch = AccountUsageProbe.run, defaults: UserDefaults = .standard) {
+		fetch: @escaping (URL) async -> Fetch = AccountUsageProbe.run, defaults: UserDefaults = .standard,
+		accountID: @escaping (URL) -> String? = { AccountUsageStore.accountID(of: $0) }, sessionDirectory: URL = claudeConfigDirectory) {
 		self.directories = directories
 		self.fetch = fetch
 		self.defaults = defaults
+		self.accountID = accountID
+		self.sessionDirectory = sessionDirectory
 	}
 
 	/// The new folders of logins that run now. They join the list in ``adopt(_:)``.
@@ -118,7 +129,13 @@ final class AccountUsageStore: ObservableObject {
 	private func syncDirectories() {
 		let old = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
 		let excluded = hidden.union(held)
-		let new = directories().filter { !excluded.contains($0.path) }.map { old[$0.path] ?? AccountUsageEntry(directory: $0) }
+		let sessionAccount = accountID(sessionDirectory)
+		let new = directories().filter { !excluded.contains($0.path) }.map { directory in
+			var entry = old[directory.path] ?? AccountUsageEntry(directory: directory)
+			entry.isSessionAccount = directory.standardizedFileURL.path == sessionDirectory.standardizedFileURL.path
+				|| sessionAccount != nil && accountID(directory) == sessionAccount
+			return entry
+		}
 		if new != entries { entries = new }
 	}
 
@@ -172,6 +189,19 @@ final class AccountUsageStore: ObservableObject {
 		return nil
 	}
 
+	/// The ID of the login in the folder, from the `oauthAccount` of its `.claude.json`, or `nil` without a login. The
+	/// file holds no token. The default folder `~/.claude` keeps it in `~/.claude.json`.
+	nonisolated static func accountID(of directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+		let isDefault = directory.standardizedFileURL.path == home.appendingPathComponent(".claude").standardizedFileURL.path
+		let file = isDefault ? home.appendingPathComponent(".claude.json") : directory.appendingPathComponent(".claude.json")
+		struct Config: Decodable {
+			struct Account: Decodable { var accountUuid: String? }
+			var oauthAccount: Account?
+		}
+		guard let data = try? Data(contentsOf: file) else { return nil }
+		return (try? JSONDecoder().decode(Config.self, from: data))?.oauthAccount?.accountUuid
+	}
+
 	/// The name of the marker file in each folder that the app creates.
 	nonisolated static let markerName = ".claude-code-pulse"
 
@@ -214,16 +244,26 @@ enum AccountUsageProbe {
 		guard auth.authMethod == nil || auth.authMethod == "claude.ai" else {
 			return .init(email: auth.email, failure: "Uses an API key, which has no subscription limits.")
 		}
-		// `--setting-sources ""` skips the hooks, so that the run does not show as a session.
-		let probe = await claude(["-p", ".", "--model", "haiku", "--tools", "", "--disallowedTools", "mcp__*", "--strict-mcp-config",
-			"--setting-sources", "", "--no-session-persistence", "--output-format", "stream-json", "--verbose"], directory: directory, timeout: 60)
+		// Only a Fable request gets the Fable window. Without Fable, the account gets the other windows from Haiku.
+		var probe = await claude(probeArguments(model: "fable"), directory: directory, timeout: 60)
+		if AccountUsage.parse(streamJSON: probe.output) == nil {
+			probe = await claude(probeArguments(model: "haiku"), directory: directory, timeout: 60)
+		}
 		guard let usage = AccountUsage.parse(streamJSON: probe.output) else {
 			return .init(email: auth.email, failure: failureText(probe) ?? "Claude Code sent no usage limits.")
 		}
 		return .init(email: auth.email, usage: usage)
 	}
 
-	/// The email of the login in the folder, or `nil` without a login.
+	/// A prompt of one token with a short system prompt, so that the run costs less than 1000 tokens.
+	/// `--setting-sources ""` skips the hooks, so that the run does not show as a session.
+	static func probeArguments(model: String) -> [String] {
+		["-p", ".", "--model", model, "--effort", "low", "--system-prompt", "Answer with one word.", "--tools", "",
+			"--disallowedTools", "mcp__*", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
+			"--output-format", "stream-json", "--verbose"]
+	}
+
+		/// The email of the login in the folder, or `nil` without a login.
 	static func email(directory: URL) async -> String? {
 		let status = await claude(["auth", "status"], directory: directory, timeout: 20)
 		guard let auth = try? JSONDecoder().decode(AuthStatus.self, from: Data(status.output.utf8)), auth.loggedIn else { return nil }

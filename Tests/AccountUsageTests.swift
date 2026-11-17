@@ -21,6 +21,12 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 			sevenDay: .init(percent: 40.5, resetsAt: Date(timeIntervalSince1970: 9000))))
 	}
 
+	@Test func readsTheFableWindow() {
+		let text = #"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day_overage_included":{"utilization":0.25,"resetsAt":9000}}}}"#
+		#expect(AccountUsage.parse(streamJSON: text, now: Date(timeIntervalSince1970: 1000))
+			== AccountUsage(fable: .init(percent: 25, resetsAt: Date(timeIntervalSince1970: 9000))))
+	}
+
 	@Test func countsAWindowAfterItsResetAsUnused() {
 		let usage = AccountUsage.parse(streamJSON: output(), now: Date(timeIntervalSince1970: 5000))
 		#expect(usage?.fiveHour == .init(percent: 0))
@@ -50,10 +56,30 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 		let directories = AccountUsageStore.configDirectories(home: home, defaultDirectory: home.appendingPathComponent(".claude"))
 		#expect(directories.map(\.lastPathComponent) == [".claude", ".claude-b", ".claude-work"])
 	}
+
+	@Test func readsTheAccountIDOfAFolder() throws {
+		let home = FileManager.default.temporaryDirectory.appendingPathComponent("AccountUsageTests-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: home) }
+		let other = home.appendingPathComponent(".claude-b")
+		try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+		FileManager.default.createFile(atPath: home.appendingPathComponent(".claude.json").path,
+			contents: Data(#"{"oauthAccount":{"accountUuid":"default"}}"#.utf8))
+		FileManager.default.createFile(atPath: other.appendingPathComponent(".claude.json").path, contents: Data("{}".utf8))
+		#expect(AccountUsageStore.accountID(of: home.appendingPathComponent(".claude"), home: home) == "default")
+		#expect(AccountUsageStore.accountID(of: other, home: home) == nil)
+	}
 }
 
 @MainActor @Suite struct AccountUsageStoreTests {
 	private let usage = AccountUsage(fiveHour: .init(percent: 5))
+
+	@Test func marksTheFolderWithTheLoginOfTheSessions() {
+		let ids = ["/s": "x", "/a": "y", "/b": "x"]
+		let store = AccountUsageStore(directories: { ["/a", "/b"].map { URL(fileURLWithPath: $0) } }, fetch: { _ in .init() },
+			accountID: { ids[$0.path] }, sessionDirectory: URL(fileURLWithPath: "/s"))
+		store.refreshIfStale()
+		#expect(store.entries.map(\.isSessionAccount) == [false, true])
+	}
 
 	@Test func updatesOnlyStaleAccounts() async throws {
 		var fetched: [String] = []

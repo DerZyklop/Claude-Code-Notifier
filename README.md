@@ -121,10 +121,12 @@ with its reset time. From 80 % on, the percentage is orange.
 - **Remove an account:** the minus button in the Accounts tab. For a folder that the app created, the app logs out and
   deletes the folder. Any other folder, for example `~/.claude`, only leaves the list.
 - **How:** the app runs `claude -p` with a prompt of one token for each account, and reads the limits from its
-  output. The app never reads a login token. The run skips all hooks, so it does not show as a session.
+  output. The run uses Fable, because only a Fable request gets the Fable limit. Without Fable, it uses Haiku. The
+  app never reads a login token. The run skips all hooks, so it does not show as a session.
 - **When:** the app updates the data once at its start. A click on the arrow in the card updates it too. If you open
   the menu and the data is older than 10 minutes, the app updates it.
-- **Cost:** each update uses a little of the 5-hour limit. On an idle account, it starts the 5-hour window.
+- **Cost:** each update uses less than 1000 tokens of Fable, so a little of the 5-hour limit and of the Fable limit.
+  On an idle account, it starts the 5-hour window.
 - **Remove:** delete `Sources/AccountUsage.swift`, `Sources/AccountUsageCard.swift`, `Sources/AccountsView.swift`
   and `Tests/AccountUsageTests.swift`. Then remove `addUsageCard(to:)` in `Sources/StatusMenu.swift` and the tab
   `SetupTab.accounts` in `Sources/HookSetup.swift`.

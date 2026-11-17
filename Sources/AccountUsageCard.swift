@@ -51,7 +51,8 @@ struct AccountUsageCard: View {
 		.padding(.bottom, 5)
 	}
 
-	/// The name, then one bar for each limit. Without data, the bars stay empty and the name line names the reason.
+	/// The name, then one bar for each limit. The Fable bar shows only for an account with that limit. Without data, the
+	/// bars stay empty and the name line names the reason.
 	private func row(_ entry: AccountUsageEntry) -> some View {
 		VStack(alignment: .leading, spacing: 3) {
 			HStack(spacing: 4) {
@@ -59,6 +60,14 @@ struct AccountUsageCard: View {
 					.lineLimit(1)
 					.truncationMode(.middle)
 					.help(entry.directory.path)
+				if entry.isSessionAccount {
+					Text("VS Code")
+						.font(.system(size: NSFont.smallSystemFontSize - 1, weight: .medium))
+						.foregroundStyle(.secondary)
+						.padding(.horizontal, 4)
+						.background(Capsule().fill(Color.primary.opacity(0.1)))
+						.help("The Claude Code sessions in VS Code use this account.")
+				}
 				Spacer(minLength: 8)
 				status(entry)
 					.font(.system(size: NSFont.smallSystemFontSize))
@@ -66,6 +75,7 @@ struct AccountUsageCard: View {
 			}
 			window("5 h", entry.usage?.fiveHour)
 			window("Week", entry.usage?.sevenDay)
+			if let fable = entry.usage?.fable { window("Fable", fable) }
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding(.horizontal, 6)
