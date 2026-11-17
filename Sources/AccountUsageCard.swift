@@ -144,7 +144,7 @@ struct UsagePipe: View {
 			half(usage?.sevenDay, color: Self.weekColor)
 			half(usage?.fable, color: Self.fableColor)
 		}
-		.frame(height: 21)
+		.frame(height: 18)
 		.background(Color.primary.opacity(0.12))
 		.clipShape(Capsule())
 		.overlay {
