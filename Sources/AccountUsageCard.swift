@@ -107,26 +107,34 @@ struct AccountUsageCard: View {
 }
 
 /// One rounded pipe for both weekly limits: the week fills the upper half, Fable the lower half, each from the left.
-/// Each half shows its percentage on hover. From 80 % on, a half is red.
+/// Each half shows its percentage on hover. Its hover area covers the full width of the half, and also the free space
+/// above or below the pipe. From 80 % on, a half is red.
 struct UsagePipe: View {
 	let usage: AccountUsage?
 	let now: Date
 
-	/// Bootstrap info, cyan-600 and danger.
-	static let weekColor = Color(red: 0x0d / 255, green: 0xca / 255, blue: 0xf0 / 255)
-	static let fableColor = Color(red: 0x0a / 255, green: 0xa2 / 255, blue: 0xc0 / 255)
+	/// Bootstrap 4 info, its darker hover color, and Bootstrap danger.
+	static let weekColor = Color(red: 0x17 / 255, green: 0xa2 / 255, blue: 0xb8 / 255)
+	static let fableColor = Color(red: 0x11 / 255, green: 0x7a / 255, blue: 0x8b / 255)
 	static let fullColor = Color(red: 0xdc / 255, green: 0x35 / 255, blue: 0x45 / 255)
+	/// The free space above and below the pipe in the row, see `AccountUsageCard.row(_:)`.
+	static let hoverMargin: CGFloat = 4
 
 	var body: some View {
 		VStack(spacing: 0) {
 			half(usage?.sevenDay, color: Self.weekColor)
-				.help(Self.tooltip("Week", usage?.sevenDay, hasData: usage != nil, reset: usage?.resetsAt, now: now))
 			half(usage?.fable, color: Self.fableColor)
-				.help(Self.tooltip("Fable", usage?.fable, hasData: usage != nil, reset: usage?.resetsAt, now: now))
 		}
-		.frame(height: 10)
+		.frame(height: 14)
 		.background(Color.primary.opacity(0.12))
 		.clipShape(Capsule())
+		.overlay {
+			VStack(spacing: 0) {
+				hoverArea(Self.tooltip("Week", usage?.sevenDay, hasData: usage != nil, reset: usage?.resetsAt, now: now))
+				hoverArea(Self.tooltip("Fable", usage?.fable, hasData: usage != nil, reset: usage?.resetsAt, now: now))
+			}
+			.padding(.vertical, -Self.hoverMargin)
+		}
 	}
 
 	private func half(_ window: AccountUsage.Window?, color: Color) -> some View {
@@ -135,7 +143,14 @@ struct UsagePipe: View {
 				.fill((window?.percent ?? 0) >= 80 ? Self.fullColor : color)
 				.frame(width: geometry.size.width * min(max((window?.percent ?? 0) / 100, 0), 1))
 		}
-		.contentShape(Rectangle())
+	}
+
+	private func hoverArea(_ text: String) -> some View {
+		Rectangle()
+			.fill(Color.clear)
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
+			.contentShape(Rectangle())
+			.help(text)
 	}
 
 	/// For example »Week: 25 %«. A reset time that differs from `reset`, the time on the name line, is added.
