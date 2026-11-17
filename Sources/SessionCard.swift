@@ -112,10 +112,10 @@ struct SessionCard: View {
 			Text(session.name)
 				.lineLimit(1)
 				.truncationMode(.tail)
-				.frame(maxWidth: 300, alignment: .leading)
-				// The name takes only its own width, so that the wave gets the rest of the row.
-				.fixedSize(horizontal: true, vertical: false)
 				.help(session.project)
+				.ownWidth(upTo: 300)
+				// The name gets its room before the wave, and is the only part of the row that gets shorter.
+				.layoutPriority(1)
 			wave(color: session.shownState == .working ? Spinner.color : nil)
 			if !session.agents.isEmpty { agentCount(session.agents.count) }
 			Text(Self.elapsed(from: session.started, to: clock.now))
@@ -176,6 +176,7 @@ struct SessionCard: View {
 		}
 		.font(.system(size: NSFont.smallSystemFontSize, weight: .semibold))
 		.foregroundStyle(.secondary)
+		.fixedSize()
 		.help(count == 1 ? "1 subagent runs" : "\(count) subagents run")
 	}
 
@@ -248,7 +249,27 @@ extension SessionState {
 	}
 }
 
+/// Gives its view the width that the view asks for, but at most `maxWidth` and at most the width that the row offers.
+private struct OwnWidth: Layout {
+	let maxWidth: CGFloat
+
+	func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+		guard let view = subviews.first else { return .zero }
+		let ideal = view.sizeThatFits(.unspecified)
+		return CGSize(width: min(ideal.width, maxWidth, proposal.width ?? .infinity), height: ideal.height)
+	}
+
+	func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+		subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+	}
+}
+
 extension View {
+	/// Takes only its own width, up to `maxWidth`, and gets narrower when the row has less room.
+	func ownWidth(upTo maxWidth: CGFloat) -> some View {
+		OwnWidth(maxWidth: maxWidth) { self }
+	}
+
 	/// The bordered card of a menu item, like ``SessionCard``.
 	func menuCard() -> some View {
 		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
