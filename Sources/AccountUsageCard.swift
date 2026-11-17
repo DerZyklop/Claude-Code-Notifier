@@ -121,16 +121,11 @@ struct AccountUsageCard: View {
 }
 
 /// One rounded pipe for both weekly limits: the week fills the upper 2/3, Fable the lower 1/3, each from the left.
-/// Each half shows its percentage on hover. Its hover area covers the full width of the half, and also the free space
-/// above or below the pipe. From 80 % on, a half is red. The pipe draws its own tooltip, because the system tooltip of
-/// `help(_:)` does not show in the menu.
+/// From 80 % on, a part is red. On hover, one tooltip shows both percentages. The hover area covers the full pipe, and
+/// also the free space above and below it.
 struct UsagePipe: View {
 	let usage: AccountUsage?
 	let now: Date
-
-	/// The text of the hovered half, and the x position of the pointer.
-	@State private var hover: (text: String, x: CGFloat)?
-	@State private var bubbleWidth: CGFloat = 0
 
 	/// Bootstrap 4 info, its darker hover color, and Bootstrap danger.
 	static let weekColor = Color(red: 0x17 / 255, green: 0xa2 / 255, blue: 0xb8 / 255)
@@ -144,39 +139,23 @@ struct UsagePipe: View {
 
 	var body: some View {
 		VStack(spacing: 0) {
-			half(usage?.sevenDay, color: Self.weekColor)
+			part(usage?.sevenDay, color: Self.weekColor)
 				.frame(height: Self.weekHeight)
-			half(usage?.fable, color: Self.fableColor)
+			part(usage?.fable, color: Self.fableColor)
 				.frame(height: Self.fableHeight)
 		}
 		.background(Color.primary.opacity(0.12))
 		.clipShape(Capsule())
 		.overlay {
-			VStack(spacing: 0) {
-				hoverArea(Self.tooltip("Week", usage?.sevenDay, hasData: usage != nil, reset: usage?.resetsAt, now: now))
-					.frame(height: Self.weekHeight + Self.hoverMargin)
-				hoverArea(Self.tooltip("Fable", usage?.fable, hasData: usage != nil, reset: usage?.resetsAt, now: now))
-					.frame(height: Self.fableHeight + Self.hoverMargin)
-			}
-		}
-		.overlay(alignment: .topLeading) {
-			GeometryReader { geometry in
-				if let hover {
-					bubble(hover.text)
-						.offset(x: min(max(hover.x - bubbleWidth / 2, 0), max(geometry.size.width - bubbleWidth, 0)),
-							y: -Self.hoverMargin - 20)
-				}
-			}
+			Rectangle()
+				.fill(Color.clear)
+				.contentShape(Rectangle())
+				.menuTooltip(Self.tooltip(usage, now: now))
+				.padding(.vertical, -Self.hoverMargin)
 		}
 	}
 
-	/// A tooltip above the pipe at the pointer, inside the row.
-	private func bubble(_ text: String) -> some View {
-		TooltipBubble(text: text)
-			.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bubbleWidth = $0 }
-	}
-
-	private func half(_ window: AccountUsage.Window?, color: Color) -> some View {
+	private func part(_ window: AccountUsage.Window?, color: Color) -> some View {
 		GeometryReader { geometry in
 			Rectangle()
 				.fill((window?.percent ?? 0) >= 80 ? Self.fullColor : color)
@@ -184,17 +163,11 @@ struct UsagePipe: View {
 		}
 	}
 
-	private func hoverArea(_ text: String) -> some View {
-		Rectangle()
-			.fill(Color.clear)
-			.frame(maxWidth: .infinity, maxHeight: .infinity)
-			.contentShape(Rectangle())
-			.onContinuousHover { phase in
-				switch phase {
-				case .active(let location): hover = (text, location.x)
-				case .ended: if hover?.text == text { hover = nil }
-				}
-			}
+	/// For example »Week: 25 %« and »Fable: 6 %« in two lines.
+	static func tooltip(_ usage: AccountUsage?, now: Date) -> String {
+		guard let usage else { return "No data yet" }
+		return [tooltip("Week", usage.sevenDay, hasData: true, reset: usage.resetsAt, now: now),
+			tooltip("Fable", usage.fable, hasData: true, reset: usage.resetsAt, now: now)].joined(separator: "\n")
 	}
 
 	/// For example »Week: 25 %«. A reset time that differs from `reset`, the time on the name line, is added.

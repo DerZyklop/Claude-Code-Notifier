@@ -175,6 +175,8 @@ private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#
 		#expect(UsagePipe.tooltip("Fable", week, hasData: true, reset: week.resetsAt, now: now) == "Fable: 25 %")
 		#expect(UsagePipe.tooltip("Fable", nil, hasData: true, reset: nil, now: now) == "No Fable limit")
 		#expect(UsagePipe.tooltip("Week", nil, hasData: false, reset: nil, now: now) == "Week: no data yet")
+		#expect(UsagePipe.tooltip(AccountUsage(sevenDay: week), now: now) == "Week: 25 %\nNo Fable limit")
+		#expect(UsagePipe.tooltip(nil, now: now) == "No data yet")
 	}
 
 	/// The menu measures the card before it gives the size to the menu. A card of height 0 does not show.
