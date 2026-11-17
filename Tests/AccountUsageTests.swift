@@ -5,11 +5,11 @@ import Testing
 @testable import ClaudeCodeNotifier
 
 /// A `stream-json` output with one `rate_limit_event`, like Claude Code 2.1 writes it.
-private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#, sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#) -> String {
+private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#, fable: String = #"{"utilization":0.12,"resetsAt":2000}"#) -> String {
 	"""
 	{"type":"system","subtype":"init","session_id":"s"}
 	{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}
-	{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":\(fiveHour),"seven_day":\(sevenDay)}}}
+	{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":\(sevenDay),"seven_day_overage_included":\(fable)}}}
 	{"type":"result","subtype":"success"}
 	"""
 }
@@ -17,19 +17,18 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 @Suite struct AccountUsageParseTests {
 	@Test func readsBothWindows() {
 		let usage = AccountUsage.parse(streamJSON: output(), now: Date(timeIntervalSince1970: 1000))
-		#expect(usage == AccountUsage(fiveHour: .init(percent: 12, resetsAt: Date(timeIntervalSince1970: 2000)),
-			sevenDay: .init(percent: 40.5, resetsAt: Date(timeIntervalSince1970: 9000))))
+		#expect(usage == AccountUsage(sevenDay: .init(percent: 40.5, resetsAt: Date(timeIntervalSince1970: 9000)),
+			fable: .init(percent: 12, resetsAt: Date(timeIntervalSince1970: 2000))))
 	}
 
-	@Test func readsTheFableWindow() {
-		let text = #"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day_overage_included":{"utilization":0.25,"resetsAt":9000}}}}"#
-		#expect(AccountUsage.parse(streamJSON: text, now: Date(timeIntervalSince1970: 1000))
-			== AccountUsage(fable: .init(percent: 25, resetsAt: Date(timeIntervalSince1970: 9000))))
+	@Test func takesTheResetTimeOfTheWeek() {
+		#expect(AccountUsage.parse(streamJSON: output(), now: Date(timeIntervalSince1970: 1000))?.resetsAt == Date(timeIntervalSince1970: 9000))
+		#expect(AccountUsage(fable: .init(percent: 1, resetsAt: Date(timeIntervalSince1970: 5))).resetsAt == Date(timeIntervalSince1970: 5))
 	}
 
 	@Test func countsAWindowAfterItsResetAsUnused() {
 		let usage = AccountUsage.parse(streamJSON: output(), now: Date(timeIntervalSince1970: 5000))
-		#expect(usage?.fiveHour == .init(percent: 0))
+		#expect(usage?.fable == .init(percent: 0))
 		#expect(usage?.sevenDay?.percent == 40.5)
 	}
 
@@ -71,7 +70,7 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 }
 
 @MainActor @Suite struct AccountUsageStoreTests {
-	private let usage = AccountUsage(fiveHour: .init(percent: 5))
+	private let usage = AccountUsage(sevenDay: .init(percent: 5))
 
 	@Test func marksTheFolderWithTheLoginOfTheSessions() {
 		let ids = ["/s": "x", "/a": "y", "/b": "x"]
@@ -85,12 +84,13 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 		var fetched: [String] = []
 		let store = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b")] }, fetch: { url in
 			fetched.append(url.path)
-			return .init(email: "\(url.lastPathComponent)@example.com", usage: AccountUsage(fiveHour: .init(percent: 5)))
+			return .init(email: "\(url.lastPathComponent)@example.com", usage: AccountUsage(sevenDay: .init(percent: 5)))
 		})
 		store.refreshIfStale()
 		try await waitUntil { !store.isLoading }
 		#expect(fetched.sorted() == ["/a", "/b"])
 		#expect(store.entries.map(\.name) == ["a@example.com", "b@example.com"])
+		#expect(store.entries.map(\.shortName) == ["a", "b"])
 		#expect(store.entries.allSatisfy { $0.usage == usage })
 
 		store.refreshIfStale()
@@ -101,7 +101,7 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 	}
 
 	@Test func keepsTheOldUsageAfterAFailure() async throws {
-		var result = AccountUsageStore.Fetch(usage: AccountUsage(fiveHour: .init(percent: 5)))
+		var result = AccountUsageStore.Fetch(usage: AccountUsage(sevenDay: .init(percent: 5)))
 		let store = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a")] }, fetch: { _ in result })
 		store.refreshAll()
 		try await waitUntil { !store.isLoading }
@@ -155,6 +155,15 @@ private func output(fiveHour: String = #"{"utilization":0.12,"resetsAt":2000}"#,
 }
 
 @MainActor @Suite struct AccountUsageCardTests {
+	@Test func namesThePercentageOfEachHalf() {
+		let now = Date(timeIntervalSince1970: 0)
+		let week = AccountUsage.Window(percent: 24.6, resetsAt: Date(timeIntervalSince1970: 3600))
+		#expect(UsagePipe.tooltip("Week", week, hasData: true, reset: nil, now: now) == "Week: 25 %, resets \(AccountUsageCard.resetText(week.resetsAt!, now: now))")
+		#expect(UsagePipe.tooltip("Fable", week, hasData: true, reset: week.resetsAt, now: now) == "Fable: 25 %")
+		#expect(UsagePipe.tooltip("Fable", nil, hasData: true, reset: nil, now: now) == "No Fable limit")
+		#expect(UsagePipe.tooltip("Week", nil, hasData: false, reset: nil, now: now) == "Week: no data yet")
+	}
+
 	/// The menu measures the card before it gives the size to the menu. A card of height 0 does not show.
 	@Test func hasTheHeightOfItsRows() {
 		let store = AccountUsageStore(directories: { [URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b")] }, fetch: { _ in .init() })

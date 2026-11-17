@@ -110,8 +110,10 @@ one PR. So missing PR data cannot look like a successful update.
 
 ## Usage of your accounts
 
-Below the sessions, a second card shows the limits of each Claude account: the 5-hour limit and the weekly limit, each
-with its reset time. From 80 % on, the percentage is orange.
+Below the sessions, a second card shows the limits of each Claude account. Each account has one line with its name
+and the reset time, and below it one bar. The upper half of the bar shows the weekly limit, the lower half the Fable
+limit. From 80 % on, a half is red. Hover over a half to see its percentage. Hover over the name to see the full email.
+A »VS Code« tag marks the account that the VS Code sessions use.
 
 - **Accounts:** the default folder `~/.claude`, and each folder `~/.claude-*` with a `.claude.json` in it.
 - **Add an account:** click »Accounts …« in the card, then »Add Account …«. The app creates the folder
@@ -125,8 +127,7 @@ with its reset time. From 80 % on, the percentage is orange.
   app never reads a login token. The run skips all hooks, so it does not show as a session.
 - **When:** the app updates the data once at its start. A click on the arrow in the card updates it too. If you open
   the menu and the data is older than 10 minutes, the app updates it.
-- **Cost:** each update uses less than 1000 tokens of Fable, so a little of the 5-hour limit and of the Fable limit.
-  On an idle account, it starts the 5-hour window.
+- **Cost:** each update uses less than 1000 tokens of Fable, so a little of the Fable limit.
 - **Remove:** delete `Sources/AccountUsage.swift`, `Sources/AccountUsageCard.swift`, `Sources/AccountsView.swift`
   and `Tests/AccountUsageTests.swift`. Then remove `addUsageCard(to:)` in `Sources/StatusMenu.swift` and the tab
   `SetupTab.accounts` in `Sources/HookSetup.swift`.

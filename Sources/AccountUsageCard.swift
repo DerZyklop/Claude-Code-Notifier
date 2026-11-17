@@ -51,15 +51,15 @@ struct AccountUsageCard: View {
 		.padding(.bottom, 5)
 	}
 
-	/// The name, then one bar for each limit. The Fable bar shows only for an account with that limit. Without data, the
-	/// bars stay empty and the name line names the reason.
+	/// The name and the reset time, then one ``UsagePipe``. Without data, the pipe stays empty and the name line names
+	/// the reason.
 	private func row(_ entry: AccountUsageEntry) -> some View {
-		VStack(alignment: .leading, spacing: 3) {
+		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 4) {
-				Text(entry.name)
+				Text(entry.shortName)
 					.lineLimit(1)
 					.truncationMode(.middle)
-					.help(entry.directory.path)
+					.help("\(entry.name)\n\(entry.directory.path)")
 				if entry.isSessionAccount {
 					Text("VS Code")
 						.font(.system(size: NSFont.smallSystemFontSize - 1, weight: .medium))
@@ -69,13 +69,19 @@ struct AccountUsageCard: View {
 						.help("The Claude Code sessions in VS Code use this account.")
 				}
 				Spacer(minLength: 8)
-				status(entry)
-					.font(.system(size: NSFont.smallSystemFontSize))
-					.lineLimit(1)
+				Group {
+					status(entry)
+					if let reset = entry.usage?.resetsAt {
+						Text(Self.resetText(reset, now: clock.now))
+							.monospacedDigit()
+							.foregroundStyle(.secondary)
+							.help("Resets \(reset.formatted(date: .abbreviated, time: .shortened))")
+					}
+				}
+				.font(.system(size: NSFont.smallSystemFontSize))
+				.lineLimit(1)
 			}
-			window("5 h", entry.usage?.fiveHour)
-			window("Week", entry.usage?.sevenDay)
-			if let fable = entry.usage?.fable { window("Fable", fable) }
+			UsagePipe(usage: entry.usage, now: clock.now)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding(.horizontal, 6)
@@ -93,26 +99,6 @@ struct AccountUsageCard: View {
 		}
 	}
 
-	/// For example »5 h ▬▬▬▭▭▭ 12 % 17:30«. From 80 % on, the bar is orange.
-	private func window(_ title: String, _ window: AccountUsage.Window?) -> some View {
-		HStack(spacing: 6) {
-			Text(title)
-				.frame(width: 34, alignment: .leading)
-			UsageBar(fraction: (window?.percent ?? 0) / 100, color: (window?.percent ?? 0) >= 80 ? .orange : .accentColor)
-			Text(window.map { "\(Int($0.percent.rounded())) %" } ?? "–")
-				.monospacedDigit()
-				.fontWeight(.semibold)
-				.foregroundStyle(.primary)
-				.frame(width: 38, alignment: .trailing)
-			Text(window?.resetsAt.map { Self.resetText($0, now: clock.now) } ?? "")
-				.monospacedDigit()
-				.frame(width: 72, alignment: .trailing)
-				.help(window?.resetsAt.map { "Resets \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "")
-		}
-		.font(.system(size: NSFont.smallSystemFontSize))
-		.foregroundStyle(.secondary)
-	}
-
 	/// The time for a reset in the next 24 hours, else also the weekday: »17:30« or »Mon 08:00«.
 	static func resetText(_ reset: Date, now: Date) -> String {
 		let soon = reset.timeIntervalSince(now) < 24 * 3600
@@ -120,19 +106,45 @@ struct AccountUsageCard: View {
 	}
 }
 
-/// A thin bar that fills from the left. The fraction goes from 0 to 1.
-struct UsageBar: View {
-	let fraction: Double
-	let color: Color
+/// One rounded pipe for both weekly limits: the week fills the upper half, Fable the lower half, each from the left.
+/// Each half shows its percentage on hover. From 80 % on, a half is red.
+struct UsagePipe: View {
+	let usage: AccountUsage?
+	let now: Date
+
+	/// Bootstrap info, cyan-600 and danger.
+	static let weekColor = Color(red: 0x0d / 255, green: 0xca / 255, blue: 0xf0 / 255)
+	static let fableColor = Color(red: 0x0a / 255, green: 0xa2 / 255, blue: 0xc0 / 255)
+	static let fullColor = Color(red: 0xdc / 255, green: 0x35 / 255, blue: 0x45 / 255)
 
 	var body: some View {
-		GeometryReader { geometry in
-			ZStack(alignment: .leading) {
-				Capsule().fill(Color.primary.opacity(0.12))
-				Capsule().fill(color)
-					.frame(width: geometry.size.width * min(max(fraction, 0), 1))
-			}
+		VStack(spacing: 0) {
+			half(usage?.sevenDay, color: Self.weekColor)
+				.help(Self.tooltip("Week", usage?.sevenDay, hasData: usage != nil, reset: usage?.resetsAt, now: now))
+			half(usage?.fable, color: Self.fableColor)
+				.help(Self.tooltip("Fable", usage?.fable, hasData: usage != nil, reset: usage?.resetsAt, now: now))
 		}
-		.frame(height: 5)
+		.frame(height: 10)
+		.background(Color.primary.opacity(0.12))
+		.clipShape(Capsule())
+	}
+
+	private func half(_ window: AccountUsage.Window?, color: Color) -> some View {
+		GeometryReader { geometry in
+			Rectangle()
+				.fill((window?.percent ?? 0) >= 80 ? Self.fullColor : color)
+				.frame(width: geometry.size.width * min(max((window?.percent ?? 0) / 100, 0), 1))
+		}
+		.contentShape(Rectangle())
+	}
+
+	/// For example »Week: 25 %«. A reset time that differs from `reset`, the time on the name line, is added.
+	static func tooltip(_ title: String, _ window: AccountUsage.Window?, hasData: Bool, reset: Date?, now: Date) -> String {
+		guard let window else { return hasData ? "No \(title) limit" : "\(title): no data yet" }
+		var text = "\(title): \(Int(window.percent.rounded())) %"
+		if let own = window.resetsAt, own != reset {
+			text += ", resets \(AccountUsageCard.resetText(own, now: now))"
+		}
+		return text
 	}
 }

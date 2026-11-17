@@ -244,7 +244,7 @@ struct AccountsView: View {
 		} else if let failure = entry.failure {
 			state = failure
 		} else if let usage = entry.usage {
-			state = [("5 h", usage.fiveHour), ("Week", usage.sevenDay)]
+			state = [("Week", usage.sevenDay), ("Fable", usage.fable)]
 				.map { "\($0.0) \($0.1.map { "\(Int($0.percent.rounded())) %" } ?? "–")" }.joined(separator: ", ")
 		} else {
 			state = "No data yet."

@@ -14,10 +14,12 @@ struct AccountUsage: Equatable {
 		var resetsAt: Date?
 	}
 
-	var fiveHour: Window?
 	var sevenDay: Window?
 	/// The weekly Fable limit. Only some accounts have it.
 	var fable: Window?
+
+	/// The reset time of the weekly limit. The Fable limit resets at the same time.
+	var resetsAt: Date? { sevenDay?.resetsAt ?? fable?.resetsAt }
 
 	/// The limits of the last `rate_limit_event` in the `stream-json` output, or `nil` without one. A window after
 	/// its reset time counts as unused, like in the Claude Code extension.
@@ -42,8 +44,7 @@ struct AccountUsage: Equatable {
 				return Window(percent: raw.utilization * 100, resetsAt: reset)
 			}
 		}
-		return AccountUsage(fiveHour: window("five_hour"), sevenDay: window("seven_day"),
-			fable: window("seven_day_overage_included"))
+		return AccountUsage(sevenDay: window("seven_day"), fable: window("seven_day_overage_included"))
 	}
 }
 
@@ -64,11 +65,13 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	/// no `CLAUDE_CONFIG_DIR`. Another folder can have the same login, see ``AccountUsageStore/accountID(of:)``.
 	var isSessionAccount = false
 	var name: String { email ?? (directory.path as NSString).abbreviatingWithTildeInPath }
+	/// The part of the email before the `@`, because all accounts have the same domain.
+	var shortName: String { email.map { String($0.prefix { $0 != "@" }) } ?? name }
 }
 
 /// The usage of each account. The app updates it once at the start. The menu updates it when it opens and the data is
 /// older than ``maxAge``. Each update sends a prompt of one token to Fable per account, so it uses a little of the
-/// 5-hour limit and of the Fable limit. On an idle account, it starts the 5-hour window.
+/// Fable limit.
 @MainActor
 final class AccountUsageStore: ObservableObject {
 	static let shared = AccountUsageStore()
