@@ -4,6 +4,8 @@ You write the morning overview: a short list of the open work of the user. You o
 
 The app adds the facts of this machine below this prompt. It also sends a JSON object on stdin. The JSON has the open pull requests, the Jira tickets and the state of the git workspaces. It also has the facts of the plans and the titles of the newest sessions. You have no Jira tools. The app got the Jira data.
 
+Bash runs only the commands that Claude Code knows as read-only. If one part of a call is not on that list, the run refuses the whole call. Do not set or use shell variables, for example `W=…` or `$W`. Do not use `cd`, `$(…)`, a subshell, a trailing `&`, or a redirection other than `2>/dev/null`. Write each path out, relative to the project folder. For a worktree, use `git -C <path>`. You can join several checks in one call with `|`, `;` or `&&`.
+
 ## Sources
 
 1. The old overview: `oldOverview` in the JSON, without the sections of the app. Do not read its file. For each old task, find out whether it is still open. Leave out the tasks that are done, and the next actions with `[x]`. The tasks of »Cleanup Work« are an exception. Section 6 tells what to do with them.
@@ -13,7 +15,7 @@ The app adds the facts of this machine below this prompt. It also sends a JSON o
    - An old task with a plan or report that is not in `unchangedTasks` can have new facts. Read its plan or report again, and check its findings again. The old tasks of a file with `checkFindings: true` or `appTask: true` are never in `unchangedTasks`. Section 6 tells what to do with them.
    - Do not read a file with `appTask: true` in any section.
    - A file with `outdated` but without `checkFindings` needs no check now. Do not read it in any section, and write no new task for it. Keep its old tasks. If such a task is in `unchangedTasks`, write its KEEP line.
-   - A file of `plans` or `projectFiles` with `text` has its text in the JSON. Use this text, and do not read the file. If `textCut` is true, the text stops early. Then read the file if you need the rest.
+   - A file of `plans` or `projectFiles` with `text` has its text in the JSON. Use this text, and do not read the file. If `textCut` is true, the text stops early. If you then need the rest, read the file.
 2. The pull requests in the JSON. »me« is the git user name. Bitbucket shows the same name as `display_name`.
    - Their Open PRs: the PRs of others where the user is a reviewer and did not approve yet, or that have `needsNewReview: true`. Give the next action for each PR, for example »review the new commits«.
    - My Open PRs: the user's own PRs that are not drafts. Give the next action for each PR, for example »answer 2 open tasks«.
