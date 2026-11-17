@@ -245,6 +245,8 @@ private func checked(_ files: [[String: Any]]) -> [String] {
 		let saved = try #require(MorningOverview.lastOutdated(fixture.report))
 		#expect(saved.outdated.contains(declinedURL))
 		#expect(!saved.outdated.contains(reviews.appendingPathComponent("13-other.md").absoluteString))
+		// The names of all files count for the KEEP of the next run.
+		#expect(saved.names?.isSuperset(of: ["13-other.md", "14-declined.md"]) == true)
 		// The next run has the task again, also when Claude does not keep it.
 		await fixture.report.update()
 		text = try String(contentsOf: fixture.fileURL, encoding: .utf8)

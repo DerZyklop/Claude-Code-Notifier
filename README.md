@@ -42,12 +42,18 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
 - **Unchanged tasks:** Claude writes `KEEP <ID>` for an old task that stays the same, and the app copies the old task
   with its open sub-items. In the PR sections, a task stays the same only for a PR with no change since the last run:
   no commit, also no local one, and no comment, task, build, merge conflict, review, review report or turn. For this,
-  the app saves the state of each open PR. A task whose sub-items are all ticked goes away. While a run is
+  the app saves the state of each open PR. If a `.md` name in a PR task is no plan or project file, it does not count.
+  An example is a file on the branch of the PR. A task whose sub-items are all ticked goes away. While a run is
   active, the app does not give new IDs in the old file. So each ID names the same task for the app and for Claude.
   Claude does not read an unchanged plan or review report again. Unchanged means: no change to the file, and no new
   commits on its PR or branch since the old file. A merged PR, a commit on `origin` and a moved file count as a change. A changed 🚫 or a ticket
   that is done now also makes Claude write the task again. For this, the app saves the newest commit of each open PR
   after each run that wrote a file.
+- **Unchanged tasks without files:** in »Open Branches« and »Optional Work«, a task without a plan or report can stay
+  the same too. It must name a branch, a worktree, an open PR or a session, and none of them changed. For this, the
+  app saves the state of each branch, worktree, session and ticket. These count as a change: a new commit or
+  uncommitted change, a new session message, a new Jira status, and a new PR of the branch. A ticket in the sprint and
+  an archived session count too.
 - **New review:** a review report is a file `reviews/<PR>-<name>.md` in the project folder that names its »reviewed
   commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
   again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict.
@@ -217,9 +223,10 @@ web pages.
 - macOS keeps the notification permission, the login item and an empty Metal cache folder.
 - The app writes no logs and no caches. Its only files are the morning overviews and `stats.md` in the folder of the setting, and DiDi in the project folder.
 - `~/Library/Application Support/local.claude-code-notifier.app/morning-overview/` holds the last overview that the app
-  wrote. It also holds these files of the last run: `pull-request-heads.json` with the newest commit of each open PR,
-  `pull-request-states.json` with the state of each open PR,
-  and `outdated-files.json` with the outdated plans and reports. `last-run.json` and `last-run-input.json` hold the
+  wrote. It also holds these files of the last run. `pull-request-heads.json` has the newest commit of each open PR,
+  and `pull-request-states.json` has the state of each open PR. `outdated-files.json` has the outdated plans and
+  reports, and the names of all plans and reports. `named-states.json` has the state of each branch, worktree, session
+  and ticket. `last-run.json` and `last-run-input.json` hold the
   command and the input of the Claude run, without tokens. The same files of DiDi are in the folder `didi`.
 - `python3 scripts/replay-last-run.py default medium low` runs the last Claude run again with each effort level, at
   the same time. It writes each answer and a table with the time into the folder `replay`, and never the overview.

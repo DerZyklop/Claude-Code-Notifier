@@ -518,6 +518,7 @@ extension ReportFixture {
 		let worktrees = MorningOverview.worktrees(in: worktreeList)
 		#expect(worktrees.map(\.path) == ["/work/repo", "/work/repo/.claude/worktrees/scratch"])
 		#expect(worktrees.map(\.branch) == ["main", nil])
+		#expect(worktrees.map(\.head) == ["abc", "def"])
 	}
 
 	@Test(arguments: [

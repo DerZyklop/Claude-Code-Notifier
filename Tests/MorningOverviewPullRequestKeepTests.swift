@@ -59,6 +59,33 @@ import Testing
 		// Without the states of the pull requests, no PR task is unchanged.
 		#expect(MorningOverview.unchangedTasks(in: old, files: files, changedPullRequests: []) == ["O1", "O2"])
 	}
+
+	@Test func aFileOnTheBranchOfThePullRequestDoesNotBlockKeep() {
+		let old = """
+			# Morning overview
+
+			## 2 × Draft PRs
+
+			- [ ] `D1` [`#12`](https://bb/12) Fix
+			    - [ ] Remove `notes/branch-report.md` from the branch.
+			- [ ] `D2` [`#13`](https://bb/13) Other
+			    - [ ] Update `gone-plan.md`.
+
+			## 2 × Optional Work
+
+			- [ ] `O1` Plan [a.md](file:///p/a.md)
+			    - [ ] Remove `branch-report.md`.
+			"""
+		let files: [[String: Any]] = [["url": "file:///p/a.md", "changedAfterOldOverview": false, "newCommits": false]]
+		let unchanged = { (lastNames: Set<String>?) in
+			MorningOverview.unchangedTasks(in: old, files: files, changedPullRequests: [], unchangedPullRequests: [12, 13],
+				openPullRequests: [12, 13], lastNames: lastNames)
+		}
+		// `gone-plan.md` was a plan at the last run, so it changed. Outside the PR sections, an unknown name still counts.
+		#expect(unchanged(["a.md", "gone-plan.md"]) == ["D1"])
+		// Without the names of the last run, each unknown name counts as changed.
+		#expect(unchanged(nil) == [])
+	}
 }
 
 @MainActor @Suite struct MorningOverviewPullRequestKeepRunTests {
