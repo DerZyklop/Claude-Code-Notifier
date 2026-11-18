@@ -18,12 +18,14 @@ Bash runs only the commands that Claude Code knows as read-only. If one part of 
    - A file of `plans` or `projectFiles` with `text` has its text in the JSON. Use this text, and do not read the file. If `textCut` is true, the text stops early. If you then need the rest, read the file.
 2. The pull requests in the JSON. »me« is the git user name. Bitbucket shows the same name as `display_name`.
    - Their Open PRs: the PRs of others where the user is a reviewer and did not approve yet, or that have `needsNewReview: true`. Give the next action for each PR, for example »review the new commits«.
-   - My Open PRs: the user's own PRs that are not drafts. Give the next action for each PR, for example »answer 2 open tasks«.
+   - My Open PRs: the user's own PRs that are not drafts. Give the next action for each PR, for example »answer Rui's question«.
    - Draft PRs: the user's own drafts.
    - A PR with `draft: true` goes only in »Draft PRs«. Never put a draft in »Their Open PRs« or »My Open PRs«.
    - Take the PRs only from the JSON. A PR of the old overview that the JSON does not have is not open for the user.
-   - Use the unresolved tasks and the newest comments of each PR to find the next action.
-   - A PR with `needsNewReview: true` got new commits after the review reports of the user. For a PR of the user, at least one of these commits is from the user. The app adds the next action »Run `/nn-review #<ID>` again« itself. For such a PR, write no other next action to review it again, also not with `/p-pr-review`. You can still write »resolve the `/p-pr-review` task«. For a PR of the user without `needsNewReview`, write no next action to review the PR again because of new commits, because the user does not review the commits of others on the user's own PRs. For the other PRs, keep each review step that a plan, a PR task or a comment asks for.
+   - Use the newest comments of each PR to find the next action. A next action can also come from a plan, a review report or a session of the PR. It can come from a build or from the git state of the branch too.
+   - Write no next action for a task of a PR, because the user sees the tasks in the PR. The title line is the reminder. So the JSON does not have the tasks, and not the comments that have an open task. `hasOpenTasks` only tells whether a task is open. Do not write »Answer Milad's 2 tasks« or »Resolve the `/p-pr-review` task«. Also do not write such a step as a part of another next action, for example »…, then resolve your task«.
+   - The old overview can have next actions from the tasks of a PR. When you write the task of a PR again, look at each old next action. If no source above supports it now, leave it out. An example is »Review the changed screenshots« from a task of the pipeline.
+   - A PR with `needsNewReview: true` got new commits after the review reports of the user. For a PR of the user, at least one of these commits is from the user. The app adds the next action »Run `/nn-review #<ID>` again« itself. For such a PR, write no other next action to review it again, also not with `/p-pr-review`. If a PR of the user has no `needsNewReview`, write no next action to review it again for new commits. The user does not review the commits of others on the user's own PRs. For the other PRs, keep each review step that a plan or a comment asks for.
    - If a PR has `isMyTurn: false` and `isStale: false`, the next step is not for the user. Write no next action for the PR. Also write no action for later. An example of such an action: »If Rui does not review it by tomorrow noon, ask Rui for a review.« Write only the title line. A PR with `isStale: true` can get a reminder to the colleague as its next action.
    - Do not write 🏓 or ⌛. The app puts 🏓 before the link of a PR where the next step is not for the user. It puts ⌛ before the link of a PR that nobody changed for 24 hours.
    - If a PR has `hasMergeConflict: true`, its task starts with this next action: »Merge `<destination branch>` into the branch and solve the merge conflict.« Take the branch from `destination.branch.name`. This applies in each section that names the PR.
@@ -139,12 +141,12 @@ Rules:
   - Find the ticket ID in the PR title, the branch name or the name of a plan file.
   - If no ref fits, write the URL.
   - Below the title line, write each next action as a sub-item `    - [ ] `, indented with 4 spaces. Each sub-item is one line.
-  - A next action is a command that the user can do: »Merge it.«, »Answer Milad's 2 tasks.« A fact alone is no next action. Never write a sub-item that only tells a state, for example »Milad and Rui approved it. The pipeline is green.«
+  - A next action is a command that the user can do: »Merge it.«, »Answer Milad's question.« A fact alone is no next action. Never write a sub-item that only tells a state, for example »Milad and Rui approved it. The pipeline is green.«
   - If a fact is necessary, put it into the next action that needs it, as a condition or a reason: »If the visual test stays green, merge it.«, »Pull first, because the local branch is 2 commits behind.«
 - In each section, sort the tasks by these criteria. A task that meets an earlier criterion comes first. Among tasks with the same criteria, the easier task comes first.
   1. The task blocks a colleague. A PR with `waitsForMyReview: true` in the JSON always counts. Other examples: an answer to a colleague's question, or a ticket that a colleague's ticket depends on.
   2. A colleague already reviewed the PR. In the JSON, a reviewer has `approved: true` or a `state`.
-  3. All tasks of the PR are already done. In the JSON, `openTasks` is empty.
+  3. The PR has no open task. In the JSON, `hasOpenTasks` is false.
   4. The pipeline of the PR already succeeded. In the JSON, the newest entry of `buildStatuses` has the state `SUCCESSFUL`.
   5. The ticket blocks other tickets. In `jira.tickets`, its `blocks` is not empty.
   6. The plan blocks other plans or tickets. The plan text names them.

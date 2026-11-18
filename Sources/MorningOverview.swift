@@ -117,7 +117,7 @@ enum MorningOverview {
 		let reviews = await withoutCommitsOfOthers(newReviews(in: projectFiles, pullRequests: pullRequests, me: me), bitbucket, me: me)
 		appData[newReviewsKey] = reviews
 		pullRequests = withNewReviews(reviews, in: pullRequests)
-		data["pullRequests"] = pullRequests
+		data["pullRequests"] = pullRequests.map(withoutTasks)
 		appData[othersTurnKey] = ids(of: pullRequests.filter { $0["isMyTurn"] as? Bool == false })
 		let pullRequestStates = Dictionary(pullRequests.compactMap { pullRequest in (pullRequest["id"] as? Int).map { ($0, state(of: pullRequest)) } },
 			uniquingKeysWith: { first, _ in first })
@@ -1104,6 +1104,10 @@ enum MorningOverview {
 	/// The key of the ``state(of:)`` of each open pull request in `appData`, for ``saveStates(_:_:)``.
 	static let statesKey = "pullRequestStates"
 
+	/// The version of the rules for the next actions of a pull request. A new version changes each ``state(of:)``, so
+	/// that Claude writes the task of each pull request again in the next run.
+	static let pullRequestRules = 2
+
 	/// The facts of a pull request that change its next action, as one text: its newest commit, the time of its last
 	/// change, its comments and tasks, its newest build, its merge conflict, and whether it is a draft, the turn of the
 	/// user, stale or in need of a new review. Bitbucket changes `updated_on` on a push, a comment, a task and a review.
@@ -1122,6 +1126,7 @@ enum MorningOverview {
 				(item["content"] as? [String: Any])?["raw"] as? String ?? ""].joined(separator: ":")
 		}.joined(separator: "\n")
 		return [
+			"rules=\(pullRequestRules)",
 			"head=" + (heads(of: [pullRequest]).values.first ?? ""), "updated=" + (pullRequest["updated_on"] as? String ?? ""),
 			"comments=" + number("comment_count"), "tasks=" + number("task_count"),
 			"openTasks=" + ((pullRequest["openTasks"] as? [Any]).map { String($0.count) } ?? ""), "build=" + (build ?? ""),
@@ -2056,22 +2061,72 @@ enum MorningOverview {
 		var values: [String: Any]
 	}
 
+	/// The most comments of a pull request that the app reads, for the threads of the tasks. 100 come on each page.
+	static let commentPages = 2
+	/// The most tasks of a pull request that the app reads, in all states. 100 come on each page.
+	static let taskPages = 3
+	/// The number of the newest comments that the app keeps of a pull request.
+	static let newestCommentCount = 10
+
 	/// The open tasks, newest comments, newest build states and merge conflict of a pull request. The four requests run at
-	/// the same time.
+	/// the same time. `commentsWithoutTasks` holds the newest comments outside the threads of the tasks, for
+	/// ``withoutTasks(_:)``.
 	private static func details(_ bitbucket: Bitbucket, id: Int) async throws -> Details {
-		async let tasks = bitbucket.values("/pullrequests/\(id)/tasks", query: ["q": "state=\"UNRESOLVED\"", "pagelen": "50"],
-			fields: ["content.raw", "creator.display_name"], maxPages: 1)
-		async let comments = bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "10"],
-			fields: ["content.raw", "user.display_name", "user.type", "created_on", "inline.path", "deleted"], maxPages: 1)
+		// All states, because the comment of a resolved task is no next action either.
+		async let tasks = bitbucket.values("/pullrequests/\(id)/tasks", query: ["pagelen": "100"],
+			fields: ["content.raw", "creator.display_name", "comment.id", "state"], maxPages: taskPages)
+		async let comments = bitbucket.values("/pullrequests/\(id)/comments", query: ["sort": "-created_on", "pagelen": "100"],
+			fields: ["id", "parent.id", "content.raw", "user.display_name", "user.type", "created_on", "inline.path", "deleted"],
+			maxPages: commentPages)
 		async let statuses = bitbucket.values("/pullrequests/\(id)/statuses", query: ["sort": "-updated_on", "pagelen": "5"],
 			fields: ["state", "name", "updated_on"], maxPages: 1)
 		async let mergeConflict = hasMergeConflict(bitbucket, id: id)
+		let (allTasks, allComments) = try await (tasks, comments)
+		let threads = taskThreads(of: allTasks, in: allComments)
+		let visible = allComments.filter { $0["deleted"] as? Bool != true }
+		let shortened = { (items: [[String: Any]]) in
+			items.prefix(newestCommentCount).map { Bitbucket.shortened($0).filter { $0.key != "id" && $0.key != "parent" } }
+		}
 		return try await Details(values: [
-			"openTasks": tasks.map { Bitbucket.shortened($0) },
-			"newestComments": comments.filter { $0["deleted"] as? Bool != true }.map { Bitbucket.shortened($0) },
+			"openTasks": allTasks.filter { $0["state"] as? String == "UNRESOLVED" }
+				.map { Bitbucket.shortened($0).filter { $0.key != "comment" && $0.key != "state" } },
+			"newestComments": shortened(visible),
+			"commentsWithoutTasks": shortened(visible.filter { commentID($0).map(threads.contains) != true }),
 			"buildStatuses": statuses,
 			"hasMergeConflict": mergeConflict,
 		])
+	}
+
+	/// The ID of a comment, or of the `parent` or `comment` object of an item.
+	private static func commentID(_ item: [String: Any]?) -> Int? { item?["id"] as? Int }
+
+	/// The IDs of the comments of `tasks` in any state, and of all replies to them in `comments`, at any depth. A deleted
+	/// comment links its replies too. A reply whose parent is not in `comments`, e.g. older than the comments that the app
+	/// reads, is found only by its own parent chain.
+	static func taskThreads(of tasks: [[String: Any]], in comments: [[String: Any]]) -> Set<Int> {
+		var ids = Set(tasks.compactMap { commentID($0["comment"] as? [String: Any]) })
+		let parents = Dictionary(comments.compactMap { comment in
+			commentID(comment).flatMap { id in commentID(comment["parent"] as? [String: Any]).map { (id, $0) } }
+		}, uniquingKeysWith: { first, _ in first })
+		// The newest comments come first, so a reply comes before its parent. The search runs until it finds no more reply.
+		while true {
+			let replies = parents.filter { ids.contains($0.value) && !ids.contains($0.key) }.map(\.key)
+			guard !replies.isEmpty else { return ids }
+			ids.formUnion(replies)
+		}
+	}
+
+	/// The pull request as Claude gets it: without its tasks, and without the comments of a task and the replies to
+	/// them (``taskThreads(of:in:)``). The user sees them in the pull request, so no next action repeats them.
+	/// `hasOpenTasks` tells whether a task is open. A pull request without details has no `hasOpenTasks`.
+	static func withoutTasks(_ pullRequest: [String: Any]) -> [String: Any] {
+		var pullRequest = pullRequest
+		pullRequest["task_count"] = nil
+		guard let tasks = pullRequest["openTasks"] as? [[String: Any]] else { return pullRequest }
+		pullRequest["openTasks"] = nil
+		pullRequest["hasOpenTasks"] = !tasks.isEmpty
+		pullRequest["newestComments"] = pullRequest.removeValue(forKey: "commentsWithoutTasks") ?? []
+		return pullRequest
 	}
 
 	/// The results of `body` for each of `items`, in the order of `items`. At most `limit` calls run at the same time.

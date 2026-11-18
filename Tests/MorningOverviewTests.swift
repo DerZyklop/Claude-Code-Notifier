@@ -58,9 +58,13 @@ extension ReportFixture {
 		} else if path.hasSuffix("/22/diffstat") {
 			[["new": ["path": "scheduler.logic/B.java"], "old": ["path": "scheduler.logic/B.java"]]]
 		} else if path.hasSuffix("/tasks") {
-			[["content": ["raw": String(repeating: "t", count: 400)], "creator": ["display_name": "Rui"]]]
+			[["content": ["raw": String(repeating: "t", count: 400)], "creator": ["display_name": "Rui"], "comment": ["id": 7], "state": "UNRESOLVED"],
+				["content": ["raw": "VT > review the screenshots"], "creator": ["display_name": "Pipeline"], "comment": ["id": 6], "state": "RESOLVED"]]
 		} else if path.hasSuffix("/comments") {
-			[["content": ["raw": "Looks good"], "user": ["display_name": "Rui"]], ["content": ["raw": "gone"], "deleted": true]]
+			[["id": 9, "content": ["raw": "Looks good"], "user": ["display_name": "Rui"]], ["content": ["raw": "gone"], "deleted": true],
+				["id": 8, "parent": ["id": 7], "content": ["raw": "Reply"], "user": ["display_name": "Nils"]],
+				["id": 7, "content": ["raw": "With a task"], "user": ["display_name": "Rui"]],
+				["id": 6, "content": ["raw": "Review needed"], "user": ["display_name": "Pipeline", "type": "app_user"]]]
 		} else if path.hasSuffix("/statuses") {
 			[["state": "SUCCESSFUL", "name": "Pipeline #1"]]
 		} else if path.hasSuffix("/diffstat") {
@@ -384,13 +388,14 @@ extension ReportFixture {
 		let pullRequests = try #require(input["pullRequests"] as? [[String: Any]])
 		#expect(pullRequests.map { $0["id"] as? Int } == [12, 13])
 		// Only the own PR gets details. Rui's PR names Nils as a participant, not as a reviewer.
-		let tasks = try #require(pullRequests[0]["openTasks"] as? [[String: Any]])
-		let task = try #require((tasks.first?["content"] as? [String: Any])?["raw"] as? String)
-		#expect(task.count == 301 && task.hasSuffix("…"))
-		#expect((pullRequests[0]["newestComments"] as? [Any])?.count == 1)
+		// Claude gets no task, and no comment of a task in any state, with its replies.
+		#expect(pullRequests[0]["openTasks"] == nil)
+		#expect(pullRequests[0]["hasOpenTasks"] as? Bool == true)
+		let comments = try #require(pullRequests[0]["newestComments"] as? [[String: Any]])
+		#expect(comments.map { ($0["content"] as? [String: Any])?["raw"] as? String } == ["Looks good"])
 		#expect((pullRequests[0]["buildStatuses"] as? [[String: Any]])?.first?["state"] as? String == "SUCCESSFUL")
 		#expect(pullRequests[0]["hasMergeConflict"] as? Bool == true)
-		#expect(pullRequests[1]["openTasks"] == nil)
+		#expect(pullRequests[1]["hasOpenTasks"] == nil)
 
 		let workspaces = try #require(input["workspaces"] as? [[String: Any]])
 		#expect(workspaces.map { $0["path"] as? String } == ["/work/repo", "/work/repo/.claude/worktrees/scratch"])
@@ -416,9 +421,10 @@ extension ReportFixture {
 			#expect(request.value(forHTTPHeaderField: "Authorization") == authorization)
 		}
 		let tasks = try #require(requests.first { $0.url!.path.hasSuffix("/tasks") })
+		// All states, so that the comment of a resolved task stays hidden too.
 		let query = URLComponents(url: tasks.url!, resolvingAgainstBaseURL: false)?.queryItems
-		#expect(query?.first { $0.name == "q" }?.value == "state=\"UNRESOLVED\"")
-		#expect(tasks.url!.absoluteString.contains("\"") == false)
+		#expect(query?.first { $0.name == "q" } == nil)
+		#expect(query?.first { $0.name == "fields" }?.value?.contains("values.comment.id") == true)
 	}
 
 	@Test func inParallelKeepsTheOrderAndRunsAtMostTheLimit() async throws {
@@ -945,6 +951,38 @@ extension ReportFixture {
 		try FileManager.default.removeItem(at: plans)
 		try FileManager.default.createDirectory(at: plans, withIntermediateDirectories: true)
 		#expect(MorningOverview.notifierSection(plansIn: plans) == "\n## Notifier App\n\nNo plans.\n")
+	}
+
+	@Test func theThreadOfATaskHasEachReplyAtAnyDepth() {
+		let comment = { (id: Int, parent: Int?, deleted: Bool) -> [String: Any] in
+			["id": id, "deleted": deleted].merging(parent.map { ["parent": ["id": $0]] } ?? [:]) { $1 }
+		}
+		// The newest comment comes first: 6 answers the deleted 5, 5 answers 2, 4 answers 3, and 3 answers 1.
+		let comments = [comment(6, 5, false), comment(5, 2, true), comment(4, 3, false), comment(3, 1, false), comment(2, nil, false),
+			comment(1, nil, false)]
+		let tasks: [[String: Any]] = [["comment": ["id": 2], "state": "RESOLVED"], ["content": ["raw": "A task without a comment"]]]
+		#expect(MorningOverview.taskThreads(of: tasks, in: comments) == [2, 5, 6])
+		// The task comment itself can be older than the comments that the app reads.
+		#expect(MorningOverview.taskThreads(of: [["comment": ["id": 9]]], in: [comment(10, 9, false), comment(11, 10, false)]) == [9, 10, 11])
+	}
+
+	@Test func claudeGetsNoTasksAndNoCommentsOfATask() {
+		let pullRequest: [String: Any] = ["id": 12, "task_count": 3, "comment_count": 5, "openTasks": [["content": ["raw": "fix"]]],
+			"newestComments": [["content": ["raw": "With a task"]], ["content": ["raw": "Other"]]],
+			"commentsWithoutTasks": [["content": ["raw": "Other"]]]]
+		let result = MorningOverview.withoutTasks(pullRequest)
+		#expect(result["openTasks"] == nil)
+		#expect(result["task_count"] == nil)
+		#expect(result["commentsWithoutTasks"] == nil)
+		#expect(result["hasOpenTasks"] as? Bool == true)
+		#expect(result["comment_count"] as? Int == 5)
+		#expect((result["newestComments"] as? [[String: Any]])?.map { ($0["content"] as? [String: Any])?["raw"] as? String } == ["Other"])
+
+		#expect(MorningOverview.withoutTasks(["id": 14, "openTasks": [[String: Any]]()])["hasOpenTasks"] as? Bool == false)
+		// A pull request without details has no known tasks.
+		let other = MorningOverview.withoutTasks(["id": 13, "task_count": 1])
+		#expect(other["hasOpenTasks"] == nil)
+		#expect(other["task_count"] == nil)
 	}
 
 	@Test(arguments: [
