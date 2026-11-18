@@ -65,13 +65,10 @@ enum MorningOverview {
 		do {
 			bitbucket = try await report.bitbucket()
 			report.step("Bitbucket login")
-			pullRequests = try await Self.pullRequests(bitbucket, me: me).map { pullRequest in
-				var pullRequest = pullRequest
-				pullRequest["isStale"] = isStale(pullRequest, now: system.now())
-				return pullRequest
-			}
+			pullRequests = try await Self.pullRequests(bitbucket, me: me)
 			report.step("Open pull requests")
-			appData[staleKey] = ids(of: pullRequests.filter { $0["isStale"] as? Bool == true })
+			let now = system.now()
+			appData[staleKey] = ids(of: pullRequests.filter { isStale($0, now: now) })
 			appData[blockedKey] = ids(of: pullRequests.filter { ($0["title"] as? String)?.contains(blockedMark) == true })
 			let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? days(mergeDays, before: system.now())
 			appData[otherMergesSection] = try await otherMerges(bitbucket, me: me, since: since)
@@ -1106,11 +1103,11 @@ enum MorningOverview {
 
 	/// The version of the rules for the next actions of a pull request. A new version changes each ``state(of:)``, so
 	/// that Claude writes the task of each pull request again in the next run.
-	static let pullRequestRules = 2
+	static let pullRequestRules = 3
 
 	/// The facts of a pull request that change its next action, as one text: its newest commit, the time of its last
 	/// change, its comments and tasks, its newest build, its merge conflict, and whether it is a draft, the turn of the
-	/// user, stale or in need of a new review. Bitbucket changes `updated_on` on a push, a comment, a task and a review.
+	/// user or in need of a new review. Bitbucket changes `updated_on` on a push, a comment, a task and a review.
 	static func state(of pullRequest: [String: Any]) -> String {
 		let number = { (key: String) in (pullRequest[key] as? Int).map(String.init) ?? "" }
 		let flag = { (key: String) in pullRequest[key] as? Bool == true ? "1" : "0" }
@@ -1130,7 +1127,7 @@ enum MorningOverview {
 			"head=" + (heads(of: [pullRequest]).values.first ?? ""), "updated=" + (pullRequest["updated_on"] as? String ?? ""),
 			"comments=" + number("comment_count"), "tasks=" + number("task_count"),
 			"openTasks=" + ((pullRequest["openTasks"] as? [Any]).map { String($0.count) } ?? ""), "build=" + (build ?? ""),
-			"conflict=" + flag("hasMergeConflict"), "draft=" + flag("draft"), "myTurn=" + flag("isMyTurn"), "stale=" + flag("isStale"),
+			"conflict=" + flag("hasMergeConflict"), "draft=" + flag("draft"), "myTurn=" + flag("isMyTurn"),
 			"newReview=" + flag("needsNewReview"), "reviewed=" + (pullRequest["reviewedCommit"] as? String ?? ""),
 			"title=" + (pullRequest["title"] as? String ?? ""), "reviews=" + reviews,
 			"texts=" + SHA256.hash(data: Data(texts.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined(),

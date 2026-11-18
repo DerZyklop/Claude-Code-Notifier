@@ -6,14 +6,14 @@ import Testing
 	private let pullRequest: [String: Any] = ["id": 12, "title": "Fix", "updated_on": "2026-10-26T10:00:00.000000+00:00", "comment_count": 2,
 		"task_count": 1, "source": ["commit": ["hash": "abc"]], "openTasks": [["content": ["raw": "t"]]],
 		"buildStatuses": [["name": "Pipeline #2", "state": "SUCCESSFUL"], ["name": "Pipeline #1", "state": "FAILED"]],
-		"hasMergeConflict": false, "draft": false, "isMyTurn": true, "isStale": false]
+		"hasMergeConflict": false, "draft": false, "isMyTurn": true]
 
 	@Test func eachFactOfThePullRequestChangesItsState() {
 		let state = MorningOverview.state(of: pullRequest)
 		#expect(MorningOverview.state(of: pullRequest) == state)
 		let changes: [(String, Any)] = [("updated_on", "2026-10-27T10:00:00.000000+00:00"), ("comment_count", 3), ("task_count", 2),
 			("source", ["commit": ["hash": "def"]]), ("openTasks", [[String: Any]]()), ("buildStatuses", [["name": "Pipeline #3", "state": "FAILED"]]),
-			("hasMergeConflict", true), ("draft", true), ("isMyTurn", false), ("isStale", true), ("needsNewReview", true),
+			("hasMergeConflict", true), ("draft", true), ("isMyTurn", false), ("needsNewReview", true),
 			("reviewedCommit", "1234567"), ("title", "Fix more"),
 			("participants", [["user": ["display_name": "Rui"], "role": "REVIEWER", "approved": true]]),
 			("openTasks", [["content": ["raw": "t2"]]]), ("newestComments", [["content": ["raw": "Edited"], "user": ["display_name": "Rui"]]])]
