@@ -238,6 +238,56 @@ import Testing
 			""")
 	}
 
+	@Test(arguments: [
+		// The newest commit is from Rui, and the commits of Nils are not after the reviewed commit.
+		(["Rui Costa <rui@x.com>", "Nils <nils@x.com>", "Nils <nils@x.com>"], "bbbb222", false),
+		(["Rui Costa <rui@x.com>", "Nils <nils@x.com>", "Nils <nils@x.com>"], "cccc333", true),
+		// The reviewed commit is the newest one.
+		(["Nils <nils@x.com>", "Nils <nils@x.com>"], "aaaa111", false),
+		// No commit is the reviewed one, e.g. after a rebase, so each commit counts.
+		(["Rui Costa <rui@x.com>", "Nils <nils@x.com>"], "0000000", true),
+		(["Rui Costa <rui@x.com>", "Nilsson <n@x.com>"], "0000000", false),
+	] as [([String], String, Bool)])
+	func aCommitOfTheUserAfterTheReviewedCommit(authors: [String], reviewed: String, expected: Bool) {
+		let hashes = ["aaaa111aaaa", "bbbb222bbbb", "cccc333cccc"]
+		let commits = zip(hashes, authors).map { hash, author in ["hash": hash, "author": ["raw": author]] as [String: Any] }
+		#expect(MorningOverview.hasCommit(of: "Nils", after: reviewed, in: commits) == expected)
+	}
+
+	@Test func theDisplayNameOnBitbucketNamesTheUserToo() {
+		let commits: [[String: Any]] = [["hash": "aaaa111", "author": ["raw": "nn <nils@x.com>", "user": ["display_name": "Nils"]]]]
+		#expect(MorningOverview.hasCommit(of: "Nils", after: "0000000", in: commits))
+		#expect(!MorningOverview.hasCommit(of: "Rui", after: "0000000", in: commits))
+	}
+
+	@Test func theNextActionOfAReviewThatIsNotNewGoesAway() {
+		let review = MorningOverview.NewReview(id: 14, reviewedCommit: "6e460fc", url: "https://bb/14", title: "Other", section: "My Open PRs")
+		let overview = """
+			# Morning overview
+
+			## My Open PRs
+
+			- [ ] `M1` [`#12`](https://bb/12) Fix
+			    - [ ] `M1a` Run `/nn-review #12` again, because the PR has new commits after the review of `1111111`.
+			        - a note
+			    - [ ] `M1b` Answer Rui.
+			- [ ] [`#14`](https://bb/14) Other
+			    - [ ] Run `/nn-review #14` again, because the PR has new commits after the review of `6e460fc`.
+
+			"""
+		#expect(MorningOverview.withNewReviewTasks([review], jiraBrowseURL: nil, in: overview) == """
+			# Morning overview
+
+			## My Open PRs
+
+			- [ ] `M1` [`#12`](https://bb/12) Fix
+			    - [ ] `M1b` Answer Rui.
+			- [ ] [`#14`](https://bb/14) Other
+			    - [ ] Run `/nn-review #14` again, because the PR has new commits after the review of `6e460fc`.
+
+			""")
+	}
+
 	@Test func aNewReviewComesAfterTheMergeOfAConflict() {
 		var review = MorningOverview.NewReview(id: 12, reviewedCommit: "6e460fc", url: "https://bb/12", title: "Fix", section: "My Open PRs")
 		review.hasMergeConflict = true
@@ -292,6 +342,30 @@ import Testing
 		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
 		#expect(text.contains("Run `/nn-review #13` again, because the PR has new commits after the review of `1234567`."))
 		#expect(MorningOverview.lastHeads(fixture.report) == ["12": "aaaa1111bbbb", "13": "cccc2222dddd"])
+	}
+
+	/// ``bodyWithHeads(of:)``, with one commit of `author` on the pull request 12 after the reviewed commit `1234567`.
+	nonisolated static func bodyWithCommits(of request: URLRequest, author: String) -> Data {
+		guard request.url!.path.hasSuffix("/pullrequests/12/commits") else { return bodyWithHeads(of: request) }
+		return bitbucketPage([["hash": "aaaa1111bbbb", "author": ["raw": "\(author) <a@x.com>"]],
+			["hash": "1234567890ab", "author": ["raw": "Nils <nils@x.com>"]]])
+	}
+
+	@Test(arguments: [("Rui", false), ("Nils", true)])
+	func aPullRequestOfTheUserGetsANewReviewOnlyAfterACommitOfTheUser(author: String, isNew: Bool) async throws {
+		let fixture = try ReportFixture(kind: .morningOverview, claudeOutput: overviewText,
+			body: { Self.bodyWithCommits(of: $0, author: author) })
+		defer { fixture.cleanUp() }
+		let reviews = fixture.folder.appendingPathComponent("reviews")
+		try FileManager.default.createDirectory(at: reviews, withIntermediateDirectories: true)
+		try "# PR #12\n\nreviewed commit `1234567` · report mode\n".write(to: reviews.appendingPathComponent("12-fix.md"), atomically: true, encoding: .utf8)
+		await fixture.report.update()
+		let pullRequests = try #require(try fixture.input["pullRequests"] as? [[String: Any]])
+		#expect((pullRequests.first { $0["id"] as? Int == 12 }?["needsNewReview"] as? Bool == true) == isNew)
+		let text = try String(contentsOf: fixture.fileURL, encoding: .utf8)
+		#expect(text.contains("Run `/nn-review #12` again") == isNew)
+		let query = try #require(fixture.log.requests.first { $0.url!.path.hasSuffix("/pullrequests/12/commits") }?.url?.query)
+		#expect(query.contains("values.author.raw"))
 	}
 
 	@Test func headsStayWhenTheFileCannotBeWritten() async throws {

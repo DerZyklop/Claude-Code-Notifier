@@ -114,7 +114,7 @@ enum MorningOverview {
 		let reportIDs = Set(projectFacts.compactMap { ($0["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest) })
 		let closedIDs = reportIDs.subtracting(ids(of: pullRequests)).sorted()
 		async let closedStates = closedStates(bitbucket, ids: closedIDs)
-		let reviews = newReviews(in: projectFiles, pullRequests: pullRequests, me: me)
+		let reviews = await withoutCommitsOfOthers(newReviews(in: projectFiles, pullRequests: pullRequests, me: me), bitbucket, me: me)
 		appData[newReviewsKey] = reviews
 		pullRequests = withNewReviews(reviews, in: pullRequests)
 		data["pullRequests"] = pullRequests
@@ -1734,6 +1734,35 @@ enum MorningOverview {
 		}
 	}
 
+	/// The most pages of commits that the app reads of a pull request, with 100 commits each.
+	static let commitPages = 3
+
+	/// `reviews` without the pull requests of the user where each commit after the reviewed commit is from another person:
+	/// the user does not review the commits of others on the user's own pull request. A pull request of another author
+	/// stays, and so does one whose commits Bitbucket does not give.
+	static func withoutCommitsOfOthers(_ reviews: [NewReview], _ bitbucket: Bitbucket, me: String) async -> [NewReview] {
+		var result: [NewReview] = []
+		for review in reviews {
+			if review.section != "Their Open PRs",
+				let commits = try? await bitbucket.values("/pullrequests/\(review.id)/commits", query: ["pagelen": "100"],
+					fields: ["hash", "author.raw", "author.user.display_name"], maxPages: commitPages),
+				!commits.isEmpty, !hasCommit(of: me, after: review.reviewedCommit, in: commits) { continue }
+			result.append(review)
+		}
+		return result
+	}
+
+	/// A commit of `me` is in `commits` before the commit `reviewed`. The commits come with the newest first, as Bitbucket
+	/// gives them. Without `reviewed` in `commits`, e.g. after a rebase, each commit counts. The author of a commit is
+	/// `me` by the name in the commit or by the display name of the Bitbucket user.
+	static func hasCommit(of me: String, after reviewed: String, in commits: [[String: Any]]) -> Bool {
+		commits.prefix { ($0["hash"] as? String)?.hasPrefix(reviewed) != true }.contains { commit in
+			let author = commit["author"] as? [String: Any]
+			let name = (author?["raw"] as? String).map { $0.prefix { $0 != "<" }.trimmingCharacters(in: .whitespaces) }
+			return name == me || (author?["user"] as? [String: Any])?["display_name"] as? String == me
+		}
+	}
+
 	/// The first commit hash after »reviewed commit« or »reviewed at« in the text of a review report, in lower case.
 	static func reviewedCommit(in text: String) -> String? {
 		matches(of: #"(?i)(?<=reviewed (?:commit|at))\W{0,6}[0-9a-f]{7,40}\b"#, in: text).first
@@ -1756,8 +1785,20 @@ enum MorningOverview {
 
 	/// The overview with the next action »Run `/nn-review #<ID>` again« for each pull request in `reviews`: the first
 	/// sub-item of its task, or the one after the merge of a merge conflict. A pull request without a task in a PR section
-	/// gets a new task in its section.
+	/// gets a new task in its section. This next action of a pull request that is not in `reviews` goes away with its
+	/// sub-items, e.g. a copy from the old overview.
 	static func withNewReviewTasks(_ reviews: [NewReview], jiraBrowseURL: String?, in overview: String) -> String {
+		let ids = Set(reviews.map(\.id))
+		// The indent of a removed next action, while its sub-items follow.
+		var removedIndent: Int?
+		let overview = overview.components(separatedBy: "\n").filter { line in
+			if let removed = removedIndent, indent(of: line) > removed, !line.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+			removedIndent = nil
+			guard let key = taskKey(of: line), let id = firstGroup(of: #"^Run `/nn-review #(\d+)` again, because the PR has new commits"#, in: key),
+				let number = Int(id), !ids.contains(number) else { return true }
+			removedIndent = indent(of: line)
+			return false
+		}.joined(separator: "\n")
 		let parts = overview.components(separatedBy: "\n## ")
 		let tasks = reviews.map { review -> KeptTask in
 			let action = "    - [ ] Run `/nn-review #\(review.id)` again, because the PR has new commits after the review of `\(review.reviewedCommit)`."
