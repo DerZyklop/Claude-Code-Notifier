@@ -4,7 +4,8 @@ import ServiceManagement
 import SwiftUI
 
 /// The menu bar item and its menu. AppKit instead of a SwiftUI `MenuBarExtra`, because only an `NSMenuItem` can hold
-/// a custom view like ``SessionCard``.
+/// a custom view like ``SessionCard``. The arrow keys stop only at the enabled items: the sessions and the items with
+/// an action.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
 	private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -14,7 +15,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// Updates the running times of the sessions every second while the menu is open.
 	private var timer: Timer?
 	private let clock = MenuClock()
-	private var card: NSHostingView<SessionCard>?
+	private lazy var card = SessionCardItems(store: .shared, setup: .shared, clock: clock,
+		running: { Report.all.filter(\.isRunning).map { ($0.kind.title, $0.runStarted) } },
+		open: { [weak self] session in
+			self?.menu.cancelTracking()
+			VSCodeWindows.shared.open(session)
+		})
 	private lazy var spinner = Spinner(button: statusItem.button!)
 	/// Above the waves, because ``updateIcon()`` creates it after ``spinner``.
 	private lazy var attention = AttentionBubble(button: statusItem.button!)
@@ -36,12 +42,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in self?.updateIcon() }
 			.store(in: &subscriptions)
-		// Only the sessions and the running reports change the height of the card. Measuring it builds a view, so other
-		// changes skip it.
+		// Only the sessions and the running reports change the parts of the card.
 		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher()]
 			+ Report.all.map { $0.objectWillChange.eraseToAnyPublisher() })
 			.receive(on: DispatchQueue.main)
-			.sink { [weak self] _ in self?.fitCard() }
+			.sink { [weak self] _ in self?.card.sync() }
 			.store(in: &subscriptions)
 		// The app colors the number and the still wave itself, see ``textColor(isDark:)`` and ``stillWaveColor(isDark:)``.
 		appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
@@ -200,15 +205,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 			menu.addItem(action("⚠︎ \(problem) – Open Setup …", #selector(showSetup)))
 		}
 		clock.tick()
-		let card = NSHostingView(rootView: sessionCard())
-		// The menu sets the width, and ``fitCard()`` sets the height.
-		card.sizingOptions = []
-		card.autoresizingMask = [.width]
-		card.frame.size = cardSize()
-		self.card = card
-		let cardItem = NSMenuItem()
-		cardItem.view = card
-		menu.addItem(cardItem)
+		card.add(to: menu)
 		addUsageCard(to: menu)
 
 		for report in Report.all { addGroup(for: report, to: menu) }
@@ -235,28 +232,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	func menuDidClose(_ menu: NSMenu) {
 		timer?.invalidate()
 		timer = nil
-		// Only the card of the open menu needs ``fitCard()``.
-		card = nil
+		card.close()
 	}
 
-	/// The size that the card needs. The card in the menu cannot measure itself, because it leaves its size to the menu,
-	/// so a second view with the same content measures it.
-	private func cardSize() -> NSSize {
-		NSHostingView(rootView: sessionCard()).fittingSize
-	}
-
-	private func sessionCard() -> SessionCard {
-		SessionCard(store: SessionStore.shared, setup: HookSetup.shared, clock: clock) { [weak menu] session in
-			menu?.cancelTracking()
-			VSCodeWindows.shared.open(session)
-		}
-	}
-
-	/// Gives the card the height of its rows, e.g. when a session starts while the menu is open.
-	private func fitCard() {
-		guard let card else { return }
-		let height = cardSize().height
-		if card.frame.height != height { card.frame.size.height = height }
+	/// The pointer and the arrow keys highlight an item. The row of a session draws its highlight itself.
+	func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+		card.highlight(item)
 	}
 
 	/// The usage limits of the accounts, see ``AccountUsageStore``. The menu sets the width, and the card keeps its height.
@@ -271,9 +252,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		view.frame.size = view.fittingSize
 		view.sizingOptions = []
 		view.autoresizingMask = [.width]
-		let item = NSMenuItem()
-		item.view = view
-		menu.addItem(item)
+		menu.addItem(viewItem(view))
 	}
 
 	/// The group of a report: the buttons to update and to open, and the reason of a failure. The setup window holds the setting of the
@@ -286,12 +265,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		// The menu sets the width.
 		buttons.frame.size = buttons.fittingSize
 		buttons.autoresizingMask = [.width]
-		let buttonsItem = NSMenuItem()
-		buttonsItem.view = buttons
-		menu.addItem(buttonsItem)
+		menu.addItem(viewItem(buttons))
 		if let failure = report.failure {
-			// Without an action, the item shows the reason in gray and does nothing on a click.
+			// A disabled item shows the reason in gray and does nothing on a click.
 			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
+			reason.isEnabled = false
 			reason.toolTip = failure
 			reason.indentationLevel = 1
 			menu.addItem(reason)
@@ -306,9 +284,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		return item
 	}
 
+	/// An item that shows a view with its own controls. The arrow keys skip it. The menu does not disable an item
+	/// without an action itself, see ``SessionCardItems/add(to:)``.
+	private func viewItem(_ view: NSView) -> NSMenuItem {
+		let item = NSMenuItem()
+		item.view = view
+		item.isEnabled = false
+		return item
+	}
+
 	private func sectionHeader(_ title: String) -> NSMenuItem {
-		if #available(macOS 14, *) { return .sectionHeader(title: title) }
-		return NSMenuItem(title: title, action: nil, keyEquivalent: "")
+		let item: NSMenuItem
+		if #available(macOS 14, *) { item = .sectionHeader(title: title) } else { item = NSMenuItem(title: title, action: nil, keyEquivalent: "") }
+		item.isEnabled = false
+		return item
 	}
 
 	static func symbol(_ name: String) -> NSImage? {

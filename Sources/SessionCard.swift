@@ -12,43 +12,115 @@ final class MenuClock: ObservableObject {
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
 /// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``. A click on a row opens the chat of the session in VS Code. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
+/// The card is a stack of menu items, one for each ``Part``, so that the arrow keys reach each session, see
+/// ``SessionCardItems``. This view shows the part at one place of the stack.
 struct SessionCard: View {
-	@ObservedObject var store: SessionStore
+	@ObservedObject var model: SessionCardModel
+	/// The place of the part in ``SessionCardModel/parts``.
+	let slot: Int
 	@ObservedObject var setup: HookSetup
 	@ObservedObject var clock: MenuClock
-	/// The running ones get a row above the sessions. The card reads them again with each tick of the clock.
-	var reports: [Report] = Report.all
 	/// Opens the chat of the session, see ``VSCodeWindows/open(_:)``.
 	var open: (Session) -> Void = { _ in }
-	@State private var hoveredID: String?
+	/// Removes the session from the card, see ``SessionStore/hide(_:)``.
+	var hide: (Session) -> Void = { _ in }
+	/// Whether the pointer is on the menu item.
+	@State private var isHovered = false
 
-	var body: some View {
-		let sessions = store.sortedSessions
-		let running = reports.filter(\.isRunning)
-		VStack(spacing: 0) {
-			header
-			ForEach(Array(running.enumerated()), id: \.element.kind.notificationID) { index, report in
-				if index > 0 { Divider().padding(.horizontal, 6) }
-				reportRow(report)
-			}
-			if !running.isEmpty && !sessions.isEmpty { Divider().padding(.horizontal, 6) }
-			if sessions.isEmpty && running.isEmpty {
-				Text(store.hiddenStates.isEmpty ? "No Claude Code sessions yet" : "No sessions to show")
-					.foregroundStyle(.secondary)
-					.frame(maxWidth: .infinity, alignment: .leading)
-					.padding(.horizontal, 6)
-					.padding(.vertical, 4)
-			}
-			let groups = Self.groups(sessions, order: store.projectOrder)
-			ForEach(groups, id: \.project) { group in
-				if groups.count > 1 { projectHeadline(group.project, isFirst: group.project == groups.first?.project && running.isEmpty) }
-				ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, session in
-					if index > 0 { Divider().padding(.horizontal, 6) }
-					row(session)
-				}
+	/// One menu item of the card.
+	struct Part: Equatable {
+		enum Content: Equatable {
+			case header
+			/// A running report.
+			case report(title: String, started: Date?)
+			/// The text in place of the rows, without sessions and reports.
+			case empty(hasHidden: Bool)
+			case headline(project: String, isFirst: Bool)
+			case session(Session)
+		}
+
+		var content: Content
+		/// A line above the part, between two rows.
+		var hasDivider = false
+		/// The last part has the bottom edge of the card.
+		var isLast = false
+
+		var session: Session? {
+			if case .session(let session) = content { session } else { nil }
+		}
+
+		/// Whether the view of the part is as high as the one of `other`.
+		func hasHeight(of other: Part) -> Bool {
+			guard hasDivider == other.hasDivider, isLast == other.isLast else { return false }
+			switch (content, other.content) {
+			case (.header, .header), (.report, .report), (.empty, .empty), (.session, .session): return true
+			case (.headline(_, let isFirst), .headline(_, let otherIsFirst)): return isFirst == otherIsFirst
+			default: return false
 			}
 		}
-		.menuCard()
+	}
+
+	/// The parts of the card from the top: the header, the running reports, then the sessions by ``groups(_:order:)``.
+	/// `running` has the title and the start of each running report.
+	static func parts(sessions: [Session], order: [String] = [], running: [(title: String, started: Date?)] = [],
+		hasHidden: Bool = false) -> [Part] {
+		var parts = [Part(content: .header)]
+		for (index, report) in running.enumerated() {
+			parts.append(Part(content: .report(title: report.title, started: report.started), hasDivider: index > 0))
+		}
+		if sessions.isEmpty && running.isEmpty { parts.append(Part(content: .empty(hasHidden: hasHidden))) }
+		let groups = groups(sessions, order: order)
+		// The line between the reports and the sessions.
+		var needsDivider = !running.isEmpty
+		for group in groups {
+			if groups.count > 1 {
+				let isFirst = group.project == groups.first?.project && running.isEmpty
+				parts.append(Part(content: .headline(project: group.project, isFirst: isFirst), hasDivider: needsDivider))
+				needsDivider = false
+			}
+			for (index, session) in group.sessions.enumerated() {
+				parts.append(Part(content: .session(session), hasDivider: index > 0 || needsDivider))
+				needsDivider = false
+			}
+		}
+		parts[parts.count - 1].isLast = true
+		return parts
+	}
+
+	var body: some View {
+		// An item that the menu removes next has no part.
+		if model.parts.indices.contains(slot) {
+			let part = model.parts[slot]
+			VStack(spacing: 0) {
+				if part.hasDivider { Divider().padding(.horizontal, 6) }
+				content(part.content)
+			}
+			.cardPart(isFirst: slot == 0, isLast: part.isLast)
+			// The menu highlights the full item, so the full item takes the click.
+			.contentShape(Rectangle())
+			.onTapGesture { if let session = part.session { open(session) } }
+			.onHover { isHovered = $0 }
+		}
+	}
+
+	@ViewBuilder
+	private func content(_ content: Part.Content) -> some View {
+		switch content {
+		case .header:
+			header
+		case .report(let title, let started):
+			reportRow(title: title, started: started)
+		case .empty(let hasHidden):
+			Text(hasHidden ? "No sessions to show" : "No Claude Code sessions yet")
+				.foregroundStyle(.secondary)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.horizontal, 6)
+				.padding(.vertical, 4)
+		case .headline(let project, let isFirst):
+			projectHeadline(project, isFirst: isFirst)
+		case .session(let session):
+			row(session)
+		}
 	}
 
 	private var header: some View {
@@ -102,9 +174,16 @@ struct SessionCard: View {
 			.padding(.bottom, 2)
 	}
 
+	/// Whether the row of a session shows the highlight. The menu highlights the item for the pointer and for the arrow
+	/// keys. A press of the mouse removes that highlight, so the pointer alone counts while the menu highlights no item.
+	private var isHighlighted: Bool {
+		model.highlightedSlot == slot || isHovered && !model.hasHighlight
+	}
+
 	private func row(_ session: Session) -> some View {
 		HStack(alignment: .center, spacing: 8) {
-			if hoveredID == session.id {
+			// Not while the arrow keys highlight another item.
+			if isHovered && isHighlighted {
 				hideButton(session)
 			} else {
 				stateIcon(session)
@@ -127,30 +206,21 @@ struct SessionCard: View {
 		.padding(.vertical, 3)
 		.background(
 			RoundedRectangle(cornerRadius: 5, style: .continuous)
-				.fill(Color.primary.opacity(hoveredID == session.id ? 0.07 : 0))
+				.fill(Color.primary.opacity(isHighlighted ? 0.07 : 0))
 		)
-		.contentShape(Rectangle())
-		.onTapGesture { open(session) }
-		.onHover { isHovered in
-			if isHovered {
-				hoveredID = session.id
-			} else if hoveredID == session.id {
-				hoveredID = nil
-			}
-		}
 	}
 
 	/// A running report, with a purple hourglass and a purple wave like the menu bar during a report.
-	private func reportRow(_ report: Report) -> some View {
+	private func reportRow(title: String, started: Date?) -> some View {
 		HStack(alignment: .center, spacing: 8) {
 			Image(systemName: SessionState.working.symbol)
 				.rowIcon()
 				.foregroundStyle(Color(nsColor: Spinner.reportColor))
 				.help("updating the report")
-			Text(report.kind.title)
+			Text(title)
 				.lineLimit(1)
 			wave(color: Spinner.reportColor)
-			if let started = report.runStarted {
+			if let started {
 				Text(Self.elapsed(from: started, to: clock.now))
 					.monospacedDigit()
 					.foregroundStyle(.secondary)
@@ -180,10 +250,10 @@ struct SessionCard: View {
 		.help(count == 1 ? "1 subagent runs" : "\(count) subagents run")
 	}
 
-	/// Takes the place of the state icon while the pointer is on the row, with the same size.
+	/// Takes the place of the state icon while the pointer is on the highlighted item, with the same size.
 	private func hideButton(_ session: Session) -> some View {
 		Button {
-			store.hide(session.id)
+			hide(session)
 		} label: {
 			Image(systemName: "xmark.circle.fill")
 				.rowIcon()
@@ -270,7 +340,27 @@ extension View {
 		OwnWidth(maxWidth: maxWidth) { self }
 	}
 
-	/// The bordered card of a menu item, like ``SessionCard``.
+	/// One part of a bordered card that is a stack of menu items, like ``SessionCard``. The parts touch, and together
+	/// they look like one ``menuCard()``. The part fills its menu item.
+	func cardPart(isFirst: Bool, isLast: Bool) -> some View {
+		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+		// The shape reaches beyond each side of the part that is no edge of the card. So only the other sides show.
+		let overhang: CGFloat = 24
+		let beyond = EdgeInsets(top: isFirst ? 0 : -overhang, leading: 0, bottom: isLast ? 0 : -overhang, trailing: 0)
+		return padding(.horizontal, 4)
+			.padding(.top, isFirst ? 4 : 0)
+			.padding(.bottom, isLast ? 4 : 0)
+			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+			.background(shape.fill(Color.primary.opacity(0.04)).padding(beyond).clipped())
+			.overlay(shape.strokeBorder(Color.primary.opacity(0.15)).padding(beyond).clipped().allowsHitTesting(false))
+			.padding(.horizontal, 10)
+			.padding(.top, isFirst ? 4 : 0)
+			.padding(.bottom, isLast ? 4 : 0)
+			.font(.system(size: NSFont.systemFontSize))
+			.frame(minWidth: 300)
+	}
+
+	/// The bordered card of a menu item, like ``AccountUsageCard``.
 	func menuCard() -> some View {
 		let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 		return padding(4)

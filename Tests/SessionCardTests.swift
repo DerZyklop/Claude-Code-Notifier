@@ -5,23 +5,48 @@ import SwiftUI
 import Testing
 @testable import ClaudeCodeNotifier
 
-/// Measures the card with one session per state, each in its own folder, or in the folder of `cwds`. The store and the setup use a fake system, and nothing writes to the defaults.
+/// A store with one session per state, each in its own folder, or in the folder of `cwds`. The store and the setup use a fake system, and nothing writes to the defaults.
+@MainActor
+struct SessionCardFixture {
+	let store: SessionStore
+	let setup: HookSetup
+
+	init(states: [SessionState], cwds: [String]? = nil) throws {
+		let defaults = MemoryDefaults()
+		let system = SessionStore.System(runningSessions: { [] }, archivedSessionIDs: { [] }, shellCommandCounts: { _ in [:] },
+			addNotification: { _ in }, removeNotifications: { _ in }, sessionEnded: {}, defaults: defaults)
+		// The setup never reads this file. It does not exist.
+		let settingsURL = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodeNotifierTests-\(UUID().uuidString)/settings.json")
+		setup = HookSetup(settingsURL: settingsURL, readNotificationsAllowed: { $0(true) })
+		store = SessionStore(system: system, setup: setup, checksSessions: false)
+		for (index, state) in states.enumerated() { try set(state, session: index, cwd: cwds?[index]) }
+		#expect(store.sessions.count == states.count)
+	}
+
+	/// Adds the session `session-<index>`, or gives it a new state. A new session can get a title.
+	func set(_ state: SessionState, session index: Int, cwd: String? = nil, title: String? = nil) throws {
+		let cwd = cwd ?? "/tmp/project-\(index)"
+		let json = #"{"hook_event_name":"SessionStart","session_id":"session-\#(index)","cwd":"\#(cwd)"}"#
+		let new = title.map { Session(id: "session-\(index)", cwd: cwd, started: Date(), state: state, updated: Date(), title: $0) }
+		store.set(state, for: try JSONDecoder().decode(HookEvent.self, from: Data(json.utf8)), previous: store.sessions["session-\(index)"] ?? new)
+	}
+
+	/// The parts of the card for the sessions of the store.
+	var parts: [SessionCard.Part] {
+		SessionCard.parts(sessions: store.sortedSessions, order: store.projectOrder, hasHidden: !store.hiddenStates.isEmpty)
+	}
+}
+
+/// Measures the card of a ``SessionCardFixture``: as wide as its widest part, and as high as all parts together.
 @MainActor
 private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> NSSize {
-	let defaults = MemoryDefaults()
-	let system = SessionStore.System(runningSessions: { [] }, archivedSessionIDs: { [] }, shellCommandCounts: { _ in [:] },
-		addNotification: { _ in }, removeNotifications: { _ in }, sessionEnded: {}, defaults: defaults)
-	// The setup never reads this file. It does not exist.
-	let settingsURL = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeCodeNotifierTests-\(UUID().uuidString)/settings.json")
-	let setup = HookSetup(settingsURL: settingsURL, readNotificationsAllowed: { $0(true) })
-	let store = SessionStore(system: system, setup: setup, checksSessions: false)
-	for (index, state) in states.enumerated() {
-		let cwd = cwds?[index] ?? "/tmp/project-\(index)"
-		let json = #"{"hook_event_name":"SessionStart","session_id":"session-\#(index)","cwd":"\#(cwd)"}"#
-		store.set(state, for: try JSONDecoder().decode(HookEvent.self, from: Data(json.utf8)), previous: nil)
+	let fixture = try SessionCardFixture(states: states, cwds: cwds)
+	let model = SessionCardModel()
+	model.parts = fixture.parts
+	let sizes = model.parts.indices.map {
+		NSHostingView(rootView: SessionCard(model: model, slot: $0, setup: fixture.setup, clock: MenuClock())).fittingSize
 	}
-	#expect(store.sessions.count == states.count)
-	return NSHostingView(rootView: SessionCard(store: store, setup: setup, clock: MenuClock())).fittingSize
+	return NSSize(width: sizes.map(\.width).max() ?? 0, height: sizes.map(\.height).reduce(0, +))
 }
 
 @MainActor @Suite struct SessionCardTests {
@@ -129,6 +154,53 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(long.width > short.width)
 		#expect(long.width < short.width + 300)
 		#expect(long.height == short.height)
+	}
+
+	@Test func stackedPartsLookLikeOneCard() throws {
+		let heights: [CGFloat] = [20, 28, 9, 33]
+		let parts = VStack(spacing: 0) {
+			ForEach(Array(heights.enumerated()), id: \.offset) { index, height in
+				Color.clear.frame(height: height).cardPart(isFirst: index == 0, isLast: index == heights.count - 1)
+			}
+		}
+		let card = Color.clear.frame(height: heights.reduce(0, +)).menuCard()
+		let pixels = try pixels(of: parts.frame(width: 320))
+		#expect(pixels.contains { $0 != 0 })
+		#expect(try pixels == self.pixels(of: card.frame(width: 320)))
+	}
+
+	@Test func theHighlightedRowDrawsItsHighlight() throws {
+		let fixture = try SessionCardFixture(states: [.working, .yourTurn], cwds: ["/tmp/one", "/tmp/one"])
+		let model = SessionCardModel()
+		model.parts = fixture.parts
+		// One clock, so that the time of the row is the same in each image.
+		let row = SessionCard(model: model, slot: 1, setup: fixture.setup, clock: MenuClock()).frame(width: 320)
+		let plain = try pixels(of: row)
+		model.highlightedSlot = 1
+		model.hasHighlight = true
+		#expect(try pixels(of: row) != plain)
+		// The highlight of another row.
+		model.highlightedSlot = 2
+		#expect(try pixels(of: row) == plain)
+	}
+
+	@Test func aPlaceWithoutAPartShowsNothing() throws {
+		let fixture = try SessionCardFixture(states: [.working])
+		let model = SessionCardModel()
+		model.parts = fixture.parts
+		#expect(NSHostingView(rootView: SessionCard(model: model, slot: 5, setup: fixture.setup, clock: MenuClock())).fittingSize == .zero)
+	}
+
+	/// The pixels of the view as RGBA, at 2 pixels per point.
+	private func pixels(of view: some View) throws -> [UInt8] {
+		let renderer = ImageRenderer(content: view)
+		renderer.scale = 2
+		let image = try #require(renderer.cgImage)
+		let context = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+			space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+		context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+		let data = try #require(context.data)
+		return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: image.width * image.height * 4))
 	}
 }
 
