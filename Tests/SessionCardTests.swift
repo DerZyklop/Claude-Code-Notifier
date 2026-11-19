@@ -174,13 +174,14 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		let model = SessionCardModel()
 		model.parts = fixture.parts
 		// One clock, so that the time of the row is the same in each image.
-		let row = SessionCard(model: model, slot: 1, setup: fixture.setup, clock: MenuClock()).frame(width: 320)
+		// The row of the session that waits: its wave is still, so the pixels do not change with the time.
+		let row = SessionCard(model: model, slot: 2, setup: fixture.setup, clock: MenuClock()).frame(width: 320)
 		let plain = try pixels(of: row)
-		model.highlightedSlot = 1
+		model.highlightedSlot = 2
 		model.hasHighlight = true
 		#expect(try pixels(of: row) != plain)
 		// The highlight of another row.
-		model.highlightedSlot = 2
+		model.highlightedSlot = 1
 		#expect(try pixels(of: row) == plain)
 	}
 
