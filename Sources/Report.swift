@@ -541,8 +541,8 @@ final class Report: ObservableObject {
 				folders.append(outputFolder)
 			}
 			// The read rules cover only the project, its transcripts and `folders`. Commands that Claude Code knows as
-			// read-only, e.g. `git status`, still run. A shell variable or a `cd` refuses the whole call, so the prompt
-			// forbids them.
+			// read-only, e.g. `git status`, still run. A shell variable, a `cd` or `git -C` refuses the whole call, so
+			// the prompt forbids them.
 			let projectFolder = claudeProjectFolder(of: system.folder.path)
 			// A leading `//` makes the path of a rule absolute. Each rule is its own argument, so a space in a path is safe.
 			let readRules = ([system.folder, projectFolder] + folders).map { "Read(/\($0.path)/**)" }
