@@ -723,6 +723,74 @@ extension ReportFixture {
 			.allSatisfy { $0["changedAfterOldOverview"] == nil && $0["newCommits"] == nil })
 	}
 
+	@Test func aReviewReportHasItsPullRequestAndNoSteps() throws {
+		let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		let reviews = root.appendingPathComponent("reviews")
+		let other = root.appendingPathComponent("other")
+		for folder in [reviews, other] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+		defer { try? FileManager.default.removeItem(at: root) }
+		let files = [reviews.appendingPathComponent("41-fix.md"), other.appendingPathComponent("42-plan.md")]
+		for file in files { try "- [x] Done.\n".write(to: file, atomically: true, encoding: .utf8) }
+		let facts = MorningOverview.plans(of: files, old: nil, now: tuesdayMorning, calendar: utcCalendar, branches: [], knownBranches: [],
+			pullRequests: [], reviewsFolder: URL(fileURLWithPath: reviews.path + "/"))
+		let byName = Dictionary(uniqueKeysWithValues: facts.map { ($0["name"] as? String ?? "", $0) })
+		#expect(byName["41-fix.md"]?["reviewedPullRequest"] as? Int == 41)
+		#expect(byName["41-fix.md"]?["openSteps"] == nil)
+		#expect(byName["41-fix.md"]?["doneSteps"] == nil)
+		// A file outside the reviews folder is a plan, also with a number in its name.
+		#expect(byName["42-plan.md"]?["reviewedPullRequest"] == nil)
+		#expect(byName["42-plan.md"]?["doneSteps"] as? Int == 1)
+		#expect(MorningOverview.reviewedPullRequest(of: reviews.appendingPathComponent("41-fix.md"), in: nil) == nil)
+	}
+
+	@MainActor @Test func projectFilesComeOnlyFromTheFoldersOfTheSettings() async throws {
+		let fixture = try ReportFixture(kind: .morningOverview, claudeOutput: overviewText, body: { ReportFixture.morningBody(of: $0) })
+		defer { fixture.cleanUp() }
+		let outside = fixture.root.appendingPathComponent("outside-plans")
+		for folder in ["notes", "reviews", "Daily Notes", "notes/sub"].map(fixture.folder.appendingPathComponent) + [outside] {
+			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		}
+		for path in ["notes/a-plan.md", "notes/sub/deep.md", "reviews/12-fix.md", "Daily Notes/2023-07-10.md", "top.md", "notes/image.png"] {
+			try "- [x] Done.\n".write(to: fixture.folder.appendingPathComponent(path), atomically: true, encoding: .utf8)
+		}
+		await fixture.report.update()
+		var names = try #require(try fixture.input["projectFiles"] as? [[String: Any]]).compactMap { $0["name"] as? String }
+		#expect(names.sorted() == ["12-fix.md", "a-plan.md"])
+		// A folder outside the project folder gets its own read rule. Without a setting, no file counts.
+		try "- [ ] Open.\n".write(to: outside.appendingPathComponent("b-plan.md"), atomically: true, encoding: .utf8)
+		fixture.defaults.set(outside.path, forKey: SettingsKey.morningOverviewPlansFolder)
+		fixture.defaults.removeObject(forKey: SettingsKey.morningOverviewReviewsFolder)
+		fixture.log.commands = []
+		await fixture.report.update()
+		names = try #require(try fixture.input["projectFiles"] as? [[String: Any]]).compactMap { $0["name"] as? String }
+		#expect(names == ["b-plan.md"])
+		#expect(fixture.claudeRun?.arguments.contains("Read(/\(outside.standardizedFileURL.path)/**)") == true)
+	}
+
+	@MainActor @Test func aDeleteTaskOfAFileThatIsNoProjectFileGoesAway() async throws {
+		let note = "Daily Notes/2023-07-10.md"
+		let plan = "notes/a-plan.md"
+		let fixture = try ReportFixture(kind: .morningOverview, claudeOutput: "", body: { ReportFixture.morningBody(of: $0) })
+		defer { fixture.cleanUp() }
+		for folder in ["notes", "Daily Notes"] {
+			try FileManager.default.createDirectory(at: fixture.folder.appendingPathComponent(folder), withIntermediateDirectories: true)
+		}
+		for path in [note, plan] {
+			try "- [x] Done.\n".write(to: fixture.folder.appendingPathComponent(path), atomically: true, encoding: .utf8)
+		}
+		let output = [note, plan].map { path in
+			let url = fixture.folder.appendingPathComponent(path)
+			return "- [ ] Delete [\(url.lastPathComponent)](\(url.absoluteString)), because all its steps are done."
+		}
+		// The daily note exists, but it is no plan or project file.
+		let input = Report.Input(data: [:], appData: [MorningOverview.linksKey: MorningOverview.Links(
+			files: [fixture.folder.appendingPathComponent(plan).absoluteString])])
+		let text = try MorningOverview.render(fixture.report, .init(status: 0, output: "# Morning overview\n\nUpdated: 2026-10-27 07:00\n\n## Cleanup Work\n\n" + output.joined(separator: "\n") + "\n", error: ""),
+			input, nil)
+		#expect(!text.contains("2023-07-10.md"))
+		#expect(text.contains("a-plan.md"))
+	}
+
 	@Test func sessionsGetTheirNewestTitle() async throws {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

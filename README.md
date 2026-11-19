@@ -31,7 +31,10 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 
 Each run writes a new file with the date as its name, for example `2026-11-05.md`. The file goes into the folder that
 you enter in »Setup …« › »Schedules« › »Folder«. Without a folder, the run fails and tells you where to enter it. The
-project folder is `~/S/plano`. The file is a short list of open tasks in
+project folder is `~/S/plano`. In the same place, »Plans Folder« and »Reviews Folder« name the plans and the review
+reports of the project. The run reads only the `.md` files directly in these two folders, not the files in subfolders.
+If a field is empty, the run reads no files of that type. A relative path starts at the project folder. The plans of
+Claude Code in `~/.claude/plans` are always included. The file is a short list of open tasks in
 six sections: the open PRs of others, my open PRs, draft PRs, the tickets of the sprint, open branches and other
 work. »Open branches« lists only the local branches that no listed PR or ticket covers. In each section, the easiest
 tasks come first. Each task has a title line with the links of the PR and the ticket and a short title. Below it,
@@ -57,7 +60,7 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   app saves the state of each branch, worktree, session and ticket. These count as a change: a new commit or
   uncommitted change, a new session message, a new Jira status, and a new PR of the branch. A ticket in the sprint and
   an archived session count too.
-- **New review:** a review report is a file `reviews/<PR>-<name>.md` in the project folder that names its »reviewed
+- **New review:** a review report is a file `<PR>-<name>.md` in the »Reviews Folder« that names its »reviewed
   commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
   again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict. Your
   own PR gets it only when one of the commits after the reviewed commit is from you. The app reads the authors of the
@@ -70,12 +73,13 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   needs fewer reads, and each read is one turn less.
 - **Outdated files:** the app finds the plans and reports that »Cleanup Work« needs. An outdated file has no open PR
   that names it, and one of these facts is true: its review PR is closed, a ticket is done, a branch is merged or gone,
-  or all its steps are done. If the PR of a report was declined, the app writes »Delete <file>« itself, because the code
+  or all its steps are done. Only a plan has steps, because the checkboxes of a review report are no steps. If the PR of a report was declined, the app writes »Delete <file>« itself, because the code
   never reached `dev`. Claude checks the findings of the other outdated files, at most 5 files in one run. A file with an
   open task in »Cleanup Work« needs no check. A file with an open task in »Optional Work« needs no check either.
   The exceptions are a changed file, and a file that was not outdated at the last run. A checked file that no task
   names, for example a plan of another project, needs no new check until it changes. For this, the app saves the outdated files after each run
-  that wrote a file.
+  that wrote a file. A »Delete <file>« task leaves »Cleanup Work« when the file is gone, or when it is no plan or
+  report of the folders any more.
 - **Stats:** after each run, also after a failure or a stop, the app writes `stats.md` in the same folder. It shows the
   time of each step of the last run, for example the Bitbucket requests and the Claude run, and its share of the total.
   »Stats« next to »Open« in the menu opens the file.
@@ -89,7 +93,7 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
     open task stays in the next overview. A ticked task leaves it.
   - The Jira tickets of the open sprint, with their states and »blocks« links. »Cleanup Work« also lists your tickets
     that are »In Progress« or »Untested« and in no sprint.
-  - Untracked plan files, uncommitted and unpushed work in every worktree, the plans in `~/.claude/plans`, the Claude
+  - The plans and the review reports of the two folders, uncommitted and unpushed work in every worktree, the plans in `~/.claude/plans`, the Claude
     memory of the project and the titles of recent sessions.
 
 The prompt is `Resources/morning-overview-prompt.md`. The app fetches the PRs and the Jira tickets itself. For this,
@@ -106,14 +110,14 @@ the login shell must set these variables:
 The app reads the Jira tickets with GET requests, and with POST requests to `issue/bulkfetch` that only read. If Jira
 fails, the run continues, and the overview says »Jira not available« and the reason. If a network error stops Jira and the
 Bitbucket requests work, the app tries the Jira requests once more. The app gets the state of each ticket in a PR
-title, a branch name, a plan or a session title. It also gets the state of each ticket in the name of an untracked
-file or in the old overview. Then the app runs
+title, a branch name, a plan or a session title. It also gets the state of each ticket in the name of a plan or
+review report, or in the old overview. Then the app runs
 `claude -p` through the login shell, and Claude only reads:
 
 - `--tools Read,Grep,Glob,Bash` leaves out every tool that writes.
 - `--restricted` ignores the settings files, so their allow rules do not apply.
 - `--permission-mode dontAsk` refuses every call that is not on the allow list, without a prompt. Only reads of the
-  project folders are on it. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
+  project folders are on it, and of the »Plans Folder« and »Reviews Folder« outside the project folder. Bash runs only the commands that Claude Code knows as read-only, for example `git status`.
 - `--strict-mcp-config` starts no MCP server, also not the servers in the `.mcp.json` of the project.
 
 Claude prints the overview, and the app writes the file. The run never gets `BITBUCKET_API_TOKEN`, `JIRA_API_TOKEN` or

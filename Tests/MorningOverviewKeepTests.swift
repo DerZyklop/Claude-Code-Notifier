@@ -176,7 +176,7 @@ import Testing
 		let pullRequests = [pullRequest(4341, "abcdef012345", "Rui", false), pullRequest(4342, "2222222abcde", "Nils", false),
 			pullRequest(4343, "333333300000", "Nils", true), pullRequest(4345, "999999999999", "Nils", false),
 			pullRequest(4346, "666666600000", "Nils", false)]
-		let reviews = MorningOverview.newReviews(in: files + [outside], pullRequests: pullRequests, me: "Nils")
+		let reviews = MorningOverview.newReviews(in: files + [outside], reviewsFolder: folder, pullRequests: pullRequests, me: "Nils")
 		// 4341 has a new head. The newer report of 4342 names its head in the file name. 4343 has its head. 4344 is not
 		// open, and the file of 4345 does not start with the number.
 		#expect(reviews == [MorningOverview.NewReview(id: 4341, reviewedCommit: "6e460fc", url: "https://bb/4341", title: "PR 4341",

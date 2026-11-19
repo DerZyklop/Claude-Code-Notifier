@@ -64,6 +64,9 @@ struct ReportFixture {
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 		try FileManager.default.createDirectory(at: root.appendingPathComponent("overviews"), withIntermediateDirectories: true)
 		defaults.set(root.appendingPathComponent("overviews").path, forKey: SettingsKey.morningOverviewFolder)
+		// Relative paths, so they start at the project folder.
+		defaults.set("notes", forKey: SettingsKey.morningOverviewPlansFolder)
+		defaults.set("reviews", forKey: SettingsKey.morningOverviewReviewsFolder)
 		let log = log
 		report = Report(kind: kind, system: Report.System(
 			folder: folder, supportFolder: root.appendingPathComponent("support"), weekdayTasks: [2: ["Reflect"]], now: { now },
@@ -125,7 +128,6 @@ struct ReportFixture {
 			case ["remote", "get-url", "origin"]: "git@bitbucket.org:ws/repo.git\n"
 			case ["worktree", "list", "--porcelain"]: worktreeList
 			case ["status", "--porcelain"]: " M Sources/a.swift\n"
-			case ["ls-files", "--others", "--exclude-standard"]: "notes/PROJ-5-notes.md\nreviews/12-fix.md\nreviews/13-other.md\nreviews/14-declined.md\n"
 			default: "abc1234 Local commit\n"
 			}
 			return .init(status: 0, output: output, error: "")

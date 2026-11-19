@@ -103,6 +103,8 @@ final class Report: ObservableObject {
 		/// The setting with the folder of the files, or `nil` for the project folder. With a folder, each run writes a file
 		/// with the date as its name, e.g. `2026-11-05.md`, and ``fileName`` names only the support folder.
 		var folderKey: String? = nil
+		/// The settings with more folders that Claude can read, e.g. the plans of the project. An empty setting adds no folder.
+		var readFolderKeys: [String] = []
 		/// The first line of each file that a run writes, e.g. `# Morning overview`. With ``folderKey``, a dated file
 		/// without this line belongs to another app, e.g. a daily note of Obsidian, and is no old file of a run.
 		var heading: String? = nil
@@ -239,8 +241,18 @@ final class Report: ObservableObject {
 
 	static func outputFolder(of kind: Kind, system: System) -> URL? {
 		guard let key = kind.folderKey else { return system.folder }
+		return settingsFolder(key, system: system)
+	}
+
+	/// The folder of the text setting `key`, or `nil` while it is empty. A `~` stands for the home folder. A relative path
+	/// starts at the project folder.
+	nonisolated static func settingsFolder(_ key: String, system: System) -> URL? {
 		let path = (system.defaults.object(forKey: key) as? String ?? "").trimmingCharacters(in: .whitespaces)
-		return path.isEmpty ? nil : URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+		guard !path.isEmpty else { return nil }
+		let expanded = (path as NSString).expandingTildeInPath
+		let url = expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded, isDirectory: true)
+			: system.folder.appendingPathComponent(expanded, isDirectory: true)
+		return url.standardizedFileURL
 	}
 
 	/// See ``fileURL``. Of the dated files with ``Kind/heading``, the one with the newest date.
@@ -540,6 +552,10 @@ final class Report: ObservableObject {
 			if kind.folderKey != nil, let outputFolder, outputFolder.standardizedFileURL != system.folder.standardizedFileURL {
 				folders.append(outputFolder)
 			}
+			// A folder in the project folder needs no rule of its own.
+			let projectPath = system.folder.standardizedFileURL.path + "/"
+			folders += kind.readFolderKeys.compactMap { Self.settingsFolder($0, system: system) }
+				.filter { !($0.path + "/").hasPrefix(projectPath) }
 			// The read rules cover only the project, its transcripts and `folders`. Commands that Claude Code knows as
 			// read-only, e.g. `git status`, still run. A shell variable, a `cd` or `git -C` refuses the whole call, so
 			// the prompt forbids them.

@@ -2,12 +2,19 @@ import Foundation
 import Testing
 @testable import ClaudeCodeNotifier
 
-/// The facts of a file as ``MorningOverview/plans(of:old:now:calendar:branches:knownBranches:pullRequests:branchDates:changedPullRequests:closedPullRequests:changeDate:)``
-/// gives them, with no outdated fact.
+/// The facts of a file as ``MorningOverview/plans(of:old:now:calendar:branches:knownBranches:pullRequests:branchDates:changedPullRequests:closedPullRequests:reviewsFolder:changeDate:)``
+/// gives them, with no outdated fact. A file in `reviews/` is a review report, with no steps.
 private func facts(_ path: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+	let url = URL(fileURLWithPath: "/p/\(path)")
 	var facts: [String: Any] = ["name": (path as NSString).lastPathComponent, "url": "file:///p/\(path)", "oldSections": [String](),
-		"tickets": [String](), "branches": [[String: Any]](), "unknownBranches": [String](), "openPullRequests": [Int](), "openSteps": 1,
-		"doneSteps": 0, "changedAfterOldOverview": false, "newCommits": false, "changedOn": "2026-10-20"]
+		"tickets": [String](), "branches": [[String: Any]](), "unknownBranches": [String](), "openPullRequests": [Int](),
+		"changedAfterOldOverview": false, "newCommits": false, "changedOn": "2026-10-20"]
+	if let id = MorningOverview.reviewedPullRequest(of: url, in: URL(fileURLWithPath: "/p/reviews")) {
+		facts["reviewedPullRequest"] = id
+	} else if !path.hasPrefix("reviews/") {
+		facts["openSteps"] = 1
+		facts["doneSteps"] = 0
+	}
 	facts.merge(extra) { $1 }
 	return facts
 }
@@ -38,6 +45,9 @@ private func checked(_ files: [[String: Any]]) -> [String] {
 		#expect(reason(facts("a.md", ["openSteps": 0, "doneSteps": 3]))?.text == "all its steps are done")
 		// An open PR wins over each fact. A number outside a `reviews` folder is no review PR.
 		#expect(reason(facts("reviews/41-a.md", ["openPullRequests": [7]])) == nil)
+		// The ticked checkboxes of a review report are no steps.
+		#expect(reason(facts("reviews/notes.md")) == nil)
+		#expect(reason(facts("plan.md", ["openSteps": 0, "doneSteps": 2])).map(\.text) == "all its steps are done")
 		#expect(reason(facts("notes/41-a.md")) == nil)
 		#expect(reason(facts("a.md", ["openSteps": 0, "doneSteps": 0])) == nil)
 		#expect(reason(facts("a.md", ["tickets": ["PROJ-2"]])) == nil)

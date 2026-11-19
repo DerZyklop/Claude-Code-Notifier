@@ -19,6 +19,7 @@ extension Report.Kind {
 		readySound: "Funk",
 		backupName: nil,
 		folderKey: SettingsKey.morningOverviewFolder,
+		readFolderKeys: [SettingsKey.morningOverviewPlansFolder, SettingsKey.morningOverviewReviewsFolder],
 		heading: "# Morning overview",
 		statsFileName: "stats.md",
 		didWrite: { report, input in
@@ -94,24 +95,21 @@ enum MorningOverview {
 		let branchDates = Dictionary(refs.filter { $0.count == 3 }
 			.compactMap { fields in Double(fields[1]).map { (withoutRemote(fields[0]), Date(timeIntervalSince1970: $0)) } }, uniquingKeysWith: max)
 		let tips = Dictionary(refs.filter { $0.count == 3 }.map { ($0[0], $0[2]) }, uniquingKeysWith: { first, _ in first })
+		let reviewsFolder = folder(SettingsKey.morningOverviewReviewsFolder, system: system)
 		let fileFacts = { (files: [URL]) in
 			Self.plans(of: files, old: old, now: system.now(), calendar: system.calendar, branches: branches, knownBranches: known,
 				pullRequests: pullRequests, branchDates: branchDates, changedPullRequests: changedPullRequests,
-				closedPullRequests: closedPullRequests)
+				closedPullRequests: closedPullRequests, reviewsFolder: reviewsFolder)
 		}
-		var plans: [[String: Any]] = []
-		if FileManager.default.fileExists(atPath: plansFolder.path) {
-			let names = ((try? FileManager.default.contentsOfDirectory(atPath: plansFolder.path)) ?? []).filter { $0.hasSuffix(".md") }
-			plans = fileFacts(names.map(plansFolder.appendingPathComponent))
-		}
-		let untracked = await report.git(["ls-files", "--others", "--exclude-standard"]).split(separator: "\n").map(String.init)
-		let projectFiles = untracked.filter { $0.hasSuffix(".md") }.map(system.folder.appendingPathComponent)
+		let plans = fileFacts(markdownFiles(in: plansFolder))
+		let projectFiles = projectFiles(system: system)
 		let projectFacts = fileFacts(projectFiles)
 		// The states of the closed pull requests of the review reports come while the other steps run.
-		let reportIDs = Set(projectFacts.compactMap { ($0["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest) })
+		let reportIDs = Set(projectFacts.compactMap { $0["reviewedPullRequest"] as? Int })
 		let closedIDs = reportIDs.subtracting(ids(of: pullRequests)).sorted()
 		async let closedStates = closedStates(bitbucket, ids: closedIDs)
-		let reviews = await withoutCommitsOfOthers(newReviews(in: projectFiles, pullRequests: pullRequests, me: me), bitbucket, me: me)
+		let reviews = await withoutCommitsOfOthers(newReviews(in: projectFiles, reviewsFolder: reviewsFolder, pullRequests: pullRequests, me: me),
+			bitbucket, me: me)
 		appData[newReviewsKey] = reviews
 		pullRequests = withNewReviews(reviews, in: pullRequests)
 		data["pullRequests"] = pullRequests.map(withoutTasks)
@@ -123,7 +121,7 @@ enum MorningOverview {
 		// A pull request without a saved state counts as changed. So does one with a new or changed review report, or with
 		// a commit on its branch since the old overview, e.g. a local commit that is not pushed yet.
 		let changedReports = Set(projectFacts.filter { $0["changedAfterOldOverview"] as? Bool == true }
-			.compactMap { ($0["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest) })
+			.compactMap { $0["reviewedPullRequest"] as? Int })
 		let since = old.flatMap { Report.updated(in: $0, calendar: system.calendar) } ?? .distantFuture
 		let unchangedPullRequests = Set(pullRequestStates.filter { id, state in
 			guard lastStates[String(id)] == state, !changedReports.contains(id) else { return false }
@@ -146,7 +144,7 @@ enum MorningOverview {
 		let texts = branches.compactMap { $0["name"] as? String } + remoteBranches.compactMap { $0["name"] as? String }
 			+ pullRequests.flatMap { [$0["title"] as? String, sourceBranch(of: $0)].compactMap { $0 } }
 			+ (plans + projectFacts).flatMap { $0["tickets"] as? [String] ?? [] } + sessions.open.compactMap { $0["title"] as? String }
-			+ untracked.map { ($0 as NSString).lastPathComponent } + [old ?? ""]
+			+ projectFiles.map(\.lastPathComponent) + [old ?? ""]
 		var search = await jiraSearch
 		// The Bitbucket requests worked, so the network works now, e.g. after a wake.
 		if case .failure(let error) = search.result, error is URLError { search = await Self.jiraSearch(report, old: old) }
@@ -171,7 +169,9 @@ enum MorningOverview {
 			return (id, url)
 		}, uniquingKeysWith: { first, _ in first }), repository: bitbucket.repository, jiraBrowseURL: jira["browseURL"] as? String,
 			projectKeys: projectKeys(branches: branches, pullRequests: pullRequests).union(jiraTickets.keys.map(projectKey)),
-			files: (plans + projectFacts).compactMap { $0["url"] as? String }, folders: [system.folder.path, plansFolder.path])
+			files: (plans + projectFacts).compactMap { $0["url"] as? String },
+			// The parent of a project folder also counts, e.g. for `[reviews/a.md]`.
+			folders: [system.folder.path, plansFolder.path] + projectFolders(system: system).flatMap { [$0.path, $0.deletingLastPathComponent().path] })
 		let namedStates = namedStates(branches: branches + remoteBranches, tips: tips, workspaces: workspaces, sessions: sessions.open,
 			tickets: jira["tickets"] as? [String: [String: Any]])
 		appData[namedStatesKey] = namedStates
@@ -218,7 +218,33 @@ enum MorningOverview {
 		let memory = projectFolder.appendingPathComponent("memory")
 		if exists(memory) { facts.append("Memory folder: \(memory.path)") }
 		if exists(plansFolder) { facts.append("Plans folder: \(plansFolder.path)") }
+		for (label, key) in [("Project plans folder", SettingsKey.morningOverviewPlansFolder), ("Reviews folder", SettingsKey.morningOverviewReviewsFolder)] {
+			if let folder = folder(key, system: system), exists(folder) { facts.append("\(label): \(folder.path)") }
+		}
 		return facts
+	}
+
+	/// The folder of the setting `key`, or `nil` while it is empty. A relative path starts at the project folder.
+	static func folder(_ key: String, system: Report.System) -> URL? {
+		Report.settingsFolder(key, system: system)
+	}
+
+	/// The folders of the plans and of the review reports of the project, from the settings.
+	static func projectFolders(system: Report.System) -> [URL] {
+		[SettingsKey.morningOverviewPlansFolder, SettingsKey.morningOverviewReviewsFolder].compactMap { folder($0, system: system) }
+	}
+
+	/// The `.md` files directly in `folder`, without the files of its subfolders. None for a folder that does not exist.
+	static func markdownFiles(in folder: URL) -> [URL] {
+		((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
+			.map { folder.appendingPathComponent($0) }
+	}
+
+	/// The plans and the review reports of the project: the `.md` files in ``projectFolders(system:)``, each file once. The
+	/// plans of Claude Code in ``plansFolder`` do not count, because they are in `plans`.
+	static func projectFiles(system: Report.System) -> [URL] {
+		var seen: Set<String> = Set(markdownFiles(in: plansFolder).map(\.standardizedFileURL.path))
+		return projectFolders(system: system).flatMap(markdownFiles).filter { seen.insert($0.standardizedFileURL.path).inserted }
 	}
 
 	/// The days of the plans that Optional Work reads.
@@ -237,11 +263,13 @@ enum MorningOverview {
 	/// - `branches`: the local branches that the text names, with their `mergedInto`.
 	/// - `unknownBranches`: the branch names in the text that git does not know.
 	/// - `openPullRequests`: the IDs of the open pull requests that the text names, by number or by source branch, and
-	///   the open pull request of a review report (``reviewedPullRequest(of:)``).
-	/// - `openSteps` and `doneSteps`: the number of checkboxes without and with a tick.
+	///   the open pull request of a review report (``reviewedPullRequest(of:in:)``).
+	/// - `reviewedPullRequest`: the number of the pull request of a review report in `reviewsFolder`.
+	/// - `openSteps` and `doneSteps`: the number of checkboxes without and with a tick. Only for a file outside
+	///   `reviewsFolder`, because the checkboxes of a review report are no steps.
 	static func plans(of files: [URL], old: String?, now: Date, calendar: Calendar, branches: [[String: Any]], knownBranches: Set<String>,
 		pullRequests: [[String: Any]], branchDates: [String: Date] = [:], changedPullRequests: Set<Int> = [],
-		closedPullRequests: Set<Int> = [], changeDate: (URL) -> Date? = changeDate(of:)) -> [[String: Any]] {
+		closedPullRequests: Set<Int> = [], reviewsFolder: URL? = nil, changeDate: (URL) -> Date? = changeDate(of:)) -> [[String: Any]] {
 		let since = old.flatMap { Report.updated(in: $0, calendar: calendar) }
 		let oldSections = old.map(sections) ?? [:]
 		let projectKeys = projectKeys(branches: branches, pullRequests: pullRequests)
@@ -266,7 +294,11 @@ enum MorningOverview {
 			plan["unknownBranches"] = Array(Set(matches(of: branchPattern, in: text).filter { !knownBranches.contains($0) })).sorted()
 			var numbers = Set(matches(of: #"(?<=#|PR |pull-requests/)\d+\b"#, in: text).compactMap { Int($0) })
 			// A review report names its pull request at the start of its name.
-			if let id = reviewedPullRequest(of: file) { numbers.insert(id) }
+			let reviewed = reviewedPullRequest(of: file, in: reviewsFolder)
+			if let reviewed {
+				numbers.insert(reviewed)
+				plan["reviewedPullRequest"] = reviewed
+			}
 			let openPullRequests = pullRequests.compactMap { pullRequest -> Int? in
 				guard let id = pullRequest["id"] as? Int else { return nil }
 				let byBranch = sourceBranch(of: pullRequest).map { text.contains($0) } ?? false
@@ -278,8 +310,10 @@ enum MorningOverview {
 				plan["newCommits"] = openPullRequests.contains(where: changedPullRequests.contains) || !numbers.isDisjoint(with: closedPullRequests)
 					|| datedBranches.contains { (branchDates[$0] ?? .distantPast) >= since }
 			}
-			plan["openSteps"] = matches(of: #"(?m)^\s*- \[ \]"#, in: text).count
-			plan["doneSteps"] = matches(of: #"(?m)^\s*- \[[xX]\]"#, in: text).count
+			if !isFile(file, in: reviewsFolder) {
+				plan["openSteps"] = matches(of: #"(?m)^\s*- \[ \]"#, in: text).count
+				plan["doneSteps"] = matches(of: #"(?m)^\s*- \[[xX]\]"#, in: text).count
+			}
 			return plan
 		}
 	}
@@ -408,8 +442,13 @@ enum MorningOverview {
 		let old = old ?? ""
 		let isSameDay = isSameDay(old, now: system.now(), calendar: system.calendar)
 		var text = withKeptByID(in: withoutAppSections(output), old: input.appData[oldOverviewKey] as? String ?? "")
-		text = withLinks(input.appData[linksKey] as? Links ?? Links(), in: text)
-		text = withoutDoneCleanupTasks(in: withoutDeleteTasksOfGoneFiles(in: text))
+		let links = input.appData[linksKey] as? Links
+		text = withLinks(links ?? Links(), in: text)
+		// A file that is no plan or project file any more counts as gone too, e.g. after a change of a folder setting.
+		let files = links.map { Set($0.files.compactMap { URL(string: $0)?.path }) }
+		text = withoutDoneCleanupTasks(in: withoutDeleteTasksOfGoneFiles(in: text) { path in
+			FileManager.default.fileExists(atPath: path) && files?.contains(path) != false
+		})
 		text = withKeptTasks(keptTasks(in: old, lastWritten: report.lastWritten), in: text)
 		text = withNewReviewTasks(input.appData[newReviewsKey] as? [NewReview] ?? [],
 			jiraBrowseURL: (input.data["jira"] as? [String: Any])?["browseURL"] as? String, in: text)
@@ -1312,7 +1351,7 @@ enum MorningOverview {
 	/// The key of the ``DeleteTask``s in `appData`.
 	static let deleteTasksKey = "deleteTasks"
 	/// The file facts that only the outdated check needs. The run does not get them.
-	static let outdatedCheckFields = ["oldSections", "branches", "unknownBranches", "openSteps", "doneSteps"]
+	static let outdatedCheckFields = ["oldSections", "branches", "unknownBranches", "openSteps", "doneSteps", "reviewedPullRequest"]
 
 	/// The most files that Claude checks in one run, so that a run with many new outdated files ends in time. The other
 	/// files come in the next runs.
@@ -1326,11 +1365,17 @@ enum MorningOverview {
 		var line: String
 	}
 
-	/// The number of the pull request of a review report: a file in a folder `reviews` whose name starts with the number,
-	/// e.g. `reviews/4341-fix.md`.
-	static func reviewedPullRequest(of file: URL) -> Int? {
-		guard file.deletingLastPathComponent().lastPathComponent == "reviews" else { return nil }
+	/// The number of the pull request of a review report: a file directly in `reviewsFolder` whose name starts with the
+	/// number, e.g. `4341-fix.md`. `nil` without a folder.
+	static func reviewedPullRequest(of file: URL, in reviewsFolder: URL?) -> Int? {
+		guard isFile(file, in: reviewsFolder) else { return nil }
 		return matches(of: #"^\d+(?=-)"#, in: file.deletingPathExtension().lastPathComponent).first.flatMap { Int($0) }
+	}
+
+	/// The file is directly in `folder`, not in a subfolder. `false` without a folder.
+	static func isFile(_ file: URL, in folder: URL?) -> Bool {
+		guard let folder else { return false }
+		return file.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path
 	}
 
 	/// The states of the closed pull requests in `ids` by their ID: »MERGED«, »DECLINED« or »SUPERSEDED«. `nil` after a
@@ -1352,15 +1397,17 @@ enum MorningOverview {
 
 	/// Why the file of `facts` is outdated, and whether its pull request was declined. `nil` for a file that is not
 	/// outdated, also for a file that an open pull request names. Else, the first of these facts counts:
-	/// - The file is the review report of a pull request in `closedStates`. Only »DECLINED« counts as declined. The code of
+	/// - The file is the review report of a pull request in `closedStates`, see `reviewedPullRequest` in
+	///   ``plans(of:old:now:calendar:branches:knownBranches:pullRequests:branchDates:changedPullRequests:closedPullRequests:reviewsFolder:changeDate:)``.
+	///   Only »DECLINED« counts as declined. The code of
 	///   a superseded pull request can reach the base branch in the pull request that replaces it.
 	/// - A ticket in `tickets` is done in `jiraTickets`.
 	/// - A branch in `branches` has `mergedInto`, or `unknownBranches` names a branch.
-	/// - `openSteps` is 0 and `doneSteps` is more than 0.
+	/// - `openSteps` is 0 and `doneSteps` is more than 0. A review report has no steps.
 	static func outdatedReason(of facts: [String: Any], jiraTickets: [String: [String: Any]], closedStates: [Int: String])
 		-> (text: String, declined: Bool)? {
 		guard (facts["openPullRequests"] as? [Int] ?? []).isEmpty else { return nil }
-		if let id = (facts["url"] as? String).flatMap(URL.init(string:)).flatMap(reviewedPullRequest), let state = closedStates[id] {
+		if let id = facts["reviewedPullRequest"] as? Int, let state = closedStates[id] {
 			switch state {
 			case "DECLINED": return ("#\(id) was declined", true)
 			case "SUPERSEDED": return ("#\(id) was superseded", false)
@@ -1496,7 +1543,7 @@ enum MorningOverview {
 	}
 
 	/// The overview without each task of »Cleanup Work« that deletes a file that is gone, e.g. after the user deleted it
-	/// without a tick. The task links the file with a `file://` URL.
+	/// without a tick. The task links the file with a `file://` URL. `exists` tells whether a path is still there.
 	static func withoutDeleteTasksOfGoneFiles(in overview: String, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
 		-> String {
 		var parts = overview.components(separatedBy: "\n## ")
@@ -1711,15 +1758,15 @@ enum MorningOverview {
 	}
 
 	/// The open pull requests in `pullRequests` with a review report in `files`, where no report names the newest commit
-	/// of the pull request. A report is a file in a folder `reviews` whose name starts with the number of the pull
-	/// request, e.g. `reviews/4341-fix.md`. Its reviewed commit is the first hash after »reviewed commit« or »reviewed at«
+	/// of the pull request. A report is a file directly in `reviewsFolder` whose name starts with the number of the pull
+	/// request, e.g. `4341-fix.md` (``reviewedPullRequest(of:in:)``). Its reviewed commit is the first hash after »reviewed commit« or »reviewed at«
 	/// in its text, else the hash at the end of its name, e.g. `4341-fix-6e460fc.md`. A report without a commit does not
 	/// count.
-	static func newReviews(in files: [URL], pullRequests: [[String: Any]], me: String) -> [NewReview] {
+	static func newReviews(in files: [URL], reviewsFolder: URL?, pullRequests: [[String: Any]], me: String) -> [NewReview] {
 		var reports: [Int: [(date: Date, commit: String)]] = [:]
 		for file in files {
 			let name = file.deletingPathExtension().lastPathComponent
-			guard let id = reviewedPullRequest(of: file), let date = file.modificationDate else { continue }
+			guard let id = reviewedPullRequest(of: file, in: reviewsFolder), let date = file.modificationDate else { continue }
 			let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
 			guard let commit = reviewedCommit(in: text) ?? matches(of: #"(?<=-)(?=[0-9a-f]*\d)[0-9a-f]{7,40}$"#, in: name).first else { continue }
 			reports[id, default: []].append((date, commit))

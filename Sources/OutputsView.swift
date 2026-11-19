@@ -225,6 +225,13 @@ struct SchedulesView: View {
 					}
 					DatePicker("Time", selection: settings.time(of: kind), displayedComponents: .hourAndMinute)
 					if let key = kind.folderKey { FolderField(path: settings.text(key)) }
+					if !kind.readFolderKeys.isEmpty {
+						FolderField(label: "Plans Folder", prompt: "Optional, e.g. ~/Project/plans", path: settings.text(SettingsKey.morningOverviewPlansFolder))
+						FolderField(label: "Reviews Folder", prompt: "Optional, e.g. ~/Project/reviews", path: settings.text(SettingsKey.morningOverviewReviewsFolder))
+						Text("The overview reads the .md files directly in these folders. The plans of Claude Code in \((MorningOverview.plansFolder.path as NSString).abbreviatingWithTildeInPath) are always included.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
 				}
 			}
 		}
@@ -233,14 +240,16 @@ struct SchedulesView: View {
 	}
 }
 
-/// The folder of the dated files of a report: a path to type, or a folder to choose.
+/// A folder of a report, e.g. the folder of its dated files: a path to type, or a folder to choose.
 struct FolderField: View {
+	var label = "Folder"
+	var prompt = "Required, e.g. ~/Notes/Morning"
 	@Binding var path: String
 
 	var body: some View {
-		LabeledContent("Folder") {
+		LabeledContent(label) {
 			HStack {
-				TextField("Folder", text: $path, prompt: Text("Required, e.g. ~/Notes/Morning"))
+				TextField(label, text: $path, prompt: Text(prompt))
 					.labelsHidden()
 				Button("Choose …") {
 					let panel = NSOpenPanel()

@@ -245,6 +245,10 @@ extension ReportFixture {
 			body: { ReportFixture.morningBody(of: $0) })
 		defer { fixture.cleanUp() }
 		try fixture.writeOldOverviewWithTicketLink()
+		// A plan of the project with a ticket in its name.
+		let notes = fixture.folder.appendingPathComponent("notes")
+		try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+		try "# Notes\n".write(to: notes.appendingPathComponent("PROJ-5-notes.md"), atomically: true, encoding: .utf8)
 		await fixture.report.update()
 		let jira = try #require(try fixture.input["jira"] as? [String: Any])
 		#expect(jira["error"] == nil)
@@ -270,7 +274,7 @@ extension ReportFixture {
 		}
 		let bulk = try #require(requests.first { $0.httpMethod == "POST" })
 		let body = try #require(try JSONSerialization.jsonObject(with: bulk.httpBody ?? Data()) as? [String: Any])
-		// PROJ-5 is in the name of an untracked file.
+		// PROJ-5 is in the name of a plan of the project.
 		#expect(body["issueIdsOrKeys"] as? [String] == ["PROJ-4", "PROJ-5"])
 		#expect(fixture.report.steps.map(\.name).contains("Jira"))
 	}

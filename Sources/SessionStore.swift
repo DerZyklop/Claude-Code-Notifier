@@ -12,6 +12,11 @@ enum SettingsKey {
 	static let updatesDiDi = "updatesDiDi"
 	/// The folder path of the morning overviews. Empty while the user has not set it, see ``Report/missingFolderReason``.
 	static let morningOverviewFolder = "morningOverviewFolder"
+	/// The folder path of the plans of the project for the morning overview. Empty while the user has not set it, see
+	/// ``MorningOverview/folder(_:system:)``.
+	static let morningOverviewPlansFolder = "morningOverviewPlansFolder"
+	/// The folder path of the review reports for the morning overview. Empty while the user has not set it.
+	static let morningOverviewReviewsFolder = "morningOverviewReviewsFolder"
 	/// Keeps the sound off while a light shows the state, see ``SoundMode``.
 	static let mutesSoundWithLights = "mutesSoundWithLights"
 	/// Lets the blink(1) show the state, see ``Blink1``.
