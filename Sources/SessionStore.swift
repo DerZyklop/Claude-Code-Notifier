@@ -110,6 +110,9 @@ struct Session: Identifiable, Equatable {
 	/// The ids of the subagents that run now, from `SubagentStart` to `SubagentStop`. After the turn, these are
 	/// subagents in the background.
 	var agents: Set<String> = []
+	/// When you last interacted with the session: your last prompt, or your answer to a question or a permission
+	/// prompt. `nil` while the app knows none.
+	var interacted: Date?
 
 	/// Whether the turn is over, but a shell command or a subagent still runs in the background.
 	var hasBackgroundTask: Bool { state == .yourTurn && (shellCommands > 0 || !agents.isEmpty) }
@@ -377,7 +380,10 @@ final class SessionStore: ObservableObject {
 		}
 		// A start is no activity of the user: VS Code starts a new process when you open the tab of an old session.
 		let updated = event.hook_event_name == "SessionStart" ? transcriptPath.flatMap(SessionTitle.lastActivity) ?? Date() : Date()
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: updated, transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [])
+		// A prompt is an interaction, and so is a tool call that continues after Claude asked you.
+		let interacted = event.hook_event_name == "UserPromptSubmit" || (previous?.state == .asksYou && state == .working)
+			? Date() : previous?.interacted ?? transcriptPath.flatMap(SessionTitle.lastPrompt)
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: updated, transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [], interacted: interacted)
 		sessions[session.id] = session
 		return session
 	}
@@ -419,7 +425,7 @@ final class SessionStore: ObservableObject {
 			let previous = sessions[process.sessionID]
 			var session = previous ?? Session(id: process.sessionID, cwd: process.cwd, started: SessionTitle.start(transcript: process.transcriptPath) ?? process.started,
 				state: process.state ?? .yourTurn, updated: SessionTitle.lastActivity(transcript: process.transcriptPath) ?? process.stateChanged, transcriptPath: process.transcriptPath,
-				title: SessionTitle.read(transcript: process.transcriptPath))
+				title: SessionTitle.read(transcript: process.transcriptPath), interacted: SessionTitle.lastPrompt(transcript: process.transcriptPath))
 			// VS Code restarts the process of a session now and then, so the process can start later than the session.
 			session.started = min(session.started, process.started)
 			session.pid = process.pid

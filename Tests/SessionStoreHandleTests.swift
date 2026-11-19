@@ -515,6 +515,42 @@ private struct Fixture {
 		#expect(session.updated > started)
 	}
 
+	@Test func promptIsAnInteraction() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let old = Date(timeIntervalSince1970: 0)
+		let previous = Session(id: "s1", cwd: nil, started: old, state: .yourTurn, updated: old, interacted: old)
+		let session = fixture.store.set(.working, for: try hookEvent("UserPromptSubmit"), previous: previous)
+		#expect(try #require(session.interacted) > old)
+	}
+
+	@Test func answerToAQuestionIsAnInteraction() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let old = Date(timeIntervalSince1970: 0)
+		let previous = Session(id: "s1", cwd: nil, started: old, state: .asksYou, updated: old, interacted: old)
+		let session = fixture.store.set(.working, for: try hookEvent("PostToolUse"), previous: previous)
+		#expect(try #require(session.interacted) > old)
+	}
+
+	@Test(arguments: ["PostToolUse", "Stop", "SubagentStart"])
+	func workOfClaudeIsNoInteraction(name: String) throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let old = Date(timeIntervalSince1970: 0)
+		let previous = Session(id: "s1", cwd: nil, started: old, state: .working, updated: old, interacted: old)
+		let session = fixture.store.set(name == "Stop" ? .yourTurn : .working, for: try hookEvent(name), previous: previous)
+		#expect(session.interacted == old)
+	}
+
+	@Test func newSessionReadsTheLastPrompt() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		let path = try fixture.transcript([#"{"type":"user","timestamp":"2026-10-21T08:30:15.250Z","message":{"content":"Hi"}}"#])
+		let session = fixture.store.set(.yourTurn, for: try hookEvent("SessionStart", ["transcript_path": path]), previous: nil)
+		#expect(session.interacted == transcriptStart)
+	}
+
 	@Test func previousWithoutCwdTakesTheCwdOfTheEvent() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }

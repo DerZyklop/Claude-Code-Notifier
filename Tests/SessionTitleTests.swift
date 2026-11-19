@@ -447,3 +447,30 @@ private extension ISO8601DateFormatter {
 		return format
 	}
 }
+
+@Suite struct SessionTitleLastPromptTests {
+	private func lastPrompt(_ lines: [String]) throws -> Date? {
+		try withTranscript(jsonl(lines)) { SessionTitle.lastPrompt(transcript: $0) }
+	}
+
+	@Test func missingFileHasNoPrompt() {
+		#expect(SessionTitle.lastPrompt(transcript: "/nonexistent/transcript.jsonl") == nil)
+	}
+
+	@Test func lastRealPromptCounts() throws {
+		let lines = [
+			#"{"type":"user","timestamp":"2026-10-21T08:30:00.000Z","message":{"content":"First"}}"#,
+			#"{"type":"user","timestamp":"2026-10-21T09:00:00.000Z","message":{"content":[{"type":"text","text":"Second"}]}}"#,
+			#"{"type":"assistant","timestamp":"2026-10-21T09:40:58.450Z","message":{"content":"Answer"}}"#,
+			#"{"type":"user","timestamp":"2026-10-21T09:41:00.000Z","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
+			#"{"type":"user","isMeta":true,"timestamp":"2026-10-21T15:00:00.000Z","message":{"content":"Meta"}}"#,
+			"no json",
+		]
+		let expected = try #require(ISO8601DateFormatter.withFraction.date(from: "2026-10-21T09:00:00.000Z"))
+		#expect(try lastPrompt(lines) == expected)
+	}
+
+	@Test func transcriptWithoutPromptHasNoPrompt() throws {
+		#expect(try lastPrompt([#"{"type":"assistant","timestamp":"2026-10-21T09:40:58.450Z"}"#]) == nil)
+	}
+}

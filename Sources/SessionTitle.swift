@@ -61,6 +61,30 @@ enum SessionTitle {
 		return nil
 	}
 
+	/// The time of your last prompt in the last 512 KiB of the transcript. `nil` while there is none. A tool result
+	/// is no prompt.
+	static func lastPrompt(transcript path: String) -> Date? {
+		guard let handle = FileHandle.regularFile(atPath: path), let end = try? handle.seekToEnd() else { return nil }
+		defer { try? handle.close() }
+		try? handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
+		guard let data = try? handle.read(upToCount: 524_288) else { return nil }
+		let userLine = Data(#""type":"user""#.utf8)
+		for line in data.split(separator: UInt8(ascii: "\n")).reversed() where line.range(of: userLine) != nil {
+			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], json["type"] as? String == "user",
+				json["isMeta"] as? Bool != true, let text = promptText(json), promptLine(text) != nil,
+				let timestamp = json["timestamp"] as? String, let date = timestampFormat.date(from: timestamp) else { continue }
+			return date
+		}
+		return nil
+	}
+
+	/// The text of a user line: the content, or its first text part.
+	private static func promptText(_ json: [String: Any]) -> String? {
+		guard let message = json["message"] as? [String: Any] else { return nil }
+		if let content = message["content"] as? String { return content }
+		return (message["content"] as? [[String: Any]])?.first { $0["type"] as? String == "text" }?["text"] as? String
+	}
+
 	private static let timestampFormat: ISO8601DateFormatter = {
 		let format = ISO8601DateFormatter()
 		format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -75,13 +99,7 @@ enum SessionTitle {
 		let userLine = Data(#""type":"user""#.utf8)
 		for line in data.split(separator: UInt8(ascii: "\n")) where line.range(of: userLine) != nil {
 			guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any], json["type"] as? String == "user",
-				json["isMeta"] as? Bool != true, let message = json["message"] as? [String: Any] else { continue }
-			let text: String? = if let content = message["content"] as? String {
-				content
-			} else {
-				(message["content"] as? [[String: Any]])?.first { $0["type"] as? String == "text" }?["text"] as? String
-			}
-			guard let text, let prompt = promptLine(text) else { continue }
+				json["isMeta"] as? Bool != true, let text = promptText(json), let prompt = promptLine(text) else { continue }
 			return prompt.count > 80 ? prompt.prefix(80) + "…" : prompt
 		}
 		return nil

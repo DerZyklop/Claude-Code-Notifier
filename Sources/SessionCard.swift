@@ -197,10 +197,11 @@ struct SessionCard: View {
 				.layoutPriority(1)
 			wave(color: session.shownState == .working ? Spinner.color : nil)
 			if !session.agents.isEmpty { agentCount(session.agents.count) }
-			Text(Self.elapsed(from: session.started, to: clock.now))
+			Text(Self.elapsed(from: session.interacted ?? session.started, to: clock.now))
 				.monospacedDigit()
 				.foregroundStyle(.secondary)
 				.fixedSize()
+				.menuTooltip(Self.timeTooltip(session, now: clock.now), alignment: .trailing)
 		}
 		.padding(.horizontal, 6)
 		.padding(.vertical, 3)
@@ -281,6 +282,12 @@ struct SessionCard: View {
 				}
 			}
 			.help(session.stateTitle)
+	}
+
+	/// The tooltip of the time: what the time counts from, and how long ago the session started.
+	static func timeTooltip(_ session: Session, now: Date) -> String {
+		let started = "Started \(elapsed(from: session.started, to: now)) ago"
+		return session.interacted == nil ? started : "Since your last input. \(started)."
 	}
 
 	/// Two units at most, fewer for a longer time: »01s«, »03m 22s«, »2h 20m«, »2d 2h«, then from 3 days only days
