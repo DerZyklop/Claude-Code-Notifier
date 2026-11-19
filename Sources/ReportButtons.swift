@@ -5,41 +5,36 @@ import SwiftUI
 struct ReportButtons: View {
 	static let updatingTitle = "Updating …"
 	static let stopTitle = "Stop It!"
+	static let updateID = "update"
+	static let openID = "open"
+	static let statsID = "stats"
 
 	@ObservedObject var report: Report
+	/// The button that the keys press, see ``MenuButtonsItem``.
+	@ObservedObject var focus = MenuButtonFocus()
 	/// Closes the menu after a click, like a menu item.
 	var close: () -> Void
 	@State private var isHovering = false
 
 	var body: some View {
 		HStack(spacing: 8) {
-			Button(updateTitle) {
-				if report.isRunning {
-					report.stop()
-				} else {
-					Task { await report.update() }
-				}
-				close()
-			}
-			// The button of a running report says what a click does while the mouse is on it.
-			.onHover { isHovering = $0 }
-			Button {
-				report.openFile()
-				close()
-			} label: {
+			Button(updateTitle, action: update)
+				// The button of a running report says what a click does while the mouse or the ring is on it.
+				.onHover { isHovering = $0 }
+				.keyFocusRing(focus.buttonID == Self.updateID)
+			Button(action: open) {
 				HStack(spacing: 4) {
 					// The main action of the group.
 					Text("Open").fontWeight(.semibold)
 					if report.isUnread { Text("●").foregroundStyle(Color(nsColor: Spinner.reportColor)) }
 				}
 			}
-			.disabled(!Self.exists(report.fileURL))
-			if report.kind.statsFileName != nil {
-				Button("Stats") {
-					report.openStats()
-					close()
-				}
-				.disabled(!Self.exists(report.statsFileURL))
+			.disabled(!canOpen)
+			.keyFocusRing(focus.buttonID == Self.openID)
+			if hasStats {
+				Button("Stats", action: stats)
+					.disabled(!canOpenStats)
+					.keyFocusRing(focus.buttonID == Self.statsID)
 			}
 			Spacer(minLength: 0)
 		}
@@ -48,12 +43,43 @@ struct ReportButtons: View {
 		.padding(.vertical, 3)
 	}
 
+	/// The buttons from left to right, for the keys.
+	var keyButtons: [MenuKeyButton] {
+		[
+			MenuKeyButton(id: Self.updateID, isEnabled: true, press: update),
+			MenuKeyButton(id: Self.openID, isEnabled: canOpen, press: open),
+		] + (hasStats ? [MenuKeyButton(id: Self.statsID, isEnabled: canOpenStats, press: stats)] : [])
+	}
+
+	private var hasStats: Bool { report.kind.statsFileName != nil }
+	private var canOpen: Bool { Self.exists(report.fileURL) }
+	private var canOpenStats: Bool { Self.exists(report.statsFileURL) }
+
+	private func update() {
+		if report.isRunning {
+			report.stop()
+		} else {
+			Task { await report.update() }
+		}
+		close()
+	}
+
+	private func open() {
+		report.openFile()
+		close()
+	}
+
+	private func stats() {
+		report.openStats()
+		close()
+	}
+
 	private static func exists(_ file: URL?) -> Bool {
 		file.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
 	}
 
 	private var updateTitle: String {
-		report.isRunning ? isHovering ? Self.stopTitle : Self.updatingTitle
+		report.isRunning ? isHovering || focus.buttonID == Self.updateID ? Self.stopTitle : Self.updatingTitle
 			: report.failure == nil ? "Update Now" : "Try Again"
 	}
 }

@@ -20,6 +20,8 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
   move through the rows, and Return opens the chat of the highlighted row.
   Between the texts, each row has a wave like the menu bar: green while the session works, purple for a running
   report, and still in a muted menu bar color for the other sessions.
+- **Keys:** the arrow keys also stop at the buttons of each report. There, the focus ring is on »Open«, ← and →
+  move it from button to button, and Return presses the button with the ring.
 - **Notifications:** one for each session. A newer one replaces the older one. A click opens the chat of the session in VS Code, like a
   click on its row.
 - **Sound:** the ring of the bubble. It stops after 5 minutes without an answer. A new morning overview plays »Funk«

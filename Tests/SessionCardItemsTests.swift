@@ -102,15 +102,15 @@ private struct ItemsFixture {
 		menu.addItem(below)
 	}
 
-	func view(of item: NSMenuItem) throws -> SessionCardItemView {
-		try #require(item.view as? SessionCardItemView)
+	func view(of item: NSMenuItem) throws -> MenuItemKeyView {
+		try #require(item.view as? MenuItemKeyView)
 	}
 
 	/// What the menu does for a key: it gives the key to the view of `item`, if this view takes the keys.
 	func press(_ keyCode: UInt16, on item: NSMenuItem) throws {
 		let view = try view(of: item)
-		// A view outside a window beeps for a key that it passes on.
-		if try view.chooses(Self.key(keyCode)) { try view.keyDown(with: Self.key(keyCode)) }
+		// Not `keyDown(with:)`: a view outside a window beeps for a key that it passes on.
+		_ = try view.handleKey(Self.key(keyCode))
 	}
 
 	static func key(_ keyCode: UInt16) throws -> NSEvent {
@@ -128,7 +128,7 @@ private struct ItemsFixture {
 		#expect(fixture.items.items.count == fixture.sessions.parts.count)
 		// The title of a session item is for the type-select. The other parts have none.
 		#expect(fixture.menu.items.map(\.title) == ["Above", "", "one", "one", "Below"])
-		#expect(fixture.items.items.allSatisfy { $0.view is SessionCardItemView })
+		#expect(fixture.items.items.allSatisfy { $0.view is MenuItemKeyView })
 		#expect(fixture.heights.allSatisfy { $0 > 0 && $0 == $0.rounded() })
 	}
 
@@ -158,9 +158,11 @@ private struct ItemsFixture {
 		let fixture = try ItemsFixture(states: [.working])
 		let item = fixture.items.items[1]
 		fixture.items.highlight(item)
-		// Arrow down, Escape and the letter a.
-		for keyCode in [125, 53, 0] as [UInt16] { #expect(try !fixture.view(of: item).chooses(ItemsFixture.key(keyCode))) }
-		#expect(try fixture.view(of: item).chooses(ItemsFixture.key(36)))
+		// Arrow down, arrow right, Escape and the letter a go to the menu.
+		for keyCode in [125, 124, 53, 0] as [UInt16] { #expect(try !fixture.view(of: item).handleKey(ItemsFixture.key(keyCode))) }
+		#expect(fixture.opened.ids == [])
+		#expect(try fixture.view(of: item).handleKey(ItemsFixture.key(36)))
+		#expect(fixture.opened.ids == ["session-0"])
 	}
 
 	@Test func theCardKnowsTheHighlightedItem() throws {

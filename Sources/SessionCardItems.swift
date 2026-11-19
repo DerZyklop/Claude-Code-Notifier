@@ -12,54 +12,6 @@ final class SessionCardModel: ObservableObject {
 	@Published var hasHighlight = false
 }
 
-/// The view of one menu item of ``SessionCard``, around the SwiftUI view of its part. The menu sends no action for
-/// Return on an item with a view. It gives the key to the view that has the key focus. So the view of the highlighted
-/// session takes the key focus, and opens the session for Return and Space.
-final class SessionCardItemView: NSView {
-	/// Return, Enter and Space, the keys that choose an item of a menu.
-	static let chooseKeys: Set<UInt16> = [36, 76, 49]
-
-	/// Runs for the keys of ``chooseKeys``.
-	var choose: () -> Void = {}
-	/// Whether the item shows a session and is highlighted. Only then, the view takes the keys: a menu that opens
-	/// highlights the item of the first view that takes them.
-	var takesKeys = false {
-		didSet {
-			guard takesKeys != oldValue, let window else { return }
-			if takesKeys {
-				window.makeFirstResponder(self)
-			} else if window.firstResponder === self {
-				window.makeFirstResponder(nil)
-			}
-		}
-	}
-
-	/// - Parameter content: Fills the view. The view gets its size.
-	init(content: NSView) {
-		super.init(frame: content.frame)
-		content.frame.origin = .zero
-		content.autoresizingMask = [.width, .height]
-		addSubview(content)
-	}
-
-	@available(*, unavailable)
-	required init?(coder: NSCoder) {
-		fatalError("init(coder:) is not available")
-	}
-
-	override var acceptsFirstResponder: Bool { takesKeys }
-
-	/// Whether the key chooses the item of the view.
-	func chooses(_ event: NSEvent) -> Bool {
-		takesKeys && event.type == .keyDown && Self.chooseKeys.contains(event.keyCode)
-	}
-
-	/// The menu moves the highlight for the arrow keys itself. It also gives these keys to the view, which passes them on.
-	override func keyDown(with event: NSEvent) {
-		if chooses(event) { choose() } else { super.keyDown(with: event) }
-	}
-}
-
 /// The menu items of ``SessionCard``: one item for each part, so that the arrow keys reach each session. Return opens
 /// the chat of the highlighted session, like a click on its row. Only the item of a session is enabled, so the arrow
 /// keys skip the other parts.
@@ -79,7 +31,7 @@ final class SessionCardItems: NSObject {
 
 	/// - Parameters:
 	///   - running: The title and the start of each running report. They get a row above the sessions.
-	///   - open: Opens the chat of a session, for a click and for a key of ``SessionCardItemView/chooseKeys``.
+	///   - open: Opens the chat of a session, for a click and for a key of ``MenuItemKeyView/chooseKeys``.
 	init(store: SessionStore, setup: HookSetup, clock: MenuClock, running: @escaping () -> [(title: String, started: Date?)] = { [] },
 		open: @escaping (Session) -> Void) {
 		self.store = store
@@ -140,7 +92,7 @@ final class SessionCardItems: NSObject {
 		let slot = item.flatMap { session(of: $0) == nil ? nil : items.firstIndex(of: $0) }
 		if model.highlightedSlot != slot { model.highlightedSlot = slot }
 		if model.hasHighlight != (item != nil) { model.hasHighlight = item != nil }
-		for (index, cardItem) in items.enumerated() { (cardItem.view as? SessionCardItemView)?.takesKeys = index == slot }
+		for (index, cardItem) in items.enumerated() { (cardItem.view as? MenuItemKeyView)?.takesKeys = index == slot }
 	}
 
 	/// The session that `item` shows now.
@@ -157,15 +109,17 @@ final class SessionCardItems: NSObject {
 		card.frame.size = size(ofSlot: slot, in: card)
 		if let width { card.frame.size.width = width }
 		card.sizingOptions = []
-		let view = SessionCardItemView(content: card)
+		let view = MenuItemKeyView(content: card)
 		// The menu sets the width.
 		view.autoresizingMask = [.width]
 		let item = NSMenuItem()
 		item.view = view
 		item.isEnabled = false
 		// Opens the session that the item shows at the time of the key, see ``sync()``.
-		view.choose = { [weak self, weak item] in
+		view.handle = { [weak self, weak item] event in
+			guard MenuItemKeyView.chooseKeys.contains(event.keyCode) else { return false }
 			if let self, let item, let session = self.session(of: item) { self.open(session) }
+			return true
 		}
 		return item
 	}

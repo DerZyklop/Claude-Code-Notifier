@@ -4,8 +4,8 @@ import ServiceManagement
 import SwiftUI
 
 /// The menu bar item and its menu. AppKit instead of a SwiftUI `MenuBarExtra`, because only an `NSMenuItem` can hold
-/// a custom view like ``SessionCard``. The arrow keys stop only at the enabled items: the sessions and the items with
-/// an action.
+/// a custom view like ``SessionCard``. The arrow keys stop only at the enabled items: the sessions, the buttons of
+/// the reports and the items with an action.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
 	private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -14,6 +14,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 	/// Updates the running times of the sessions every second while the menu is open.
 	private var timer: Timer?
+	/// The items with buttons of the open menu, for the keys.
+	private var buttonItems: [MenuButtonsItem] = []
 	private let clock = MenuClock()
 	private lazy var card = SessionCardItems(store: .shared, setup: .shared, clock: clock,
 		running: { Report.all.filter(\.isRunning).map { ($0.kind.title, $0.runStarted) } },
@@ -199,6 +201,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// holds the settings of the outputs.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
+		buttonItems = []
 
 		// A problem gets a clickable item above the card. The card header names the problem too.
 		if let problem = HookSetup.shared.problem {
@@ -233,11 +236,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		timer?.invalidate()
 		timer = nil
 		card.close()
+		for item in buttonItems { item.highlight(nil, byKey: false) }
 	}
 
-	/// The pointer and the arrow keys highlight an item. The row of a session draws its highlight itself.
+	/// The pointer and the arrow keys highlight an item. The row of a session draws its highlight itself, and a row of
+	/// buttons its focus ring.
 	func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
 		card.highlight(item)
+		let byKey = NSApp.currentEvent?.type == .keyDown
+		for buttons in buttonItems { buttons.highlight(item, byKey: byKey) }
 	}
 
 	/// The usage limits of the accounts, see ``AccountUsageStore``. The menu sets the width, and the card keeps its height.
@@ -261,11 +268,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let kind = report.kind
 		menu.addItem(.separator())
 		menu.addItem(sectionHeader(kind.title))
-		let buttons = NSHostingView(rootView: ReportButtons(report: report) { [weak menu] in menu?.cancelTracking() })
-		// The menu sets the width.
+		let focus = MenuButtonFocus()
+		let view = ReportButtons(report: report, focus: focus) { [weak menu] in menu?.cancelTracking() }
+		let buttons = NSHostingView(rootView: view)
 		buttons.frame.size = buttons.fittingSize
-		buttons.autoresizingMask = [.width]
-		menu.addItem(viewItem(buttons))
+		addButtons(MenuButtonsItem(title: kind.title, content: buttons, focus: focus, main: ReportButtons.openID) { view.keyButtons }, to: menu)
 		if let failure = report.failure {
 			// A disabled item shows the reason in gray and does nothing on a click.
 			let reason = NSMenuItem(title: failure.count > 80 ? failure.prefix(80) + "…" : failure, action: nil, keyEquivalent: "")
@@ -291,6 +298,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		item.view = view
 		item.isEnabled = false
 		return item
+	}
+
+	private func addButtons(_ item: MenuButtonsItem, to menu: NSMenu) {
+		buttonItems.append(item)
+		menu.addItem(item.item)
 	}
 
 	private func sectionHeader(_ title: String) -> NSMenuItem {
