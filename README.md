@@ -79,8 +79,8 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   open task in »Cleanup Work« needs no check. A file with an open task in »Optional Work« needs no check either.
   The exceptions are a changed file, and a file that was not outdated at the last run. A checked file that no task
   names, for example a plan of another project, needs no new check until it changes. For this, the app saves the outdated files after each run
-  that wrote a file. A »Delete <file>« task leaves »Cleanup Work« when the file is gone, or when it is no plan or
-  report of the folders any more.
+  that wrote a file. If the file of a »Delete <file>« task is gone, the task leaves »Cleanup Work«. The same applies
+  to a file that is no plan or report of the folders any more.
 - **Stats:** after each run, also after a failure or a stop, the app writes `stats.md` in the same folder. It shows the
   time of each step of the last run, for example the Bitbucket requests and the Claude run, and its share of the total.
   »Stats« next to »Open« in the menu opens the file.
