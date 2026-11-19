@@ -189,6 +189,29 @@ import Testing
 		#expect(marked[1]["needsNewReview"] == nil)
 	}
 
+	@Test func anApprovedPullRequestGetsNoNewReview() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("reviews")
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
+		let files = try [4341, 4342, 4343].map { id -> URL in
+			let file = folder.appendingPathComponent("\(id)-fix.md")
+			try "reviewed commit `6e460fc`".write(to: file, atomically: true, encoding: .utf8)
+			return file
+		}
+		let pullRequest = { (id: Int, participant: [String: Any]) -> [String: Any] in
+			["id": id, "title": "PR \(id)", "author": ["display_name": "Rui"], "source": ["commit": ["hash": "abcdef012345"]],
+				"participants": [participant]]
+		}
+		// The approval of a colleague and a request for changes of the user do not count.
+		let pullRequests = [
+			pullRequest(4341, ["user": ["display_name": "Nils"], "role": "REVIEWER", "approved": true]),
+			pullRequest(4342, ["user": ["display_name": "Milad"], "role": "REVIEWER", "approved": true]),
+			pullRequest(4343, ["user": ["display_name": "Nils"], "role": "REVIEWER", "approved": false, "state": "changes_requested"]),
+		]
+		let reviews = MorningOverview.newReviews(in: files, reviewsFolder: folder, pullRequests: pullRequests, me: "Nils")
+		#expect(reviews.map(\.id) == [4342, 4343])
+	}
+
 	@Test func aNewReviewGetsTheFirstNextActionOfItsTask() {
 		let review = { (id: Int, section: String) in
 			MorningOverview.NewReview(id: id, reviewedCommit: "6e460fc", url: "https://bb/\(id)", title: "Fix PROJ-3 the login", section: section)

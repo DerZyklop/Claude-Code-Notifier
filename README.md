@@ -63,9 +63,9 @@ each next action is a sub-item with a checkbox. A sub-item without a checkbox is
   memory count too.
 - **New review:** a review report is a file `<PR>-<name>.md` in the »Reviews Folder« that names its »reviewed
   commit« or »reviewed at« commit. If no report of the PR names its newest commit, the app adds »Run `/nn-review #<PR>`
-  again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict. Your
-  own PR gets it only when one of the commits after the reviewed commit is from you. The app reads the authors of the
-  commits from Bitbucket.
+  again« to the PR, without Claude. It is the first next action, or the one after the merge of a merge conflict. If no
+  commit after the reviewed commit is from you, your own PR does not get it. The app reads the authors of the
+  commits from Bitbucket. A PR that you approved does not get it.
 - **Links:** Claude writes short refs, for example `[#1234]`, `[PROJ-123]` and `[plan.md]`, and the app makes the
   links. So Claude writes less text, and no link has a wrong URL. A ticket ref needs a project key of Jira, so that
   for example `[UTF-8]` stays text.

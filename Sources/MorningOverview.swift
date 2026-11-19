@@ -1803,7 +1803,7 @@ enum MorningOverview {
 	/// of the pull request. A report is a file directly in `reviewsFolder` whose name starts with the number of the pull
 	/// request, e.g. `4341-fix.md` (``reviewedPullRequest(of:in:)``). Its reviewed commit is the first hash after »reviewed commit« or »reviewed at«
 	/// in its text, else the hash at the end of its name, e.g. `4341-fix-6e460fc.md`. A report without a commit does not
-	/// count.
+	/// count. A pull request that `me` approved needs no new review.
 	static func newReviews(in files: [URL], reviewsFolder: URL?, pullRequests: [[String: Any]], me: String) -> [NewReview] {
 		var reports: [Int: [(date: Date, commit: String)]] = [:]
 		for file in files {
@@ -1815,6 +1815,7 @@ enum MorningOverview {
 		}
 		return pullRequests.compactMap { pullRequest in
 			guard let id = pullRequest["id"] as? Int, let reports = reports[id], let head = heads(of: [pullRequest])[id],
+				!isApproved(pullRequest, by: me),
 				!reports.contains(where: { head.hasPrefix($0.commit) || $0.commit.hasPrefix(head) }),
 				let newest = reports.max(by: { $0.date < $1.date }) else { return nil }
 			let section = !Bitbucket.isAuthor(of: pullRequest, me: me) ? "Their Open PRs" : pullRequest["draft"] as? Bool == true ? "Draft PRs" : "My Open PRs"
@@ -2270,6 +2271,11 @@ enum MorningOverview {
 	/// The user approved the pull request or asked for changes.
 	static func isReviewed(_ pullRequest: [String: Any], by me: String) -> Bool {
 		participants(of: pullRequest).contains { userName(of: $0) == me && ($0["approved"] as? Bool == true || $0["state"] is String) }
+	}
+
+	/// The user approved the pull request.
+	static func isApproved(_ pullRequest: [String: Any], by me: String) -> Bool {
+		participants(of: pullRequest).contains { userName(of: $0) == me && $0["approved"] as? Bool == true }
 	}
 
 	private static func participants(of pullRequest: [String: Any]) -> [[String: Any]] { pullRequest["participants"] as? [[String: Any]] ?? [] }
