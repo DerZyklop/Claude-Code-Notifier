@@ -55,6 +55,11 @@ import Testing
 			("ticket with a new status", { $0.now.tickets = ["PROJ-7": "Untested"] }, ["B2"]),
 			("ticket without a saved status", { $0.last.tickets = nil }, ["B2"]),
 			("ticket of an open PR", { $0.pullRequestTitles = ["PROJ-7 Long name"] }, ["B2"]),
+			("ticket of an open PR without Jira", { facts in
+				facts.tickets = nil
+				facts.pullRequestBranches = ["bugfix/PROJ-7-other"]
+			}, ["B2"]),
+			("changed memory", { $0.now.memory = "new" }, ["B1", "B2", "B3", "O1", "O2", "O3"]),
 		]
 		let all = unchanged()
 		for (name, change, changed) in cases {
@@ -71,6 +76,28 @@ import Testing
 		#expect(states.worktrees.keys.sorted() == ["try-3"])
 		#expect(states.sessions == ["🦊 ideas": "2026-10-26 10:00"])
 		#expect(states.tickets == ["PROJ-7": "In Progress"])
+	}
+
+	@Test func aChangeInOneOfTwoWorktreesWithTheSameNameChangesTheirState() {
+		let worktrees = { (head: String) in
+			MorningOverview.namedStates(branches: [], tips: [:], workspaces: [["path": "/p/.claude/worktrees/review", "head": "abc"],
+				["path": "/other/review", "head": head]], sessions: [], tickets: nil).worktrees
+		}
+		#expect(worktrees("def").keys.sorted() == ["review"])
+		#expect(worktrees("def") != worktrees("123"))
+	}
+
+	@Test func theLocalNamesAreTheFilesThatChangeWithoutACommit() throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let memory = folder.appendingPathComponent("memory")
+		try FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
+		try "".write(to: memory.appendingPathComponent("follow-up.md"), atomically: true, encoding: .utf8)
+		try "".write(to: folder.appendingPathComponent("CLAUDE.local.md"), atomically: true, encoding: .utf8)
+		let workspaces: [[String: Any]] = [["uncommittedChanges": ["?? notes/HANDOVER.md", "R  a.md -> docs/b.md", " M x.ts"]]]
+		let names = MorningOverview.localNames(workspaces: workspaces, memoryFolder: memory,
+			old: "- [ ] Do `CLAUDE.local.md` and `gone.md` and `\(folder.path)/CLAUDE.local.md`.", projectFolder: folder)
+		#expect(names == ["HANDOVER.md", "a.md", "b.md", "follow-up.md", "CLAUDE.local.md"])
 	}
 }
 

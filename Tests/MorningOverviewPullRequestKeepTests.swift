@@ -77,14 +77,16 @@ import Testing
 			    - [ ] Remove `branch-report.md`.
 			"""
 		let files: [[String: Any]] = [["url": "file:///p/a.md", "changedAfterOldOverview": false, "newCommits": false]]
-		let unchanged = { (lastNames: Set<String>?) in
+		let unchanged = { (lastNames: Set<String>?, localNames: Set<String>) in
 			MorningOverview.unchangedTasks(in: old, files: files, changedPullRequests: [], unchangedPullRequests: [12, 13],
-				openPullRequests: [12, 13], lastNames: lastNames)
+				openPullRequests: [12, 13], lastNames: lastNames, localNames: localNames)
 		}
 		// `gone-plan.md` was a plan at the last run, so it changed. Outside the PR sections, an unknown name still counts.
-		#expect(unchanged(["a.md", "gone-plan.md"]) == ["D1"])
+		#expect(unchanged(["a.md", "gone-plan.md"], []) == ["D1"])
+		// A local file, e.g. an uncommitted one, can change without a commit.
+		#expect(unchanged(["a.md", "gone-plan.md"], ["branch-report.md"]) == [])
 		// Without the names of the last run, each unknown name counts as changed.
-		#expect(unchanged(nil) == [])
+		#expect(unchanged(nil, []) == [])
 	}
 }
 

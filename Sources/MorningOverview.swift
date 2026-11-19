@@ -172,8 +172,9 @@ enum MorningOverview {
 			files: (plans + projectFacts).compactMap { $0["url"] as? String },
 			// The parent of a project folder also counts, e.g. for `[reviews/a.md]`.
 			folders: [system.folder.path, plansFolder.path] + projectFolders(system: system).flatMap { [$0.path, $0.deletingLastPathComponent().path] })
+		let memoryFolder = claudeProjectFolder(of: system.folder.path).appendingPathComponent("memory")
 		let namedStates = namedStates(branches: branches + remoteBranches, tips: tips, workspaces: workspaces, sessions: sessions.open,
-			tickets: jira["tickets"] as? [String: [String: Any]])
+			tickets: jira["tickets"] as? [String: [String: Any]], memory: memoryState(of: memoryFolder))
 		appData[namedStatesKey] = namedStates
 		var unchanged: [String] = []
 		if let old {
@@ -182,13 +183,15 @@ enum MorningOverview {
 				NamedFacts(now: namedStates, last: last, archivedTitles: sessions.archivedTitles, sprint: Set(jira["sprint"] as? [String] ?? []),
 					pullRequestBranches: Set(pullRequests.compactMap { sourceBranch(of: $0) }),
 					pullRequestTitles: pullRequests.compactMap { $0["title"] as? String },
-					changedPullRequests: changedPullRequests.union(closedPullRequests).union(merged), openPullRequests: ids(of: pullRequests),
+					changedPullRequests: changedPullRequests.union(closedPullRequests).union(merged)
+						.union(ids(of: pullRequests).subtracting(unchangedPullRequests)), openPullRequests: ids(of: pullRequests),
 					tickets: jira["tickets"] as? [String: [String: Any]])
 			}
 			unchanged = unchangedTasks(in: old, files: checked.files,
 				changedPullRequests: changedPullRequests, tickets: jira["tickets"] as? [String: [String: Any]],
 				blockedPullRequests: appData[blockedKey] as? Set<Int> ?? [], closedPullRequests: closedPullRequests,
-				unchangedPullRequests: unchangedPullRequests, openPullRequests: ids(of: pullRequests), lastNames: lastOutdated?.names, named: named)
+				unchangedPullRequests: unchangedPullRequests, openPullRequests: ids(of: pullRequests), lastNames: lastOutdated?.names,
+				localNames: localNames(workspaces: workspaces, memoryFolder: memoryFolder, old: old, projectFolder: system.folder), named: named)
 			data["unchangedTasks"] = unchanged
 		}
 		let files = withTexts(checked.files, planCount: plans.count, old: old, unchangedTasks: unchanged)
@@ -1223,11 +1226,26 @@ enum MorningOverview {
 		var sessions: [String: String] = [:]
 		/// By the key of the ticket: its Jira status, or `nil` without Jira data.
 		var tickets: [String: String]? = nil
+		/// The ``memoryState(of:)`` of the memory folder of the project.
+		var memory: String? = nil
+	}
+
+	/// A hash of the names and the change times of the files in the memory `folder`, or `nil` without the folder. A task
+	/// can come from a follow-up in the memory, so a change of the memory can change each task.
+	static func memoryState(of folder: URL) -> String? {
+		guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+		return shortHash(names.sorted().map { "\($0) \(folder.appendingPathComponent($0).modificationDate?.timeIntervalSince1970 ?? 0)" }
+			.joined(separator: "\n"))
+	}
+
+	/// The first 8 bytes of the SHA256 hash of `text`, as hex.
+	private static func shortHash(_ text: String) -> String {
+		SHA256.hash(data: Data(text.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
 	}
 
 	/// The ``NamedStates`` of the facts of a run. `tips` has the newest commit of each ref, by its short name.
 	static func namedStates(branches: [[String: Any]], tips: [String: String], workspaces: [[String: Any]], sessions: [[String: Any]],
-		tickets: [String: [String: Any]]?) -> NamedStates {
+		tickets: [String: [String: Any]]?, memory: String? = nil) -> NamedStates {
 		var states = NamedStates()
 		for branch in branches {
 			guard let name = branch["name"] as? String else { continue }
@@ -1236,19 +1254,39 @@ enum MorningOverview {
 				(branch["mergedInto"] as? [String])?.joined(separator: ","), branch["empty"] as? Bool == true ? "empty" : nil]
 			states.branches[name] = fields.map { $0 ?? "" }.joined(separator: "|")
 		}
-		for workspace in workspaces {
-			guard let path = workspace["path"] as? String else { continue }
-			let fields = [workspace["head"] as? String ?? "", workspace["branch"] as? String ?? ""]
+		// Two worktrees can have the same folder name, so the hash of a name covers all of them.
+		let byName = Dictionary(grouping: workspaces.compactMap { workspace -> (name: String, text: String)? in
+			guard let path = workspace["path"] as? String else { return nil }
+			let fields = [path, workspace["head"] as? String ?? "", workspace["branch"] as? String ?? ""]
 				+ (workspace["uncommittedChanges"] as? [String] ?? []) + ["--"] + (workspace["commitsOnNoRemote"] as? [String] ?? [])
-			let hash = SHA256.hash(data: Data(fields.joined(separator: "\n").utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-			states.worktrees[(path as NSString).lastPathComponent] = hash
-		}
+			return ((path as NSString).lastPathComponent, fields.joined(separator: "\n"))
+		}, by: \.name)
+		states.worktrees = byName.mapValues { shortHash($0.map(\.text).sorted().joined(separator: "\n\n")) }
 		for session in sessions {
 			guard let title = session["title"] as? String, let lastChange = session["lastChange"] as? String else { continue }
 			states.sessions[normalizedTitle(title)] = max(states.sessions[normalizedTitle(title)] ?? "", lastChange)
 		}
 		states.tickets = tickets.map { $0.compactMapValues { $0["status"] as? String } }
+		states.memory = memory
 		return states
+	}
+
+	/// The names of the `.md` files that can change without a commit of a pull request: the files with uncommitted changes
+	/// in `workspaces`, the files of the memory `folder`, and each `.md` path in backticks of `old` that exists, relative
+	/// to `projectFolder` or absolute, e.g. a file that git ignores.
+	static func localNames(workspaces: [[String: Any]], memoryFolder: URL, old: String?, projectFolder: URL) -> Set<String> {
+		// A line of `git status --porcelain` is `XY path` or `XY old -> new`.
+		var names = Set(workspaces.flatMap { $0["uncommittedChanges"] as? [String] ?? [] }.flatMap { line in
+			String(line.dropFirst(3)).components(separatedBy: " -> ").map {
+				($0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) as NSString).lastPathComponent
+			}
+		})
+		names.formUnion((try? FileManager.default.contentsOfDirectory(atPath: memoryFolder.path)) ?? [])
+		for path in matches(of: #"(?<=`)[^`\s]+\.md(?=`)"#, in: old ?? "") {
+			let file = path.hasPrefix("/") ? URL(fileURLWithPath: path) : projectFolder.appendingPathComponent(path)
+			if FileManager.default.fileExists(atPath: file.path) { names.insert(file.lastPathComponent) }
+		}
+		return names.filter { $0.hasSuffix(".md") }
 	}
 
 	/// The title of a session in lower case, with one normal space for each run of spaces, e.g. of no-break spaces.
@@ -1267,7 +1305,8 @@ enum MorningOverview {
 		/// The source branches and the titles of the open pull requests.
 		var pullRequestBranches: Set<String> = []
 		var pullRequestTitles: [String] = []
-		/// The pull requests that changed: a new commit, closed since the last run, or merged by others since the old overview.
+		/// The pull requests that changed: a new state (``MorningOverview/state(of:)``), closed since the last run, or merged
+		/// by others since the old overview.
 		var changedPullRequests: Set<Int> = []
 		var openPullRequests: Set<Int> = []
 		/// The facts of the tickets in Jira, or `nil` without Jira data.
@@ -1280,10 +1319,12 @@ enum MorningOverview {
 		///   an open pull request, because the pull request covers it now.
 		/// - No pull request of the text is in ``changedPullRequests``.
 		/// - No session of the text is archived.
-		/// - With ``tickets``, each ticket of the text that Jira knows is not done, not in the sprint, has the same status as
-		///   at the last run, and is in no title and no source branch of an open pull request.
+		/// - No ticket of the text is in a title or a source branch of an open pull request. With ``tickets``, each ticket
+		///   of the text that Jira knows is not done, not in the sprint, and has the same status as at the last run.
+		/// - The memory did not change.
 		/// Other text in backticks, e.g. a code file, does not count.
 		func isUnchanged(_ text: String) -> Bool {
+			guard now.memory == last.memory else { return false }
 			var tracked = 0
 			for token in MorningOverview.matches(of: #"(?<=`)[^`\s]+(?=`)"#, in: text) {
 				let names = token.hasSuffix("…")
@@ -1306,12 +1347,11 @@ enum MorningOverview {
 				guard now.sessions[quote] == last.sessions[quote] else { return false }
 				tracked += 1
 			}
-			if let tickets {
-				for key in Set(MorningOverview.matches(of: #"\b[A-Z][A-Z0-9]+-\d+\b"#, in: text)) where tickets[key] != nil {
-					guard tickets[key]?["done"] as? Bool != true, !sprint.contains(key), let status = last.tickets?[key], status == now.tickets?[key],
-						!pullRequestBranches.contains(where: { $0.contains(key) }), !pullRequestTitles.contains(where: { $0.contains(key) })
-					else { return false }
-				}
+			for key in Set(MorningOverview.matches(of: #"\b[A-Z][A-Z0-9]+-\d+\b"#, in: text)) {
+				guard !pullRequestBranches.contains(where: { $0.contains(key) }), !pullRequestTitles.contains(where: { $0.contains(key) }) else { return false }
+				guard let tickets, tickets[key] != nil else { continue }
+				guard tickets[key]?["done"] as? Bool != true, !sprint.contains(key), let status = last.tickets?[key], status == now.tickets?[key]
+				else { return false }
 			}
 			return tracked > 0
 		}
@@ -1329,7 +1369,8 @@ enum MorningOverview {
 			let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
 			let updated = object["updated"] as? String, updated == old.flatMap(updatedLine) else { return nil }
 		return NamedStates(branches: object["branches"] as? [String: String] ?? [:], worktrees: object["worktrees"] as? [String: String] ?? [:],
-			sessions: object["sessions"] as? [String: String] ?? [:], tickets: object["tickets"] as? [String: String])
+			sessions: object["sessions"] as? [String: String] ?? [:], tickets: object["tickets"] as? [String: String],
+			memory: object["memory"] as? String)
 	}
 
 	/// Saves `states` for the next run, with the `Updated:` time of `written`. Only the objects of this run are in the file,
@@ -1339,6 +1380,7 @@ enum MorningOverview {
 		var object: [String: Any] = ["updated": updatedLine(of: written) ?? "", "branches": states.branches, "worktrees": states.worktrees,
 			"sessions": states.sessions]
 		if let tickets = states.tickets { object["tickets"] = tickets }
+		if let memory = states.memory { object["memory"] = memory }
 		guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else { return }
 		try? FileManager.default.createDirectory(at: report.supportFolder, withIntermediateDirectories: true)
 		try? data.write(to: namedStatesFile(report), options: .atomic)
@@ -1887,17 +1929,16 @@ enum MorningOverview {
 	/// The IDs of the old tasks in ``pullRequestSections`` whose pull request did not change, too:
 	/// - The first pull request of the title line is in `unchangedPullRequests`. So is each other pull request of
 	///   `openPullRequests` that the task names, and the task names none of `closedPullRequests`.
-	/// - Each file that the task names did not change. A PR task needs no file. A `.md` path in backticks whose name is
-	///   no file of `files` now and was none at the last written run (`lastNames`) does not count, e.g. a file on the
-	///   branch of the PR: it changes only with a new commit, and a new commit changes the PR. Without `lastNames`, such a
-	///   path counts as changed.
+	/// - Each file that the task names did not change. A PR task needs no file. A `.md` path in backticks does not count
+	///   when its name is no file of `files`, was none at the last written run (`lastNames`), and is not in `localNames`,
+	///   e.g. a name from a comment of the PR. Without `lastNames`, such a path counts as changed.
 	/// - With `tickets`, no ticket of the title line is done, and the 🚫 of the title line is still right: a ticket of the
 	///   title line is blocked, or a pull request of the title line is in `blockedPullRequests`. A done ticket does not
 	///   count when each named file has `outdated` and no `checkFindings`, because the outdated check already knows it.
 	/// A ticked task does not count.
 	static func unchangedTasks(in old: String, files: [[String: Any]], changedPullRequests: Set<Int>, tickets: [String: [String: Any]]? = nil,
 		blockedPullRequests: Set<Int> = [], closedPullRequests: Set<Int> = [], unchangedPullRequests: Set<Int> = [],
-		openPullRequests: Set<Int> = [], lastNames: Set<String>? = nil, named: NamedFacts? = nil) -> [String] {
+		openPullRequests: Set<Int> = [], lastNames: Set<String>? = nil, localNames: Set<String> = [], named: NamedFacts? = nil) -> [String] {
 		// A file that the outdated check gives to Claude or to the app counts as changed.
 		let isUnchanged = { (file: [String: Any]) in
 			file["changedAfterOldOverview"] as? Bool == false && file["newCommits"] as? Bool == false
@@ -1927,7 +1968,7 @@ enum MorningOverview {
 				let text = lines[block].joined(separator: "\n")
 				let links = matches(of: #"(?<=\]\()file://[^)\s]+(?=\))"#, in: text).compactMap { URL(string: $0)?.path }
 				let codePaths = matches(of: #"(?<=`)[^`\s]+\.md(?=`)"#, in: text).map { ($0 as NSString).lastPathComponent }.filter { name in
-					!isPullRequestSection || byName[name] != nil || lastNames.map { $0.contains(name) } ?? true
+					!isPullRequestSection || byName[name] != nil || localNames.contains(name) || lastNames.map { $0.contains(name) } ?? true
 				}
 				let pullRequests = matches(of: #"(?<=#)\d+(?=`?\]\()"#, in: title).compactMap { Int($0) }
 				guard links.allSatisfy({ byPath[$0] == true }), codePaths.allSatisfy({ byName[$0] == true }), !changedNames.contains(where: text.contains),
