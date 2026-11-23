@@ -131,7 +131,7 @@ enum MorningOverview {
 		if let old {
 			appData[oldOverviewKey] = old
 			// The same text that KEEP uses, so that Claude needs no read and the app sections do not count.
-			data["oldOverview"] = withoutAppSections(old)
+			data["oldOverview"] = withoutDeleteCommands(in: withoutAppSections(old))
 		}
 		let memoryIndex = claudeProjectFolder(of: system.folder.path).appendingPathComponent("memory/MEMORY.md")
 		if let index = try? String(contentsOf: memoryIndex, encoding: .utf8) { data["memoryIndex"] = index }
@@ -444,7 +444,7 @@ enum MorningOverview {
 		let system = report.system
 		let old = old ?? ""
 		let isSameDay = isSameDay(old, now: system.now(), calendar: system.calendar)
-		var text = withKeptByID(in: withoutAppSections(output), old: input.appData[oldOverviewKey] as? String ?? "")
+		var text = withKeptByID(in: withoutDeleteCommands(in: withoutAppSections(output)), old: input.appData[oldOverviewKey] as? String ?? "")
 		let links = input.appData[linksKey] as? Links
 		text = withLinks(links ?? Links(), in: text)
 		// A file that is no plan or project file any more counts as gone too, e.g. after a change of a folder setting.
@@ -460,7 +460,7 @@ enum MorningOverview {
 		text = Report.hashLinksAsCode(in: subItemsIndented(in: text))
 		text = withMarks(othersTurn: input.appData[othersTurnKey] as? Set<Int> ?? [], stale: input.appData[staleKey] as? Set<Int> ?? [],
 			blocked: input.appData[blockedKey] as? Set<Int> ?? [], in: text)
-		text = numbered(withTasksSorted(in: text))
+		text = withDeleteCommands(in: numbered(withTasksSorted(in: text)))
 		if let file = report.newFileURL { text = withVSCodeLink(to: file, in: text) }
 		let merges = input.appData[otherMergesSection] as? [Merge] ?? []
 		return withKeptSections(from: old, keepingTicks: isSameDay, in: text)
@@ -1621,6 +1621,82 @@ enum MorningOverview {
 		}
 		parts[index] = lines.joined(separator: "\n")
 		return parts.joined(separator: "\n## ")
+	}
+
+	/// The overview without the code blocks of »Cleanup Work«, each with the empty line above it. A block without an end
+	/// stops before the next empty line or heading.
+	static func withoutDeleteCommands(in overview: String) -> String {
+		var parts = overview.components(separatedBy: "\n## ")
+		guard let index = index(ofSection: cleanupSection, in: parts) else { return overview }
+		var lines: [String] = []
+		var isInBlock = false
+		for line in parts[index].components(separatedBy: "\n") {
+			if line.hasPrefix("```") {
+				if !isInBlock, lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+				isInBlock.toggle()
+				continue
+			}
+			if isInBlock, line.isEmpty || line.hasPrefix("#") { isInBlock = false }
+			if !isInBlock { lines.append(line) }
+		}
+		parts[index] = lines.joined(separator: "\n")
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The overview with a code block below the tasks of each branch subsection of »Cleanup Work«. The block has one shell
+	/// command that deletes the branches of all open tasks of the subsection. Old blocks go away first.
+	static func withDeleteCommands(in overview: String) -> String {
+		var parts = withoutDeleteCommands(in: overview).components(separatedBy: "\n## ")
+		guard let index = index(ofSection: cleanupSection, in: parts) else { return overview }
+		var lines = parts[index].components(separatedBy: "\n")
+		for heading in lines.indices.reversed() where lines[heading].hasPrefix("### ") {
+			let end = lines[(heading + 1)...].firstIndex { $0.hasPrefix("### ") } ?? lines.count
+			let title = lines[heading].dropFirst(4).lowercased().replacingOccurrences(of: " and ", with: " & ")
+			let tasks = lines[heading..<end].filter { $0.hasPrefix("- [ ] ") }.compactMap(taskKey)
+			guard let command = deleteCommand(subsection: title, tasks: tasks),
+				let last = lines[heading..<end].lastIndex(where: { !$0.isEmpty }) else { continue }
+			lines.insert(contentsOf: ["", "```sh", command, "```"], at: last + 1)
+		}
+		parts[index] = lines.joined(separator: "\n")
+		return parts.joined(separator: "\n## ")
+	}
+
+	/// The shell command that deletes the branches of `tasks`, the task texts of the branch subsection `subsection` of
+	/// »Cleanup Work«, or `nil` for another subsection or without a branch. `-D` also deletes a branch that git does not
+	/// see as merged, e.g. after a squash merge.
+	static func deleteCommand(subsection: String, tasks: [String]) -> String? {
+		var local: [String] = []
+		// The branch names on each remote, in the order of the tasks.
+		var remote: [(name: String, branches: [String])] = []
+		func addUpstream(_ upstream: String) {
+			let pieces = upstream.split(separator: "/", maxSplits: 1).map(String.init)
+			guard pieces.count == 2 else { return }
+			if let index = remote.firstIndex(where: { $0.name == pieces[0] }) {
+				remote[index].branches.append(pieces[1])
+			} else {
+				remote.append((pieces[0], [pieces[1]]))
+			}
+		}
+		for task in tasks {
+			guard let first = firstGroup(of: "^Delete `([^`]+)`", in: task) else { continue }
+			switch subsection {
+			case "local & remote":
+				local.append(first)
+				if let upstream = firstGroup(of: "^Delete `[^`]+` and `([^`]+)`", in: task) { addUpstream(upstream) }
+			case "local": local.append(first)
+			case "remote": addUpstream(first)
+			default: return nil
+			}
+		}
+		let commands = (local.isEmpty ? [] : ["git branch -D " + local.map(shellQuoted).joined(separator: " ")])
+			+ remote.map { "git push \(shellQuoted($0.name)) --delete " + $0.branches.map(shellQuoted).joined(separator: " ") }
+		return commands.isEmpty ? nil : commands.joined(separator: " && ")
+	}
+
+	/// The text as one word of a shell command, with quotes if it needs them.
+	private static func shellQuoted(_ text: String) -> String {
+		guard text.range(of: "^[A-Za-z0-9._/+-]+$", options: .regularExpression) == nil else { return text }
+		return "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
 	}
 
 	/// The file with the ``OutdatedState`` of the last run that wrote an overview.

@@ -989,6 +989,42 @@ extension ReportFixture {
 			== "# Morning overview\n\n## Cleanup Work\n\nNothing open.\n")
 	}
 
+	@Test func branchSubsectionsGetADeleteCommand() {
+		let overview = "# Morning overview\n\n## Cleanup Work\n\n- [ ] `C1` Delete [plan.md](file:///plan.md), because it is old.\n\n"
+			+ "### Local & remote\n\n- [ ] `C2` Delete `a` and `origin/a`, because `origin/dev` has all its commits.\n"
+			+ "- [ ] `C3` Delete `b` and `fork/c d`, because it is empty.\n- [x] `C4` Delete `e` and `origin/e`, because it is empty.\n\n"
+			+ "### Local\n\n- [ ] `C5` Delete `feature/f`, because it is empty.\n\n"
+			+ "### Remote\n\n- [ ] `C6` Delete `origin/feature/g`, because it is empty.\n- [ ] `C7` Delete `origin/h`, because it is empty.\n\n"
+			+ "## Optional Work\n\n### Local\n\n- [ ] Delete `i`\n"
+		let result = "# Morning overview\n\n## Cleanup Work\n\n- [ ] `C1` Delete [plan.md](file:///plan.md), because it is old.\n\n"
+			+ "### Local & remote\n\n- [ ] `C2` Delete `a` and `origin/a`, because `origin/dev` has all its commits.\n"
+			+ "- [ ] `C3` Delete `b` and `fork/c d`, because it is empty.\n- [x] `C4` Delete `e` and `origin/e`, because it is empty.\n\n"
+			+ "```sh\ngit branch -D a b && git push origin --delete a && git push fork --delete 'c d'\n```\n\n"
+			+ "### Local\n\n- [ ] `C5` Delete `feature/f`, because it is empty.\n\n```sh\ngit branch -D feature/f\n```\n\n"
+			+ "### Remote\n\n- [ ] `C6` Delete `origin/feature/g`, because it is empty.\n- [ ] `C7` Delete `origin/h`, because it is empty.\n\n"
+			+ "```sh\ngit push origin --delete feature/g h\n```\n\n"
+			+ "## Optional Work\n\n### Local\n\n- [ ] Delete `i`\n"
+		#expect(MorningOverview.withDeleteCommands(in: overview) == result)
+		// A second call changes nothing, and the commands go away again.
+		#expect(MorningOverview.withDeleteCommands(in: result) == result)
+		#expect(MorningOverview.withoutDeleteCommands(in: result) == overview)
+	}
+
+	@Test func deleteCommandAtTheEndOfTheOverviewAndWithoutAnEnd() {
+		let overview = "# Morning overview\n\n## Cleanup Work\n\n### Remote\n\n- [ ] Delete `origin/a`, because it is empty.\n"
+		let result = "# Morning overview\n\n## Cleanup Work\n\n### Remote\n\n- [ ] Delete `origin/a`, because it is empty.\n\n"
+			+ "```sh\ngit push origin --delete a\n```\n"
+		#expect(MorningOverview.withDeleteCommands(in: overview) == result)
+		#expect(MorningOverview.withoutDeleteCommands(in: result) == overview)
+		// A block without an end stops before the next empty line.
+		let open = "# Morning overview\n\n## Cleanup Work\n\n### Local\n\n- [ ] Delete `a`\n\n```sh\ngit branch -D a\n\n### Remote\n\n- [ ] Delete `origin/b`\n"
+		#expect(MorningOverview.withoutDeleteCommands(in: open)
+			== "# Morning overview\n\n## Cleanup Work\n\n### Local\n\n- [ ] Delete `a`\n\n### Remote\n\n- [ ] Delete `origin/b`\n")
+		// A subsection without an open branch task gets no command.
+		let other = "# Morning overview\n\n## Cleanup Work\n\n### Notes\n\n- [ ] Delete `a`\n\n### Local\n\n- [x] Delete `b`\n"
+		#expect(MorningOverview.withDeleteCommands(in: other) == other)
+	}
+
 	@Test func cleanupWorkWithOnlyDoneTasksIsNothingOpen() {
 		#expect(MorningOverview.withoutDoneCleanupTasks(in: "# Morning overview\n\n## Cleanup Work\n\n- [x] Delete a\n")
 			== "# Morning overview\n\n## Cleanup Work\n\nNothing open.\n")
