@@ -133,6 +133,7 @@ final class SessionCardItems: NSObject {
 	}
 
 	private func card(slot: Int) -> SessionCard {
-		SessionCard(model: model, slot: slot, setup: setup, clock: clock, open: open, hide: { [store] in store.hide($0.id) })
+		SessionCard(model: model, slot: slot, setup: setup, clock: clock, open: open, hide: { [store] in store.hide($0.id) },
+			toggleImportant: { [store] in store.toggleImportant($0.id) })
 	}
 }

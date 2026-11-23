@@ -11,7 +11,7 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``. A click on a row opens the chat of the session in VS Code. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
+/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``, and a check box at the end of the row marks the session as important, see ``Session/holdsRing``. The check box of an important session always shows. A click on a row opens the chat of the session in VS Code. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
 /// The card is a stack of menu items, one for each ``Part``, so that the arrow keys reach each session, see
 /// ``SessionCardItems``. This view shows the part at one place of the stack.
 struct SessionCard: View {
@@ -24,6 +24,8 @@ struct SessionCard: View {
 	var open: (Session) -> Void = { _ in }
 	/// Removes the session from the card, see ``SessionStore/hide(_:)``.
 	var hide: (Session) -> Void = { _ in }
+	/// Marks the session as important or removes the mark, see ``SessionStore/toggleImportant(_:)``.
+	var toggleImportant: (Session) -> Void = { _ in }
 	/// Whether the pointer is on the menu item.
 	@State private var isHovered = false
 
@@ -146,8 +148,8 @@ struct SessionCard: View {
 		.padding(.bottom, 5)
 	}
 
-	/// The sessions by ``Session/project``. The groups have the order of `order`, then the order of their first session.
-	/// Each group keeps the order of `sessions`.
+	/// The sessions by ``Session/project``. The groups with an important session come first. Then the groups have the
+	/// order of `order`, then the order of their first session. Each group keeps the order of `sessions`.
 	static func groups(_ sessions: [Session], order: [String] = []) -> [(project: String, sessions: [Session])] {
 		var groups: [(project: String, sessions: [Session])] = []
 		for session in sessions {
@@ -157,8 +159,11 @@ struct SessionCard: View {
 				groups.append((session.project, [session]))
 			}
 		}
+		let pin = { (group: (project: String, sessions: [Session])) in group.sessions.contains(where: \.isImportant) ? 0 : 1 }
 		let rank = { (project: String) in order.firstIndex(of: project) ?? order.count }
-		return groups.enumerated().sorted { (rank($0.element.project), $0.offset) < (rank($1.element.project), $1.offset) }.map(\.element)
+		return groups.enumerated().sorted {
+			(pin($0.element), rank($0.element.project), $0.offset) < (pin($1.element), rank($1.element.project), $1.offset)
+		}.map(\.element)
 	}
 
 	/// Small like the header. Below the header or a row, it gets more space above.
@@ -202,6 +207,7 @@ struct SessionCard: View {
 				.foregroundStyle(.secondary)
 				.fixedSize()
 				.menuTooltip(Self.timeTooltip(session, now: clock.now), alignment: .trailing)
+			if session.isImportant || isHovered && isHighlighted { importantButton(session) }
 		}
 		.padding(.horizontal, 6)
 		.padding(.vertical, 3)
@@ -263,6 +269,16 @@ struct SessionCard: View {
 		}
 		.buttonStyle(.plain)
 		.help("Remove from the list until the state changes (now: \(session.stateTitle))")
+	}
+
+	/// The check box of an important session, at the end of the row. It shifts the time to the left.
+	private func importantButton(_ session: Session) -> some View {
+		Toggle("Important", isOn: Binding(get: { session.isImportant }, set: { _ in toggleImportant(session) }))
+			.toggleStyle(.checkbox)
+			.labelsHidden()
+			.fixedSize()
+			.help(session.isImportant ? "Important: the red lights stay on while it waits for you. Click to remove the mark."
+			: "Mark as important: the red lights stay on while it waits for you")
 	}
 
 	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a badge
@@ -386,3 +402,4 @@ private extension Image {
 		font(.system(size: 17, weight: .semibold)).frame(width: 22, height: 22)
 	}
 }
+

@@ -5,10 +5,11 @@ import AppKit
 @MainActor
 enum Lights {
 	/// Lets the lights show `waves`, the bubble while `isWaiting`, and the mark of an unread report. The letter keys of
-	/// the keyboard show `sessions`: the session on each letter, see ``SessionStore/letters``.
-	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:]) {
-		Blink1.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread)
-		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread, sessions: sessions)
+	/// the keyboard show `sessions`: the session on each letter, see ``SessionStore/letters``. With `holdsRing`, the
+	/// LEDs of the red ring stay red, see ``Session/holdsRing``.
+	static func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:], holdsRing: Bool = false) {
+		Blink1.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread, holdsRing: holdsRing)
+		KeyboardLight.shared.show(waves: waves, isWaiting: isWaiting, hasUnread: hasUnread, sessions: sessions, holdsRing: holdsRing)
 		MacBookBacklight.shared.show(waves: waves)
 	}
 
@@ -269,17 +270,20 @@ struct LightScene {
 	var isWaiting: Bool
 	var hasUnread: Bool
 	var ringStart: Double?
+	/// Keeps the LEDs of the ring at the red peak of the ring, see ``Session/holdsRing``.
+	var holdsRing: Bool
 	/// The light of each LED that shows a session. It shows above all signals but the ring.
 	var sessionLights: [Int: SessionLight] = [:]
 
 	init(device: LightDevice, lights: [LightSignal: Light]? = nil, waveStarts: [LightWave: Double] = [:],
-		isWaiting: Bool = false, hasUnread: Bool = false, ringStart: Double? = nil) {
+		isWaiting: Bool = false, hasUnread: Bool = false, ringStart: Double? = nil, holdsRing: Bool = false) {
 		self.device = device
 		self.lights = lights ?? LightMapping.defaultLights(on: device)
 		self.waveStarts = waveStarts
 		self.isWaiting = isWaiting
 		self.hasUnread = hasUnread
 		self.ringStart = ringStart
+		self.holdsRing = holdsRing
 	}
 
 	static let ringLength = AttentionBubble.glowTimes.rest * AttentionBubble.ringLength
@@ -313,10 +317,14 @@ struct LightScene {
 	private func frame(of signal: LightSignal, level: Double, point: Int, at now: Double) -> Frame? {
 		switch signal {
 		case .ring:
+			let peak = device == .blink1 ? Blink1.ringBrightness * level : level
+			// The orange of the bubble and the mark of an unread report stay visible under a held ring.
+			let marks = [(LightSignal.waiting, isWaiting), (.unread, hasUnread)]
+			let hasMark = marks.contains { $0.1 && lights[$0.0]?.points.contains(point) == true }
+			if holdsRing && !hasMark { return Frame(color: LightSignal.ringColor, brightness: peak) }
 			guard let ringStart, isRinging(at: now) else { return nil }
 			// The ring rises from the color below it.
 			let rest = frame(point: point, at: now, after: .ring) ?? Frame(color: LightSignal.ringColor, brightness: 0)
-			let peak = device == .blink1 ? Blink1.ringBrightness * level : level
 			return Self.ring(from: rest, to: peak, at: (now - ringStart) / AttentionBubble.ringLength)
 		case .waiting, .unread:
 			guard signal == .waiting ? isWaiting : hasUnread else { return nil }

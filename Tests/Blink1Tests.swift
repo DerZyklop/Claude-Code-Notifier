@@ -56,6 +56,14 @@ struct Blink1StateTests {
 		#expect(abs(frames[1]!.brightness - Blink1.workBrightness.upperBound) < 1e-9)
 	}
 
+	@Test func heldRingTakesLEDOneOverTheWaveButNotOverTheBubble() {
+		let held = Blink1.frames(of: Scene(device: .blink1, waveStarts: [.work: 0], holdsRing: true), pulse: nil, at: 0)
+		#expect(held[0] == Scene.Frame(color: LightSignal.ringColor, brightness: Blink1.ringBrightness))
+		#expect(held[1]?.color == Spinner.color)
+		let asking = Blink1.frames(of: Scene(device: .blink1, isWaiting: true, holdsRing: true), pulse: nil, at: 0)
+		#expect(asking[0]?.color == LightSignal.orange)
+	}
+
 	@Test func waveBreathesDownAndUpAgain() {
 		let range = Blink1.reportBrightness
 		#expect(abs(Blink1.breath(of: .report, level: 1, at: 0) - range.upperBound) < 1e-9)

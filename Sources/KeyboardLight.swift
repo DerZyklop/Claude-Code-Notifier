@@ -6,7 +6,8 @@ import AppKit
 /// - The first two key rows show the wave of the menu bar: a dim green while sessions work, or purple while a report
 ///   runs, and a brighter segment of 4 keys that runs from left to right.
 /// - The right end of the first two rows shows orange while the bubble shows.
-/// - Both side bars show the red ring of the bubble in each round.
+/// - Both side bars show the red ring of the bubble in each round. They stay red while an important session is idle,
+///   see ``Session/holdsRing``.
 /// - The first 2 keys of the first two rows and the left bar show a steady purple while a report is unread.
 /// - The letter keys show the sessions of the card, each on its own letter, see ``SessionStore/letters``. The colors are
 ///   those of their icons: a green pulse while it works, a half bright white on your turn, orange while it asks you.
@@ -52,9 +53,10 @@ final class KeyboardLight {
 		RunLoop.main.add(idleTimer, forMode: .common)
 	}
 
-	/// Lets the keys show `waves`, the bubble while `isWaiting`, the mark of an unread report, and `sessions` on the
-	/// letter keys.
-	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:]) {
+	/// Lets the keys show `waves`, the bubble while `isWaiting`, the mark of an unread report, `sessions` on the letter
+	/// keys, and with `holdsRing` a steady red ring.
+	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, sessions: [Int: Session] = [:], holdsRing: Bool = false) {
+		scene.holdsRing = holdsRing
 		self.sessions = sessions
 		scene.sessionLights = Self.sessionLights(of: showsSessions ? Self.shownSessions(sessions, at: Date()) : [:])
 		scene.waveStarts = scene.waveStarts.filter { waves.contains($0.key) }

@@ -4,7 +4,8 @@ import IOKit.hid
 /// A blink(1) USB light with two LEDs. It shows the signals of ``LightScene`` in the areas of the setup window, see
 /// ``LightArea/blink1LEDs``. Today's look is the default: both LEDs breathe in green while sessions work, and in purple
 /// while a report runs. LED 1 shows steady orange while the bubble shows, steady purple while a report is unread, and
-/// rings once in bright red with each round of the bubble. An LED without a signal shows the color of the other LED, so
+/// rings once in bright red with each round of the bubble. It stays bright red while an important session is idle, see
+/// ``Session/holdsRing``. An LED without a signal shows the color of the other LED, so
 /// that a signal uses both LEDs while nothing else shows.
 ///
 /// When a session ends while it works or asks you, both LEDs blink 3 times in bright green, and when a report is ready,
@@ -76,8 +77,10 @@ final class Blink1 {
 		}
 	}
 
-	/// Lets the LEDs show `waves`, the bubble while `isWaiting`, and the mark of an unread report.
-	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool) {
+	/// Lets the LEDs show `waves`, the bubble while `isWaiting`, the mark of an unread report, and with `holdsRing` a
+	/// steady red ring.
+	func show(waves: Set<LightWave>, isWaiting: Bool, hasUnread: Bool, holdsRing: Bool = false) {
+		scene.holdsRing = holdsRing
 		scene.waveStarts = scene.waveStarts.filter { waves.contains($0.key) }
 		for wave in waves where scene.waveStarts[wave] == nil { scene.waveStarts[wave] = CACurrentMediaTime() }
 		if isWaiting != scene.isWaiting {

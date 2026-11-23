@@ -133,6 +133,15 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		#expect(SessionCard.groups(sessions, order: ["two", "one"]).map(\.project) == ["two", "one", "three"])
 	}
 
+	@Test func groupWithAnImportantSessionComesFirst() {
+		let date = Date(timeIntervalSince1970: 1_000_000)
+		var sessions = [("a", "/x/one"), ("b", "/x/two")].map { id, cwd in
+			Session(id: id, cwd: cwd, started: date, state: .working, updated: date)
+		}
+		sessions[1].isImportant = true
+		#expect(SessionCard.groups(sessions, order: ["one", "two"]).map(\.project) == ["two", "one"])
+	}
+
 	@Test func projectOrderKeepsOldProjectsAndAddsNewOnesLast() {
 		let date = Date(timeIntervalSince1970: 1_000_000)
 		let sessions = [("a", "/x/one", 1.0), ("b", "/x/two", 3.0), ("c", "/x/three", 2.0)].map { id, cwd, time in
@@ -179,10 +188,16 @@ private func cardSize(states: [SessionState], cwds: [String]? = nil) throws -> N
 		let plain = try pixels(of: row)
 		model.highlightedSlot = 2
 		model.hasHighlight = true
-		#expect(try pixels(of: row) != plain)
+		#expect(try !isNearly(pixels(of: row), plain))
 		// The highlight of another row.
 		model.highlightedSlot = 1
-		#expect(try pixels(of: row) == plain)
+		#expect(try isNearly(pixels(of: row), plain))
+	}
+
+	/// Whether no byte differs by more than 2. After a change of the state, SwiftUI can draw the text of the row
+	/// with 1 step of difference at its edges.
+	private func isNearly(_ pixels: [UInt8], _ other: [UInt8]) -> Bool {
+		pixels.count == other.count && zip(pixels, other).allSatisfy { abs(Int($0) - Int($1)) <= 2 }
 	}
 
 	@Test func aPlaceWithoutAPartShowsNothing() throws {

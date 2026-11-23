@@ -118,6 +118,8 @@ struct Session: Identifiable, Equatable {
 	/// When you last interacted with the session: your last prompt, or your answer to a question or a permission
 	/// prompt. `nil` while the app knows none.
 	var interacted: Date?
+	/// The user marked the session as important on the card, see ``SessionStore/toggleImportant(_:)``.
+	var isImportant = false
 
 	/// Whether the turn is over, but a shell command or a subagent still runs in the background.
 	var hasBackgroundTask: Bool { state == .yourTurn && (shellCommands > 0 || !agents.isEmpty) }
@@ -128,6 +130,9 @@ struct Session: Identifiable, Equatable {
 	/// True while the session works or asks you. Only the end of a busy session pulses the light: VS Code ends and
 	/// restarts an idle session when you open its tab.
 	var isBusy: Bool { shownState == .working || shownState == .asksYou }
+
+	/// True while an important session is idle: the LEDs of the red ring then stay red, see ``LightScene/holdsRing``.
+	var holdsRing: Bool { isImportant && shownState == .yourTurn }
 
 	/// The title of ``shownState``, for the tooltip of its icon. A background task names what runs, e.g. »working in
 	/// the background: 2 agents, 1 shell command«.
@@ -241,6 +246,8 @@ final class SessionStore: ObservableObject {
 	/// letter while it is on the card, also when it ends, because VS Code ends and restarts an idle session when you
 	/// open its tab.
 	@Published private(set) var letters: [String: Int] = [:]
+	/// The sessions that the user marked as important. The mark stays when VS Code ends and restarts the session.
+	private var importantIDs: Set<String> = []
 	/// The Claude tab that the user looks at. Its session gets no notification.
 	private(set) var focusedTab: FocusedTab?
 
@@ -260,9 +267,12 @@ final class SessionStore: ObservableObject {
 		projectOrder = Self.projectOrder(keeping: [], for: sessions.values)
 	}
 
-	/// The sessions of the card, without the hidden ones.
+	/// The sessions of the card, without the hidden ones. The important sessions come first.
 	var sortedSessions: [Session] {
-		sessions.values.filter { hiddenStates[$0.id] == nil }.sorted { ($0.shownState.listOrder, $1.updated) < ($1.shownState.listOrder, $0.updated) }
+		let pin = { (session: Session) in session.isImportant ? 0 : 1 }
+		return sessions.values.filter { hiddenStates[$0.id] == nil }.sorted {
+			(pin($0), $0.shownState.listOrder, $1.updated) < (pin($1), $1.shownState.listOrder, $0.updated)
+		}
 	}
 
 	/// `old`, then the new projects of `sessions`, the last used one first.
@@ -370,6 +380,13 @@ final class SessionStore: ObservableObject {
 		hiddenStates[id] = sessions[id]?.shownState
 	}
 
+	/// Marks the session as important, or removes the mark. The mark stays until the user archives the session.
+	func toggleImportant(_ id: String) {
+		guard sessions[id] != nil else { return }
+		if importantIDs.remove(id) == nil { importantIDs.insert(id) }
+		sessions[id]?.isImportant = importantIDs.contains(id)
+	}
+
 	/// Sends a notification of the given kind, also while the notifications are muted.
 	func sendTestNotification(_ kind: NotificationKind) {
 		post(kind, title: "Test notification", body: kind.testBody, identifier: "test-\(kind)")
@@ -388,7 +405,7 @@ final class SessionStore: ObservableObject {
 		// A prompt is an interaction, and so is a tool call that continues after Claude asked you.
 		let interacted = event.hook_event_name == "UserPromptSubmit" || (previous?.state == .asksYou && state == .working)
 			? Date() : previous?.interacted ?? transcriptPath.flatMap(SessionTitle.lastPrompt)
-		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: updated, transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [], interacted: interacted)
+		let session = Session(id: event.session_id, cwd: previous?.cwd ?? event.cwd, started: previous?.started ?? transcriptPath.flatMap(SessionTitle.start) ?? Date(), state: state, updated: updated, transcriptPath: transcriptPath, title: title, pid: previous?.pid, agents: previous?.agents ?? [], interacted: interacted, isImportant: importantIDs.contains(event.session_id))
 		sessions[session.id] = session
 		return session
 	}
@@ -415,6 +432,7 @@ final class SessionStore: ObservableObject {
 		}
 
 		guard let archived else { return }
+		importantIDs.subtract(archived)
 		for id in sessions.keys where archived.contains(id) {
 			sessions[id] = nil
 			removeNotification(of: id)
@@ -433,6 +451,7 @@ final class SessionStore: ObservableObject {
 				title: SessionTitle.read(transcript: process.transcriptPath), interacted: SessionTitle.lastPrompt(transcript: process.transcriptPath))
 			// VS Code restarts the process of a session now and then, so the process can start later than the session.
 			session.started = min(session.started, process.started)
+			session.isImportant = importantIDs.contains(session.id)
 			session.pid = process.pid
 			// The file wins only when it is newer than the last hook event, because a hook comes faster.
 			if let state = process.state, state != session.state, process.stateChanged > session.updated.addingTimeInterval(1) {

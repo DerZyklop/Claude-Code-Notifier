@@ -304,6 +304,21 @@ struct KeyboardLightSceneTests {
 		#expect(!scene.isMoving(at: Scene.ringLength + 0.01))
 	}
 
+	@Test func heldRingStaysFullRedWithoutMoving() {
+		let scene = Scene(device: .keyboard, holdsRing: true)
+		let frame = scene.frame(point: left, at: 3)!
+		#expect(NuPhyKeyboard.rgb(frame.color, brightness: frame.brightness) == [255, 0, 0])
+		#expect(scene.frame(point: 106, at: 100) == frame)
+		#expect(scene.frame(point: topRight, at: 3) == nil)
+		#expect(!scene.isMoving(at: 3))
+	}
+
+	@Test func heldRingLeavesTheUnreadMarkVisible() {
+		let scene = Scene(device: .keyboard, hasUnread: true, holdsRing: true)
+		#expect(scene.frame(point: left, at: 3)?.color == Spinner.reportColor)
+		#expect(scene.frame(point: 106, at: 3)?.color == LightSignal.ringColor)
+	}
+
 	@Test func ringRisesFromTheSignalBelowAndGivesItBack() {
 		let scene = Scene(device: .keyboard, hasUnread: true, ringStart: 0)
 		let mark = Scene.Frame(color: Spinner.reportColor, brightness: full)

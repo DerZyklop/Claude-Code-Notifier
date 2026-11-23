@@ -759,6 +759,39 @@ private struct Fixture {
 		#expect(fixture.store.sortedSessions.map(\.id) == ["s1"])
 	}
 
+	@Test func importantSessionHoldsTheRingOnlyOnItsTurn() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.working, id: "s1")
+		fixture.store.toggleImportant("s1")
+		#expect(fixture.store.sessions["s1"]?.isImportant == true)
+		#expect(fixture.store.sessions["s1"]?.holdsRing == false)
+		// The mark stays with the next state.
+		fixture.store.handle(hookJSON("Stop"))
+		#expect(fixture.store.sessions["s1"]?.holdsRing == true)
+		fixture.store.toggleImportant("s1")
+		#expect(fixture.store.sessions["s1"]?.holdsRing == false)
+	}
+
+	@Test func importantSessionComesFirstInTheList() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "turn")
+		try fixture.add(.asksYou, id: "asks")
+		fixture.store.toggleImportant("turn")
+		#expect(fixture.store.sortedSessions.map(\.id) == ["turn", "asks"])
+	}
+
+	@Test func importantMarkStaysWhenVSCodeRestartsTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.handle(hookJSON("SessionEnd"))
+		fixture.store.handle(hookJSON("SessionStart"))
+		#expect(fixture.store.sessions["s1"]?.isImportant == true)
+	}
+
 	@Test func hideOfAnUnknownSessionDoesNothing() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }
