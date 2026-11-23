@@ -274,7 +274,7 @@ struct SessionCard: View {
 	/// The check box of an important session, at the end of the row. It shifts the time to the left.
 	private func importantButton(_ session: Session) -> some View {
 		Toggle("Important", isOn: Binding(get: { session.isImportant }, set: { _ in toggleImportant(session) }))
-			.toggleStyle(.checkbox)
+			.toggleStyle(RedCheckbox())
 			.labelsHidden()
 			.fixedSize()
 			.help(session.isImportant ? "Important: the red lights stay on and a sound plays every 5 s while it waits for you. Click to remove the mark."
@@ -403,3 +403,30 @@ private extension Image {
 	}
 }
 
+/// A check box that is red when ticked, like the lights of an important session. The checkbox of macOS ignores the tint
+/// in the card.
+struct RedCheckbox: ToggleStyle {
+	static let size = 14.0
+
+	func makeBody(configuration: Configuration) -> some View {
+		Button { configuration.isOn.toggle() } label: {
+			RoundedRectangle(cornerRadius: 3.5)
+				.fill(configuration.isOn ? Color.red : Color.clear)
+				.overlay {
+					RoundedRectangle(cornerRadius: 3.5)
+						.strokeBorder(configuration.isOn ? Color.clear : Color.secondary, lineWidth: 1)
+				}
+				.overlay {
+					if configuration.isOn {
+						Image(systemName: "checkmark")
+							.font(.system(size: 9, weight: .bold))
+							.foregroundStyle(.white)
+					}
+				}
+				.frame(width: Self.size, height: Self.size)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+	}
+}
