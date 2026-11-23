@@ -83,15 +83,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		if button.image !== image { button.image = image }
 		button.layoutSubtreeIfNeeded()
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
-		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
-			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting)
-		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
 		let store = SessionStore.shared
+		// A session that the user removed from the card does not hold the ring.
+		let holdsRing = !hasProblem && store.sortedSessions.contains(where: \.holdsRing)
+		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
+			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting, isHeld: holdsRing)
+		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
 		let letters = hasProblem ? [:] : Dictionary(uniqueKeysWithValues: store.letters.compactMap { id, letter in
 			store.sessions[id].map { (letter, $0) }
 		})
-		// A session that the user removed from the card does not hold the ring.
-		let holdsRing = !hasProblem && store.sortedSessions.contains(where: \.holdsRing)
 		Lights.show(waves: waves, isWaiting: layout.waiting > 0, hasUnread: hasUnread, sessions: letters, holdsRing: holdsRing)
 		attention.hold(holdsRing)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.

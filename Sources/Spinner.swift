@@ -7,6 +7,8 @@ import QuartzCore
 /// - A pale green wave, while sessions work. It is purple instead while a report runs, also when sessions work too.
 /// - A dark green segment that runs along the pale green wave from left to right, without a jump between rounds.
 ///
+/// While an important session is idle, all three layers are in ``heldColor``, see ``Session/holdsRing``.
+///
 /// When work starts, the green wave grows in from the left and the still wave shrinks back at the same point. When
 /// work ends, the green wave leaves to the right and the still wave grows back. The wave keeps its wavelength and gets
 /// shorter when the number or the bubble needs room in the icon. Core Animation runs all of it in the window server,
@@ -29,6 +31,8 @@ final class Spinner {
 	nonisolated static let color = NSColor.systemGreen
 	/// The color of the wave while a report runs.
 	nonisolated static let reportColor = NSColor.systemPurple
+	/// The color of the still and the moving wave while an important session is idle.
+	nonisolated static let heldColor = NSColor.systemRed
 
 	/// The darker color of the segment on a wave in `color`.
 	nonisolated static func segmentColor(of color: NSColor) -> NSColor {
@@ -76,7 +80,8 @@ final class Spinner {
 	///   - hasGap: Breaks the still wave in the middle, for a setup problem.
 	///   - stillColor: The muted menu bar color for the still wave.
 	///   - isReport: Paints the moving wave in ``reportColor`` instead of ``color``.
-	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false) {
+	///   - isHeld: Paints both waves in ``heldColor``, see ``Session/holdsRing``.
+	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false, isHeld: Bool = false) {
 		guard let imageFrame else {
 			for layer in [still, track, segment] { layer.isHidden = true }
 			return
@@ -105,8 +110,8 @@ final class Spinner {
 		}
 		segmentMask.frame = CGRect(origin: .zero, size: imageFrame.size)
 		segmentMask.contentsScale = segment.contentsScale
-		still.strokeColor = stillColor.cgColor
-		paint(isReport ? Self.reportColor : Self.color)
+		still.strokeColor = (isHeld ? Self.heldColor : stillColor).cgColor
+		paint(isHeld ? Self.heldColor : isReport ? Self.reportColor : Self.color)
 		CATransaction.commit()
 
 		guard isWorking != self.isWorking else { return }
