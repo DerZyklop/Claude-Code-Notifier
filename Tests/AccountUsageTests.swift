@@ -67,6 +67,40 @@ private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#
 		#expect(AccountUsageStore.accountID(of: home.appendingPathComponent(".claude"), home: home) == "default")
 		#expect(AccountUsageStore.accountID(of: other, home: home) == nil)
 	}
+
+	@Test func readsThePlanOfAFolder() throws {
+		let home = FileManager.default.temporaryDirectory.appendingPathComponent("AccountUsageTests-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: home) }
+		func folder(_ name: String, _ json: String?) throws -> URL {
+			let directory = home.appendingPathComponent(name)
+			try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+			if let json { FileManager.default.createFile(atPath: directory.appendingPathComponent(".claude.json").path, contents: Data(json.utf8)) }
+			return directory
+		}
+		try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+		FileManager.default.createFile(atPath: home.appendingPathComponent(".claude.json").path, contents: Data(#"""
+			{"oauthAccount":{"planDisplayName":"Ultra","organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x",
+			"hasExtraUsageEnabled":false,"billingType":"stripe_subscription","seatTier":null}}
+			"""#.utf8))
+		let max20 = AccountUsageStore.plan(of: home.appendingPathComponent(".claude"), home: home)
+		#expect(max20 == AccountPlan(planDisplayName: "Ultra", organizationType: "claude_max",
+			organizationRateLimitTier: "default_claude_max_20x", hasExtraUsageEnabled: false))
+		#expect(max20?.name == "Ultra")
+		#expect(max20?.tier == "Max 20x")
+
+		let max5 = AccountUsageStore.plan(of: try folder(".claude-b",
+			#"{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_5x","hasExtraUsageEnabled":true}}"#), home: home)
+		#expect(max5?.name == "Claude Max")
+		#expect(max5?.tier == "Max 5x")
+
+		let bare = AccountUsageStore.plan(of: try folder(".claude-c", #"{"oauthAccount":{"organizationRateLimitTier":"default_claude_ai"}}"#), home: home)
+		#expect(bare == AccountPlan(organizationRateLimitTier: "default_claude_ai"))
+		#expect(bare?.name == nil)
+		#expect(bare?.tier == nil)
+
+		#expect(AccountUsageStore.plan(of: try folder(".claude-d", "{}"), home: home) == nil)
+		#expect(AccountUsageStore.plan(of: try folder(".claude-e", nil), home: home) == nil)
+	}
 }
 
 @MainActor @Suite struct AccountUsageStoreTests {
@@ -177,6 +211,26 @@ private func output(sevenDay: String = #"{"utilization":0.405,"resetsAt":9000}"#
 		#expect(UsagePipe.tooltip("Week", nil, hasData: false, reset: nil, now: now) == "Week: no data yet")
 		#expect(UsagePipe.tooltip(AccountUsage(sevenDay: week), now: now) == "Week: 25 %\nNo Fable limit")
 		#expect(UsagePipe.tooltip(nil, now: now) == "No data yet")
+	}
+
+	@Test func namesThePlanBelowTheEmail() {
+		var entry = AccountUsageEntry(directory: URL(fileURLWithPath: "/a"), email: "mui@example.com")
+		#expect(AccountUsageCard.nameTooltip(entry) == "mui@example.com")
+		entry.plan = AccountPlan(planDisplayName: "Ultra", organizationType: "claude_max",
+			organizationRateLimitTier: "default_claude_max_20x", hasExtraUsageEnabled: false)
+		#expect(AccountUsageCard.nameTooltip(entry) == "mui@example.com\nPlan: Ultra (Max 20x)\nExtra usage: off")
+		entry.plan = AccountPlan(organizationType: "claude_pro", organizationRateLimitTier: "default_claude_ai", hasExtraUsageEnabled: true)
+		#expect(AccountUsageCard.nameTooltip(entry) == "mui@example.com\nPlan: Claude Pro\nExtra usage: on")
+		entry.plan = AccountPlan(organizationRateLimitTier: "default_claude_max_5x")
+		#expect(AccountUsageCard.nameTooltip(entry) == "mui@example.com")
+	}
+
+	@Test func readsThePlanOfEachFolder() {
+		let plan = AccountPlan(planDisplayName: "Ultra")
+		let store = AccountUsageStore(directories: { ["/a", "/b"].map { URL(fileURLWithPath: $0) } }, fetch: { _ in .init() },
+			accountID: { _ in nil }, plan: { $0.path == "/a" ? plan : nil })
+		store.refreshIfStale()
+		#expect(store.entries.map(\.plan) == [plan, nil])
 	}
 
 	/// The menu measures the card before it gives the size to the menu. A card of height 0 does not show.

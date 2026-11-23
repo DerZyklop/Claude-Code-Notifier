@@ -59,6 +59,8 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	/// The folder has no login yet, see ``AccountLogin``.
 	var needsLogin = false
 	var isLoading = false
+	/// The plan of the login, from its `.claude.json`, see ``AccountUsageStore/plan(of:home:)``.
+	var plan: AccountPlan?
 
 	var id: String { directory.path }
 	/// The sessions in VS Code use this account. They use the login of ``claudeConfigDirectory``, because VS Code sets
@@ -67,6 +69,31 @@ struct AccountUsageEntry: Identifiable, Equatable {
 	var name: String { email ?? (directory.path as NSString).abbreviatingWithTildeInPath }
 	/// The part of the email before the `@`, because all accounts have the same domain.
 	var shortName: String { email.map { String($0.prefix { $0 != "@" }) } ?? name }
+}
+
+/// The plan of a login, from the `oauthAccount` of its `.claude.json`.
+struct AccountPlan: Decodable, Equatable {
+	/// For example »Ultra«.
+	var planDisplayName: String?
+	/// For example `claude_max`.
+	var organizationType: String?
+	/// For example `default_claude_max_20x`.
+	var organizationRateLimitTier: String?
+	var hasExtraUsageEnabled: Bool?
+
+	/// The plan name, for example »Ultra«. Without it, a readable form of ``organizationType``, for example »Claude Max«.
+	var name: String? {
+		if let planDisplayName, !planDisplayName.isEmpty { return planDisplayName }
+		guard let organizationType, !organizationType.isEmpty else { return nil }
+		return organizationType.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+	}
+
+	/// For example »Max 20x« for the tier `default_claude_max_20x`, or `nil` when the tier has no such part.
+	var tier: String? {
+		guard let tier = organizationRateLimitTier, let range = tier.range(of: #"_max_(\d+)x$"#, options: .regularExpression)
+		else { return nil }
+		return "Max " + tier[range].dropFirst("_max_".count)
+	}
 }
 
 /// The usage of each account. The app updates it once at the start. The menu updates it when it opens and the data is
@@ -92,15 +119,18 @@ final class AccountUsageStore: ObservableObject {
 	private let fetch: (URL) async -> Fetch
 	private let defaults: UserDefaults
 	private let accountID: (URL) -> String?
+	private let plan: (URL) -> AccountPlan?
 	private let sessionDirectory: URL
 
 	init(directories: @escaping () -> [URL] = { AccountUsageStore.configDirectories() },
 		fetch: @escaping (URL) async -> Fetch = AccountUsageProbe.run, defaults: UserDefaults = .standard,
-		accountID: @escaping (URL) -> String? = { AccountUsageStore.accountID(of: $0) }, sessionDirectory: URL = claudeConfigDirectory) {
+		accountID: @escaping (URL) -> String? = { AccountUsageStore.accountID(of: $0) },
+		plan: @escaping (URL) -> AccountPlan? = { AccountUsageStore.plan(of: $0) }, sessionDirectory: URL = claudeConfigDirectory) {
 		self.directories = directories
 		self.fetch = fetch
 		self.defaults = defaults
 		self.accountID = accountID
+		self.plan = plan
 		self.sessionDirectory = sessionDirectory
 	}
 
@@ -137,6 +167,7 @@ final class AccountUsageStore: ObservableObject {
 			var entry = old[directory.path] ?? AccountUsageEntry(directory: directory)
 			entry.isSessionAccount = directory.standardizedFileURL.path == sessionDirectory.standardizedFileURL.path
 				|| sessionAccount != nil && accountID(directory) == sessionAccount
+			entry.plan = plan(directory)
 			return entry
 		}
 		if new != entries { entries = new }
@@ -192,17 +223,29 @@ final class AccountUsageStore: ObservableObject {
 		return nil
 	}
 
-	/// The ID of the login in the folder, from the `oauthAccount` of its `.claude.json`, or `nil` without a login. The
-	/// file holds no token. The default folder `~/.claude` keeps it in `~/.claude.json`.
+	/// The ID of the login in the folder, from the `oauthAccount` of its `.claude.json`, or `nil` without a login.
 	nonisolated static func accountID(of directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+		struct Account: Decodable { var accountUuid: String? }
+		return oauthAccount(of: directory, home: home, as: Account.self)?.accountUuid
+	}
+
+	/// The plan of the login in the folder, or `nil` without a login.
+	nonisolated static func plan(of directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> AccountPlan? {
+		oauthAccount(of: directory, home: home, as: AccountPlan.self)
+	}
+
+	/// The `oauthAccount` of the `.claude.json` of the folder. The file holds no token. The default folder `~/.claude`
+	/// keeps it in `~/.claude.json`.
+	nonisolated private static func oauthAccount<Account: Decodable>(of directory: URL, home: URL, as type: Account.Type) -> Account? {
+		guard let data = try? Data(contentsOf: configFile(of: directory, home: home)) else { return nil }
+		return (try? JSONDecoder().decode(ClaudeConfig<Account>.self, from: data))?.oauthAccount
+	}
+
+	private struct ClaudeConfig<Account: Decodable>: Decodable { var oauthAccount: Account? }
+
+	nonisolated private static func configFile(of directory: URL, home: URL) -> URL {
 		let isDefault = directory.standardizedFileURL.path == home.appendingPathComponent(".claude").standardizedFileURL.path
-		let file = isDefault ? home.appendingPathComponent(".claude.json") : directory.appendingPathComponent(".claude.json")
-		struct Config: Decodable {
-			struct Account: Decodable { var accountUuid: String? }
-			var oauthAccount: Account?
-		}
-		guard let data = try? Data(contentsOf: file) else { return nil }
-		return (try? JSONDecoder().decode(Config.self, from: data))?.oauthAccount?.accountUuid
+		return isDefault ? home.appendingPathComponent(".claude.json") : directory.appendingPathComponent(".claude.json")
 	}
 
 	/// The name of the marker file in each folder that the app creates.

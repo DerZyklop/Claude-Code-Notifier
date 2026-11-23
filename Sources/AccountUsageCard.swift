@@ -59,7 +59,7 @@ struct AccountUsageCard: View {
 				Text(entry.shortName)
 					.lineLimit(1)
 					.truncationMode(.middle)
-					.menuTooltip(entry.name)
+					.menuTooltip(Self.nameTooltip(entry))
 				if entry.isSessionAccount {
 					Text("VS Code")
 						.font(.system(size: NSFont.smallSystemFontSize - 1, weight: .medium))
@@ -112,6 +112,17 @@ struct AccountUsageCard: View {
 			default: return first.offset < second.offset
 			}
 		}.map(\.element)
+	}
+
+	/// The name, then the plan and the extra usage, for example »Plan: Ultra (Max 20x)« and »Extra usage: off«. The
+	/// tooltip leaves out a line without data.
+	static func nameTooltip(_ entry: AccountUsageEntry) -> String {
+		var lines = [entry.name]
+		if let plan = entry.plan {
+			if let name = plan.name { lines.append("Plan: " + name + (plan.tier.map { " (\($0))" } ?? "")) }
+			if let extra = plan.hasExtraUsageEnabled { lines.append("Extra usage: " + (extra ? "on" : "off")) }
+		}
+		return lines.joined(separator: "\n")
 	}
 
 	/// For example »Reset in 8d«.
