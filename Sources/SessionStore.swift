@@ -29,6 +29,8 @@ enum SettingsKey {
 	static let showsSessionsOnKeyboard = "showsSessionsOnKeyboard"
 	/// Lets the backlight of the MacBook keyboard blink while sessions work, see ``MacBookBacklight``.
 	static let usesMacBookBacklight = "usesMacBookBacklight"
+	/// The IDs of the sessions that the user marked as important, see ``SessionStore/toggleImportant(_:)``.
+	static let importantSessions = "importantSessions"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
 	static let defaultValues = [muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
 		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true, showsSessionsOnKeyboard: true,
@@ -246,8 +248,11 @@ final class SessionStore: ObservableObject {
 	/// letter while it is on the card, also when it ends, because VS Code ends and restarts an idle session when you
 	/// open its tab.
 	@Published private(set) var letters: [String: Int] = [:]
-	/// The sessions that the user marked as important. The mark stays when VS Code ends and restarts the session.
-	private var importantIDs: Set<String> = []
+	/// The sessions that the user marked as important. The mark stays when VS Code ends and restarts the session, and
+	/// when the app restarts.
+	private var importantIDs: Set<String> = [] {
+		didSet { system.defaults.set(importantIDs.sorted(), forKey: SettingsKey.importantSessions) }
+	}
 	/// The Claude tab that the user looks at. Its session gets no notification.
 	private(set) var focusedTab: FocusedTab?
 
@@ -258,6 +263,7 @@ final class SessionStore: ObservableObject {
 	init(system: System, setup: HookSetup, checksSessions: Bool) {
 		self.system = system
 		self.setup = setup
+		importantIDs = Set(system.defaults.stringArray(forKey: SettingsKey.importantSessions) ?? [])
 		guard checksSessions else { return }
 		Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
 			Task { @MainActor in self?.checkSessions() }

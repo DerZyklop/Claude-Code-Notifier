@@ -103,6 +103,19 @@ private struct Fixture {
 		try? FileManager.default.removeItem(at: folder)
 	}
 
+	/// A new store with the same defaults, as after a restart of the app.
+	func restartedStore() -> SessionStore {
+		SessionStore(system: SessionStore.System(
+			runningSessions: { [] },
+			archivedSessionIDs: { nil },
+			shellCommandCounts: { _ in [:] },
+			addNotification: { _ in },
+			removeNotifications: { _ in },
+			sessionEnded: {},
+			defaults: defaults
+		), setup: setup, checksSessions: false)
+	}
+
 	func handle(_ name: String, _ fields: [String: String] = [:], id: String = "s1") {
 		store.handle(hookJSON(name, fields, id: id))
 	}
@@ -790,6 +803,19 @@ private struct Fixture {
 		fixture.store.handle(hookJSON("SessionEnd"))
 		fixture.store.handle(hookJSON("SessionStart"))
 		#expect(fixture.store.sessions["s1"]?.isImportant == true)
+	}
+
+	@Test func importantMarkStaysWhenTheAppRestarts() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		try fixture.add(.yourTurn, id: "s2")
+		fixture.store.toggleImportant("s1")
+		let store = fixture.restartedStore()
+		store.set(.yourTurn, for: try hookEvent("SessionStart", id: "s1"), previous: nil)
+		store.set(.yourTurn, for: try hookEvent("SessionStart", id: "s2"), previous: nil)
+		#expect(store.sessions["s1"]?.isImportant == true)
+		#expect(store.sessions["s2"]?.isImportant == false)
 	}
 
 	@Test func hideOfAnUnknownSessionDoesNothing() throws {
