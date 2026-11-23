@@ -136,6 +136,25 @@ final class AttentionBubble {
 		chime = timer
 	}
 
+	/// Plays the ``holdSound`` every ``holdInterval`` seconds while an important session is idle, see ``Session/holdsRing``.
+	private var holdChime: Timer?
+	static let holdInterval = 5.0
+	static let holdSound = "Sosumi"
+
+	/// Starts or stops the sound of an idle important session. It follows the sound setting, without a time limit.
+	func hold(_ isOn: Bool) {
+		guard isOn != (holdChime != nil) else { return }
+		holdChime?.invalidate()
+		holdChime = nil
+		guard isOn else { return }
+		let timer = Timer(timeInterval: Self.holdInterval, repeats: true) { _ in
+			Task { @MainActor in Self.playSound(Self.holdSound) }
+		}
+		RunLoop.main.add(timer, forMode: .common)
+		holdChime = timer
+		Self.playSound(Self.holdSound)
+	}
+
 	/// A session gets the chime for this many seconds after it starts to ask, see ``allowsChime(at:)``.
 	static let chimeLimit = 300.0
 	/// When each asking session started to ask, by its ID.

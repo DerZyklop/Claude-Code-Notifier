@@ -277,8 +277,8 @@ struct SessionCard: View {
 			.toggleStyle(.checkbox)
 			.labelsHidden()
 			.fixedSize()
-			.help(session.isImportant ? "Important: the red lights stay on while it waits for you. Click to remove the mark."
-			: "Mark as important: the red lights stay on while it waits for you")
+			.help(session.isImportant ? "Important: the red lights stay on and a sound plays every 5 s while it waits for you. Click to remove the mark."
+			: "Mark as important: the red lights stay on and a sound plays every 5 s while it waits for you")
 	}
 
 	/// The icon shows the state, its name is in the tooltip. A background task shows a gray hourglass with a badge

@@ -93,6 +93,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		// A session that the user removed from the card does not hold the ring.
 		let holdsRing = !hasProblem && store.sortedSessions.contains(where: \.holdsRing)
 		Lights.show(waves: waves, isWaiting: layout.waiting > 0, hasUnread: hasUnread, sessions: letters, holdsRing: holdsRing)
+		attention.hold(holdsRing)
 		// The bubble is centered vertically, so its frame is the same with and without a flipped y axis.
 		let bubbleSize = Self.bubble(count: 1).size
 		let bubbleFrame = imageFrame.flatMap { frame in
