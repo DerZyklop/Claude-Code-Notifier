@@ -7,7 +7,8 @@ import QuartzCore
 /// - A pale green wave, while sessions work. It is purple instead while a report runs, also when sessions work too.
 /// - A dark green segment that runs along the pale green wave from left to right, without a jump between rounds.
 ///
-/// While an important session is idle, all three layers are in ``heldColor``, see ``Session/holdsRing``.
+/// While an important session is idle, all three layers are in ``heldColor``, see ``Session/holdsRing``. In silent mode,
+/// the moving wave is in the gray of ``SilentMode`` instead.
 ///
 /// When work starts, the green wave grows in from the left and the still wave shrinks back at the same point. When
 /// work ends, the green wave leaves to the right and the still wave grows back. The wave keeps its wavelength and gets
@@ -81,7 +82,9 @@ final class Spinner {
 	///   - stillColor: The muted menu bar color for the still wave.
 	///   - isReport: Paints the moving wave in ``reportColor`` instead of ``color``.
 	///   - isHeld: Paints both waves in ``heldColor``, see ``Session/holdsRing``.
-	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false, isHeld: Bool = false) {
+	///   - tint: Paints the moving wave in this color for silent mode, see ``SilentMode``. It wins over `isReport` and
+	///     `isHeld`.
+	func show(waveStart: Double = 0, waveEnd: Double, over imageFrame: NSRect?, isWorking: Bool, hasGap: Bool, stillColor: NSColor, isReport: Bool = false, isHeld: Bool = false, tint: NSColor? = nil) {
 		guard let imageFrame else {
 			for layer in [still, track, segment] { layer.isHidden = true }
 			return
@@ -110,8 +113,8 @@ final class Spinner {
 		}
 		segmentMask.frame = CGRect(origin: .zero, size: imageFrame.size)
 		segmentMask.contentsScale = segment.contentsScale
-		still.strokeColor = (isHeld ? Self.heldColor : stillColor).cgColor
-		paint(isHeld ? Self.heldColor : isReport ? Self.reportColor : Self.color)
+		still.strokeColor = (isHeld && tint == nil ? Self.heldColor : stillColor).cgColor
+		paint(tint ?? (isHeld ? Self.heldColor : isReport ? Self.reportColor : Self.color))
 		CATransaction.commit()
 
 		guard isWorking != self.isWorking else { return }

@@ -6,6 +6,7 @@ import QuartzCore
 /// highest priority in the icon: it pops in when it appears, and then it rings once every ``ringInterval`` seconds
 /// until no session asks you anymore. With each ring, it glows from orange to dark red and back, and a halo grows out
 /// from behind it and fades. The wave glows with it, see ``glow(_:normal:peak:)``. A calm sound plays with each round. Core Animation runs it in the window server, so the app does no work per frame.
+/// In silent mode, the bubble is gray and does not ring, see ``SilentMode``.
 @MainActor
 final class AttentionBubble {
 	static let popDuration = 0.45
@@ -26,6 +27,8 @@ final class AttentionBubble {
 	private weak var button: NSView?
 	/// The count that the bubble shows, 0 while it is hidden.
 	private(set) var shownCount = 0
+	/// The color of the shown bubble in silent mode, `nil` while it rings, see ``show(count:tint:image:in:)``.
+	private(set) var shownTint: NSColor?
 	/// The bubble in its normal and in its glow color, for the color animation.
 	private var contents: (normal: Any, glow: Any)?
 
@@ -42,17 +45,19 @@ final class AttentionBubble {
 	}
 
 	/// Shows the bubble for `count` waiting sessions in the given frame of the button, or hides it when the count is 0.
-	/// - Parameter image: The bubble in the given color.
-	func show(count: Int, image: (NSColor) -> NSImage, in frame: NSRect?) {
+	/// - Parameters:
+	///   - tint: The color of the bubble in silent mode, see ``SilentMode``. The bubble then only pops in. It does not
+	///     ring, and the chime and the light ring stop.
+	///   - image: The bubble in the given color.
+	func show(count: Int, tint: NSColor? = nil, image: (NSColor) -> NSImage, in frame: NSRect?) {
 		guard count > 0, let frame else {
 			for sublayer in [halo, layer] {
 				sublayer.isHidden = true
 				sublayer.removeAllAnimations()
 			}
 			shownCount = 0
-			ringStart = nil
-			chime?.invalidate()
-			chime = nil
+			shownTint = nil
+			stopRings()
 			return
 		}
 		let scale = button?.window?.backingScaleFactor ?? 2
@@ -66,23 +71,26 @@ final class AttentionBubble {
 			sublayer.isHidden = false
 		}
 		halo.path = CGPath(ellipseIn: CGRect(x: (frame.width - diameter) / 2, y: (frame.height - diameter) / 2, width: diameter, height: diameter), transform: nil)
-		let isNewCount = count != shownCount
-		if isNewCount {
-			let normal = image(Self.color).layerContents(forContentsScale: scale)
+		let isNewLook = count != shownCount || tint != shownTint
+		if isNewLook {
+			let normal = image(tint ?? Self.color).layerContents(forContentsScale: scale)
 			contents = (normal, image(Self.glowColor).layerContents(forContentsScale: scale))
 			layer.contents = normal
 		}
 		CATransaction.commit()
 
-		// A new count needs new pictures in the color animation, so the animations start again.
-		if isNewCount { attract(isNew: shownCount == 0) }
+		// A new count or color needs new pictures in the color animation, so the animations start again.
+		if isNewLook { attract(isNew: shownCount == 0, rings: tint == nil) }
 		shownCount = count
+		shownTint = tint
 	}
 
 	/// Pops in, then rings once per round: it grows and swings to both sides while it glows red and the halo pings,
 	/// and then it rests until the next round.
-	/// - Parameter isNew: Pops the bubble in first, when it appears.
-	private func attract(isNew: Bool) {
+	/// - Parameters:
+	///   - isNew: Pops the bubble in first, when it appears.
+	///   - rings: Starts the rounds. Without it, the rounds stop.
+	private func attract(isNew: Bool, rings: Bool) {
 		var start = CACurrentMediaTime()
 		if isNew {
 			let pop = CAKeyframeAnimation(keyPath: "transform.scale")
@@ -92,6 +100,10 @@ final class AttentionBubble {
 			pop.timingFunction = CAMediaTimingFunction(name: .easeOut)
 			layer.add(pop, forKey: "pop")
 			start += Self.popDuration
+		}
+		guard rings else {
+			stopRings()
+			return
 		}
 		startChime(at: start)
 		// The sound and the LED of the round come a little later than the start, so the animations wait for them.
@@ -111,6 +123,16 @@ final class AttentionBubble {
 		let fade = Self.keyframes("opacity", [(0, 0.9), (0.8, 0)])
 		let haloColor = Self.keyframes("fillColor", [(0, Self.glowColor.cgColor), (0.8, Self.color.cgColor)])
 		halo.add(Self.repeating([spread, fade, haloColor], from: start), forKey: "ring")
+	}
+
+	/// Stops the rounds of rings: the animations, the chime and the light ring. The glow of the wave stops with
+	/// ``ringStart``.
+	private func stopRings() {
+		layer.removeAnimation(forKey: "ring")
+		halo.removeAnimation(forKey: "ring")
+		ringStart = nil
+		chime?.invalidate()
+		chime = nil
 	}
 
 	/// Plays a calm sound with each round of rings, see ``startChime(at:)``.
@@ -184,9 +206,10 @@ final class AttentionBubble {
 		sound.play()
 	}
 
-	/// The sound setting of the setup window allows sound, and no Focus of macOS is on.
+	/// The sound setting of the setup window allows sound, silent mode is off, see ``SilentMode``, and no Focus of macOS
+	/// is on.
 	private static var allowsSound: Bool {
-		SoundMode.current().allowsSound && INFocusStatusCenter.default.focusStatus.isFocused != true
+		SoundMode.current().allowsSound && !SilentMode.isOn() && INFocusStatusCenter.default.focusStatus.isFocused != true
 	}
 
 	/// Plays the chime without a check of the settings, e.g. for the »Play« button of the setup window.
@@ -230,6 +253,23 @@ final class AttentionBubble {
 		group.repeatCount = .infinity
 		group.beginTime = start
 		return group
+	}
+}
+
+/// Silent mode: no sound, no red ring, and the icon in gray, see ``StatusMenu/tint(isDark:)``. The waves keep their
+/// movement. ⌥-click on the icon turns it on and off. It stays on after a restart of the app.
+enum SilentMode {
+	static func isOn(in defaults: UserDefaults = .standard) -> Bool {
+		SettingsKey.isOn(SettingsKey.silent, in: defaults)
+	}
+
+	static func toggle(in defaults: UserDefaults = .standard) {
+		SettingsKey.set(SettingsKey.silent, to: !isOn(in: defaults), in: defaults)
+	}
+
+	/// Only ⌥ turns silent mode on and off. With ⌘ too, the click stays a click, because macOS moves the icon with ⌘.
+	static func toggles(with flags: NSEvent.ModifierFlags) -> Bool {
+		flags.intersection([.command, .option, .control, .shift]) == .option
 	}
 }
 

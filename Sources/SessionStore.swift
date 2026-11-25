@@ -31,6 +31,8 @@ enum SettingsKey {
 	static let usesMacBookBacklight = "usesMacBookBacklight"
 	/// The IDs of the sessions that the user marked as important, see ``SessionStore/toggleImportant(_:)``.
 	static let importantSessions = "importantSessions"
+	/// Turns silent mode on, see ``SilentMode``.
+	static let silent = "silent"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
 	static let defaultValues = [muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
 		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true, showsSessionsOnKeyboard: true,

@@ -29,6 +29,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
+	/// Catches the ⌥-click on the icon before the menu opens, see ``toggleSilentMode(on:)``.
+	private var clickMonitor: Any?
 
 	override init() {
 		super.init()
@@ -36,6 +38,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		statusItem.menu = menu
 		statusItem.button?.title = ""
 		statusItem.button?.imagePosition = .imageOnly
+		clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+			let isToggle = MainActor.assumeIsolated { self?.toggleSilentMode(on: event) ?? false }
+			return isToggle ? nil : event
+		}
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
 		Publishers.MergeMany([SessionStore.shared.objectWillChange.eraseToAnyPublisher(), HookSetup.shared.objectWillChange.eraseToAnyPublisher(),
@@ -61,7 +67,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// sessions, the number of working sessions, and the wave in the space that is left. A report file that you did not
 	/// open yet puts a purple dot left of the wave. Without work, the wave stands
 	/// still in a muted menu bar color, and a setup problem breaks it in the middle. A running report moves the wave in purple. Sessions that ask you get the bubble, so that a forgotten prompt does not hide the work in other sessions.
-	/// The simulation of the setup window adds its signals to the icon and the lights, see ``LightSimulation``.
+	/// The simulation of the setup window adds its signals to the icon and the lights, see ``LightSimulation``. In silent
+	/// mode, all parts are gray and nothing rings, see ``SilentMode``.
 	private func updateIcon() {
 		guard let button = statusItem.button else { return }
 		let sessions = SessionStore.shared.sessions.values
@@ -77,17 +84,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let hasUnread = Report.all.contains { $0.isUnread } || simulation.unread
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+		let isSilent = SilentMode.isOn()
+		let tint = isSilent ? Self.tint(isDark: isDark) : nil
 		let layout = Self.layout(working: working, waiting: waiting, hasUnread: hasUnread)
 
-		let image = icon(layout: layout, isDark: isDark)
+		let image = icon(layout: layout, isDark: isDark, tint: tint)
 		if button.image !== image { button.image = image }
 		button.layoutSubtreeIfNeeded()
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		let store = SessionStore.shared
-		// A session that the user removed from the card does not hold the ring.
-		let holdsRing = !hasProblem && store.sortedSessions.contains(where: \.holdsRing)
+		// A session that the user removed from the card does not hold the ring. Silent mode has no red ring and no sound.
+		let holdsRing = !hasProblem && !isSilent && store.sortedSessions.contains(where: \.holdsRing)
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
-			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting, isHeld: holdsRing)
+			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting, isHeld: holdsRing, tint: tint)
 		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })
 		let letters = hasProblem ? [:] : Dictionary(uniqueKeysWithValues: store.letters.compactMap { id, letter in
 			store.sessions[id].map { (letter, $0) }
@@ -99,8 +108,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		let bubbleFrame = imageFrame.flatMap { frame in
 			layout.bubbleX.map { NSRect(x: frame.minX + $0, y: frame.midY - bubbleSize.height / 2, width: bubbleSize.width, height: bubbleSize.height) }
 		}
-		attention.show(count: layout.waiting, image: { Self.bubble(count: layout.waiting, color: $0) }, in: bubbleFrame)
+		attention.show(count: layout.waiting, tint: isSilent ? Self.silentBubbleColor(isDark: isDark) : nil,
+			image: { Self.bubble(count: layout.waiting, color: $0) }, in: bubbleFrame)
 		spinner.glow(with: attention)
+	}
+
+	/// Turns silent mode on or off on an ⌥-click on the icon, see ``SilentMode``.
+	/// - Returns: Whether the click was one, so that it does not open the menu.
+	private func toggleSilentMode(on event: NSEvent) -> Bool {
+		guard event.window === statusItem.button?.window, SilentMode.toggles(with: event.modifierFlags) else { return false }
+		SilentMode.toggle()
+		updateIcon()
+		return true
 	}
 
 	static let iconWidth = 70.0
@@ -158,11 +177,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		(isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.4)
 	}
 
+	/// The color of the moving wave and of the dot in silent mode, see ``SilentMode``: black, or white in a dark menu bar.
+	static func tint(isDark: Bool) -> NSColor {
+		textColor(isDark: isDark)
+	}
+
+	/// The color of the bubble in silent mode: dark gray, so that the white number stays readable. A dark menu bar gets
+	/// a lighter gray.
+	static func silentBubbleColor(isDark: Bool) -> NSColor {
+		NSColor(white: isDark ? 0.5 : 0.3, alpha: 1)
+	}
+
 	/// The number and the dot in one image, above which ``Spinner`` draws the wave and ``AttentionBubble`` the bubble. The image
 	/// keeps the height of the bubble, so the parts stay centered. It cannot be a template image, because the number
 	/// must match the colors of the layers, so it colors the number itself.
-	private func icon(layout: IconLayout, isDark: Bool) -> NSImage {
-		let cacheKey = "\(layout)-\(isDark)"
+	/// - Parameter tint: The color of the dot in silent mode, see ``SilentMode``.
+	private func icon(layout: IconLayout, isDark: Bool, tint: NSColor?) -> NSImage {
+		let cacheKey = "\(layout)-\(isDark)-\(tint != nil)"
 		if let image = iconCache[cacheKey] { return image }
 		let height = max(18, Self.bubble(count: 1).size.height)
 		let color = Self.textColor(isDark: isDark)
@@ -171,7 +202,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 				Spinner.drawCount(layout.working, at: NSPoint(x: x, y: rect.midY), color: color, prefix: Self.workingPrefix)
 			}
 			if let x = layout.dotCenterX {
-				Spinner.reportColor.setFill()
+				(tint ?? Spinner.reportColor).setFill()
 				NSBezierPath(ovalIn: NSRect(x: x - Self.dotDiameter / 2, y: rect.midY - Self.dotDiameter / 2,
 					width: Self.dotDiameter, height: Self.dotDiameter)).fill()
 			}

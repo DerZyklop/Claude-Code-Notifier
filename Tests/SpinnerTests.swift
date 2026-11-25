@@ -343,6 +343,16 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		spinner.show(waveEnd: 26, over: imageFrame, isWorking: true, hasGap: false, stillColor: stillColor)
 		#expect(spinner.track.strokeColor == Spinner.color.withAlphaComponent(0.3).cgColor)
 	}
+
+	@Test func theTintWinsOverTheReportAndTheHeldColor() {
+		let spinner = Spinner(button: makeButton())
+		let tint = NSColor.black
+		spinner.show(waveEnd: 26, over: imageFrame, isWorking: true, hasGap: false, stillColor: stillColor, isReport: true, isHeld: true, tint: tint)
+		#expect(spinner.track.strokeColor == tint.withAlphaComponent(0.3).cgColor)
+		#expect(spinner.segment.strokeColor == Spinner.segmentColor(of: tint).cgColor)
+		#expect(spinner.still.strokeColor == stillColor.cgColor)
+		#expect(spinner.isWorking)
+	}
 }
 
 @Suite @MainActor struct SpinnerShowTests {
@@ -728,5 +738,63 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		let later = start.addingTimeInterval(AttentionBubble.chimeLimit * 2)
 		bubble.track(asking: ["a"], at: later)
 		#expect(bubble.allowsChime(at: later))
+	}
+}
+
+@Suite @MainActor struct AttentionBubbleSilentTests {
+	private let frame = NSRect(x: 50, y: 0, width: 20, height: 22)
+	private let gray = NSColor(white: 0.3, alpha: 1)
+
+	private func image(_ color: NSColor) -> NSImage {
+		NSImage(size: NSSize(width: 20, height: 22))
+	}
+
+	@Test func aTintedBubbleOnlyPopsIn() {
+		let bubble = AttentionBubble(button: makeButton())
+		bubble.show(count: 1, tint: gray, image: image, in: frame)
+		#expect(bubble.layer.animation(forKey: "pop") != nil)
+		#expect(bubble.layer.animation(forKey: "ring") == nil)
+		#expect(bubble.halo.animation(forKey: "ring") == nil)
+		#expect(bubble.ringStart == nil)
+		#expect(bubble.glow("strokeColor", normal: gray.cgColor, peak: gray.cgColor) == nil)
+		#expect(bubble.shownTint == gray)
+	}
+
+	@Test func theTintStopsTheRingAndItsEndStartsItAgain() {
+		let bubble = AttentionBubble(button: makeButton())
+		bubble.show(count: 1, image: image, in: frame)
+		#expect(bubble.layer.animation(forKey: "ring") != nil)
+		#expect(bubble.ringStart != nil)
+		bubble.show(count: 1, tint: gray, image: image, in: frame)
+		#expect(bubble.layer.animation(forKey: "ring") == nil)
+		#expect(bubble.halo.animation(forKey: "ring") == nil)
+		#expect(bubble.ringStart == nil)
+		bubble.show(count: 1, image: image, in: frame)
+		#expect(bubble.layer.animation(forKey: "ring") != nil)
+		#expect(bubble.shownTint == nil)
+		// Stops the chime timer of the ring.
+		bubble.show(count: 0, image: image, in: nil)
+		#expect(bubble.ringStart == nil)
+	}
+}
+
+@Suite struct SilentModeTests {
+	@Test func toggleTurnsItOnAndOff() {
+		let defaults = MemoryDefaults()
+		#expect(!SilentMode.isOn(in: defaults))
+		SilentMode.toggle(in: defaults)
+		#expect(SilentMode.isOn(in: defaults))
+		SilentMode.toggle(in: defaults)
+		#expect(!SilentMode.isOn(in: defaults))
+		#expect(defaults.object(forKey: SettingsKey.silent) == nil)
+	}
+
+	@Test func onlyOptionToggles() {
+		#expect(SilentMode.toggles(with: .option))
+		#expect(SilentMode.toggles(with: [.option, .capsLock]))
+		#expect(!SilentMode.toggles(with: []))
+		#expect(!SilentMode.toggles(with: [.option, .command]))
+		#expect(!SilentMode.toggles(with: [.option, .shift]))
+		#expect(!SilentMode.toggles(with: .control))
 	}
 }

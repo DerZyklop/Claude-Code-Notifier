@@ -25,7 +25,10 @@ A macOS menu bar app. When a Claude Code session needs you or finishes its turn,
 - **Notifications:** one for each session. A newer one replaces the older one. A click opens the chat of the session in VS Code, like a
   click on its row.
 - **Sound:** the ring of the bubble. It stops after 5 minutes without an answer. A new morning overview plays »Funk«
-  once. No sound plays while a macOS Focus is on. »Play Sounds« in the menu turns all sounds off.
+  once. Silent mode and »Play Sounds« in the menu turn all sounds off.
+- **Silent mode:** ⌥-click on the icon turns it on and off. No sound plays, and the bubble and the lights do not ring
+  in red. The icon is gray: the wave keeps its movement, the bubble is dark gray, and the dot of a new report is black.
+  Silent mode stays on after a restart of the app.
 
 ## Morning overview
 
