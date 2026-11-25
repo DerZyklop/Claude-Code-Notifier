@@ -30,8 +30,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 	/// The icons, by their layout and the menu bar appearance.
 	private var iconCache: [String: NSImage] = [:]
 	private var appearanceObservation: NSKeyValueObservation?
-	/// Catches the ⌥-click on the icon before the menu opens, see ``toggleSilentMode(on:)``.
+	/// Catches the ⌥-click and the right-click on the icon before the menu opens, see ``handleClick(_:)``.
 	private var clickMonitor: Any?
+	/// Updates the icon at the end of silent mode for a time, see ``scheduleSilentEnd()``.
+	private var silentEnd: (date: Date, timer: Timer)?
 
 	override init() {
 		super.init()
@@ -39,9 +41,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		statusItem.menu = menu
 		statusItem.button?.title = ""
 		statusItem.button?.imagePosition = .imageOnly
-		clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-			let isToggle = MainActor.assumeIsolated { self?.toggleSilentMode(on: event) ?? false }
-			return isToggle ? nil : event
+		clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+			let isHandled = MainActor.assumeIsolated { self?.handleClick(event) ?? false }
+			return isHandled ? nil : event
 		}
 
 		// `objectWillChange` fires before the change, so the update waits for the next turn of the main queue.
@@ -86,6 +88,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		attention.track(asking: Set(sessions.filter { $0.state == .asksYou }.map(\.id)))
 		let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 		let isSilent = SilentMode.isOn()
+		scheduleSilentEnd()
 		let tint = isSilent ? Self.tint(isDark: isDark) : nil
 		let layout = Self.layout(working: working, waiting: waiting, hasUnread: hasUnread)
 
@@ -115,13 +118,68 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		spinner.glow(with: attention)
 	}
 
-	/// Turns silent mode on or off on an ⌥-click on the icon, see ``SilentMode``.
-	/// - Returns: Whether the click was one, so that it does not open the menu.
-	private func toggleSilentMode(on event: NSEvent) -> Bool {
-		guard event.window === statusItem.button?.window, SilentMode.toggles(with: event.modifierFlags) else { return false }
+	/// An ⌥-click on the icon turns silent mode on or off, see ``SilentMode``. A right-click or a ⌃-click opens the
+	/// menu of silent mode, see ``silentMenu()``.
+	/// - Returns: Whether the click was one of these, so that it does not open the main menu.
+	private func handleClick(_ event: NSEvent) -> Bool {
+		guard event.window === statusItem.button?.window else { return false }
+		if event.type == .rightMouseDown || event.modifierFlags.intersection([.command, .option, .control, .shift]) == .control {
+			// The status item opens the menu that it has at the time of the click, so it gets the main menu back after.
+			statusItem.menu = silentMenu()
+			statusItem.button?.performClick(nil)
+			statusItem.menu = menu
+			return true
+		}
+		guard SilentMode.toggles(with: event.modifierFlags) else { return false }
 		SilentMode.toggle()
 		updateIcon()
 		return true
+	}
+
+	/// The menu of a right-click on the icon: silent mode on and off, and silent mode for a time. While silent mode is
+	/// on for a time, the first item names its end.
+	private func silentMenu() -> NSMenu {
+		let silentMenu = NSMenu()
+		let end = SilentMode.end()
+		let toggle = action(end.map { "Silent Mode until \($0.formatted(date: .omitted, time: .shortened))" } ?? "Silent Mode",
+			#selector(toggleSilentMode))
+		toggle.state = SilentMode.isOn() ? .on : .off
+		silentMenu.addItem(toggle)
+		for duration in SilentMode.durations {
+			let item = action("Silent Mode for \(duration.title)", #selector(turnOnSilentMode(_:)))
+			item.representedObject = duration.seconds
+			silentMenu.addItem(item)
+		}
+		return silentMenu
+	}
+
+	@objc private func toggleSilentMode() {
+		SilentMode.toggle()
+		updateIcon()
+	}
+
+	@objc private func turnOnSilentMode(_ item: NSMenuItem) {
+		guard let seconds = item.representedObject as? TimeInterval else { return }
+		SilentMode.turnOn(for: seconds)
+		updateIcon()
+	}
+
+	/// Starts a timer for the end of silent mode for a time, so that the icon and the lights lose the gray at once.
+	private func scheduleSilentEnd() {
+		let end = SilentMode.end()
+		guard end != silentEnd?.date else { return }
+		silentEnd?.timer.invalidate()
+		silentEnd = end.map { end in
+			let timer = Timer(fire: end, interval: 0, repeats: false) { [weak self] _ in
+				Task { @MainActor in
+					self?.silentEnd = nil
+					self?.updateIcon()
+				}
+			}
+			// The `common` modes include the one the run loop uses while a menu is open.
+			RunLoop.main.add(timer, forMode: .common)
+			return (end, timer)
+		}
 	}
 
 	static let iconWidth = 70.0

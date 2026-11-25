@@ -33,6 +33,8 @@ enum SettingsKey {
 	static let importantSessions = "importantSessions"
 	/// Turns silent mode on, see ``SilentMode``.
 	static let silent = "silent"
+	/// The end of silent mode for a time, see ``SilentMode/turnOn(for:in:at:)``.
+	static let silentUntil = "silentUntil"
 	/// The value of each setting while the user has not changed it. Only other values are stored.
 	static let defaultValues = [muted: false, playsSound: true, updatesMorningOverview: true, updatesDiDi: true,
 		mutesSoundWithLights: false, usesBlink1: true, blinksAtEnd: true, usesKeyboard: true, showsSessionsOnKeyboard: true,

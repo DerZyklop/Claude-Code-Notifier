@@ -257,14 +257,32 @@ final class AttentionBubble {
 }
 
 /// Silent mode: no sound, no red ring, and the icon in gray, see ``StatusMenu/tint(isDark:)``. The waves keep their
-/// movement. ⌥-click on the icon turns it on and off. It stays on after a restart of the app.
+/// movement. ⌥-click on the icon turns it on and off. The right-click menu of the icon turns it on, also for a time,
+/// see ``durations``. It stays on after a restart of the app.
 enum SilentMode {
-	static func isOn(in defaults: UserDefaults = .standard) -> Bool {
-		SettingsKey.isOn(SettingsKey.silent, in: defaults)
+	/// The times of the right-click menu, in seconds, with their titles.
+	static let durations: [(title: String, seconds: TimeInterval)] = [("15 Minutes", 900), ("30 Minutes", 1800), ("1 Hour", 3600)]
+
+	static func isOn(in defaults: UserDefaults = .standard, at now: Date = Date()) -> Bool {
+		SettingsKey.isOn(SettingsKey.silent, in: defaults) || end(in: defaults, at: now) != nil
 	}
 
+	/// The end of silent mode for a time, see ``turnOn(for:in:at:)``. `nil` without a time, or after the end.
+	static func end(in defaults: UserDefaults = .standard, at now: Date = Date()) -> Date? {
+		(defaults.object(forKey: SettingsKey.silentUntil) as? Date).flatMap { $0 > now ? $0 : nil }
+	}
+
+	/// Turns silent mode off while it is on, also for a time. Else it turns it on without a time.
 	static func toggle(in defaults: UserDefaults = .standard) {
-		SettingsKey.set(SettingsKey.silent, to: !isOn(in: defaults), in: defaults)
+		let isOn = isOn(in: defaults)
+		defaults.removeObject(forKey: SettingsKey.silentUntil)
+		SettingsKey.set(SettingsKey.silent, to: !isOn, in: defaults)
+	}
+
+	/// Turns silent mode on for `duration` seconds from `now`. It replaces silent mode without a time.
+	static func turnOn(for duration: TimeInterval, in defaults: UserDefaults = .standard, at now: Date = Date()) {
+		SettingsKey.set(SettingsKey.silent, to: false, in: defaults)
+		defaults.set(now.addingTimeInterval(duration), forKey: SettingsKey.silentUntil)
 	}
 
 	/// Only ⌥ turns silent mode on and off. With ⌘ too, the click stays a click, because macOS moves the icon with ⌘.

@@ -789,6 +789,33 @@ private let stillColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
 		#expect(defaults.object(forKey: SettingsKey.silent) == nil)
 	}
 
+	@Test func silentModeForATimeEndsAtItsEnd() {
+		let defaults = MemoryDefaults()
+		let now = Date(timeIntervalSince1970: 1_000)
+		SilentMode.turnOn(for: 900, in: defaults, at: now)
+		#expect(SilentMode.isOn(in: defaults, at: now.addingTimeInterval(899)))
+		#expect(SilentMode.end(in: defaults, at: now) == now.addingTimeInterval(900))
+		#expect(!SilentMode.isOn(in: defaults, at: now.addingTimeInterval(900)))
+		#expect(SilentMode.end(in: defaults, at: now.addingTimeInterval(900)) == nil)
+	}
+
+	@Test func toggleTurnsSilentModeForATimeOff() {
+		let defaults = MemoryDefaults()
+		SilentMode.turnOn(for: 900, in: defaults)
+		SilentMode.toggle(in: defaults)
+		#expect(!SilentMode.isOn(in: defaults))
+		#expect(defaults.object(forKey: SettingsKey.silent) == nil)
+		#expect(defaults.object(forKey: SettingsKey.silentUntil) == nil)
+	}
+
+	@Test func silentModeForATimeReplacesTheOneWithoutATime() {
+		let defaults = MemoryDefaults()
+		let now = Date(timeIntervalSince1970: 1_000)
+		SilentMode.toggle(in: defaults)
+		SilentMode.turnOn(for: 900, in: defaults, at: now)
+		#expect(!SilentMode.isOn(in: defaults, at: now.addingTimeInterval(900)))
+	}
+
 	@Test func onlyOptionToggles() {
 		#expect(SilentMode.toggles(with: .option))
 		#expect(SilentMode.toggles(with: [.option, .capsLock]))
