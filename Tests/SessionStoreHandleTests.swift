@@ -786,6 +786,73 @@ private struct Fixture {
 		#expect(fixture.store.sessions["s1"]?.holdsRing == false)
 	}
 
+	@Test func silenceStopsTheRingOfOneSessionForATime() async throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		#expect(fixture.store.holdsRing)
+		fixture.store.silence("s1", for: 0.1)
+		#expect(!fixture.store.holdsRing)
+		#expect(try await waitUntil { fixture.store.holdsRing })
+	}
+
+	@Test func silenceOfOneSessionKeepsTheRingOfAnother() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		try fixture.add(.yourTurn, id: "s2")
+		fixture.store.toggleImportant("s1")
+		fixture.store.toggleImportant("s2")
+		fixture.store.silence("s1")
+		#expect(fixture.store.holdsRing)
+	}
+
+	@Test func newSilenceReplacesTheOldOne() async throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.silence("s1", for: 0.05)
+		fixture.store.silence("s1", for: 60)
+		try await Task.sleep(nanoseconds: 200_000_000)
+		#expect(!fixture.store.holdsRing)
+	}
+
+	@Test func silenceEndsWhenTheUserContinuesTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.silence("s1")
+		fixture.store.handle(hookJSON("UserPromptSubmit"))
+		#expect(fixture.store.silences.isEmpty)
+		fixture.store.handle(hookJSON("Stop"))
+		#expect(fixture.store.holdsRing)
+	}
+
+	@Test func silenceStaysWhenVSCodeRestartsTheSession() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.silence("s1")
+		fixture.store.handle(hookJSON("SessionEnd"))
+		fixture.store.handle(hookJSON("SessionStart"))
+		#expect(!fixture.store.holdsRing)
+	}
+
+	@Test func newImportantMarkEndsTheSilence() throws {
+		let fixture = try Fixture()
+		defer { fixture.cleanUp() }
+		try fixture.add(.yourTurn, id: "s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.silence("s1")
+		fixture.store.toggleImportant("s1")
+		fixture.store.toggleImportant("s1")
+		#expect(fixture.store.holdsRing)
+	}
+
 	@Test func importantSessionComesFirstInTheList() throws {
 		let fixture = try Fixture()
 		defer { fixture.cleanUp() }

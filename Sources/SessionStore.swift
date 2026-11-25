@@ -234,6 +234,9 @@ final class SessionStore: ObservableObject {
 		didSet {
 			let kept = hiddenStates.filter { sessions[$0.key]?.shownState == $0.value }
 			if kept.count != hiddenStates.count { hiddenStates = kept }
+			// A silence stays while VS Code ends and restarts the session.
+			let ongoing = silences.filter { id, silence in sessions[id].map { $0.shownState == silence.state } ?? true }
+			if ongoing.count != silences.count { silences = ongoing }
 			updateLetters()
 			projectOrder = Self.projectOrder(keeping: projectOrder, for: sessions.values)
 		}
@@ -393,6 +396,42 @@ final class SessionStore: ObservableObject {
 		guard sessions[id] != nil else { return }
 		if importantIDs.remove(id) == nil { importantIDs.insert(id) }
 		sessions[id]?.isImportant = importantIDs.contains(id)
+		silences[id] = nil
+	}
+
+	/// A silenced session does not hold the ring for this many seconds, see ``silence(_:for:)``.
+	nonisolated static let silenceDuration = 180.0
+
+	/// The silence of an important session: until `end`, or until the shown state of the session is not `state`.
+	struct Silence: Equatable {
+		let end: Date
+		let state: SessionState
+	}
+
+	/// The silenced sessions, by their ID, see ``silence(_:for:)``.
+	@Published private(set) var silences: [String: Silence] = [:]
+
+	/// Silences the session for `duration` seconds, e.g. when the user opens it on the card: it does not hold the ring,
+	/// see ``holdsRing``. The silence ends early when the session gets another shown state, e.g. when the user continues
+	/// it. A new silence replaces the old one.
+	func silence(_ id: String, for duration: TimeInterval = SessionStore.silenceDuration) {
+		guard let state = sessions[id]?.shownState else { return }
+		let end = Date().addingTimeInterval(duration)
+		silences[id] = Silence(end: end, state: state)
+		let timer = Timer(timeInterval: duration, repeats: false) { [weak self] _ in
+			Task { @MainActor in
+				guard let self, self.silences[id]?.end == end else { return }
+				self.silences[id] = nil
+			}
+		}
+		// The `common` modes include the one the run loop uses while a menu is open.
+		RunLoop.main.add(timer, forMode: .common)
+	}
+
+	/// Whether an important session on the card is idle and not silenced: the red ring, the red wave and the sound
+	/// then stay on, see ``Session/holdsRing``.
+	var holdsRing: Bool {
+		sortedSessions.contains { $0.holdsRing && silences[$0.id] == nil }
 	}
 
 	/// Sends a notification of the given kind, also while the notifications are muted.

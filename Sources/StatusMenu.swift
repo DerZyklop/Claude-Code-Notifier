@@ -21,6 +21,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		running: { Report.all.filter(\.isRunning).map { ($0.kind.title, $0.runStarted) } },
 		open: { [weak self] session in
 			self?.menu.cancelTracking()
+			if session.isImportant { SessionStore.shared.silence(session.id) }
 			VSCodeWindows.shared.open(session)
 		})
 	private lazy var spinner = Spinner(button: statusItem.button!)
@@ -93,8 +94,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 		button.layoutSubtreeIfNeeded()
 		let imageFrame = button.cell?.imageRect(forBounds: button.bounds)
 		let store = SessionStore.shared
-		// A session that the user removed from the card does not hold the ring. Silent mode has no red ring and no sound.
-		let holdsRing = !hasProblem && !isSilent && store.sortedSessions.contains(where: \.holdsRing)
+		// A session that the user removed from the card or silenced does not hold the ring. Silent mode has no red ring
+		// and no sound.
+		let holdsRing = !hasProblem && !isSilent && store.holdsRing
 		spinner.show(waveStart: layout.waveStart, waveEnd: layout.waveEnd, over: imageFrame, isWorking: working > 0,
 			hasGap: hasProblem, stillColor: Self.stillWaveColor(isDark: isDark), isReport: isReporting, isHeld: holdsRing, tint: tint)
 		let waves = Set([isWorking ? LightWave.work : nil, isReporting ? LightWave.report : nil].compactMap { $0 })

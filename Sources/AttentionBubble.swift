@@ -158,7 +158,7 @@ final class AttentionBubble {
 		chime = timer
 	}
 
-	/// Plays the ``holdSound`` every ``holdInterval`` seconds while an important session is idle, see ``Session/holdsRing``.
+	/// Plays the ``holdSound`` every ``holdInterval`` seconds while an important session is idle, see ``SessionStore/holdsRing``.
 	private var holdChime: Timer?
 	static let holdInterval = 5.0
 	static let holdSound = "Sosumi"

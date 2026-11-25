@@ -11,7 +11,7 @@ final class MenuClock: ObservableObject {
 }
 
 /// The sessions in the menu: a bordered card with a header and one row per session. The header names the status of
-/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``, and a check box at the end of the row marks the session as important, see ``Session/holdsRing``. The check box of an important session always shows. A click on a row opens the chat of the session in VS Code. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
+/// the app on the right. With sessions of more than one project, a subheadline names the project above its sessions. On hover, a button in place of the state icon removes the session from the card, see ``SessionStore/hide(_:)``, and a check box at the end of the row marks the session as important, see ``Session/holdsRing``. The check box of an important session always shows. A click on a row opens the chat of the session in VS Code, and silences an important session for a time, see ``SessionStore/silence(_:for:)``. Each row has a wave between its texts, see ``RowWave``: green while the session works, purple for a report, else still.
 /// The card is a stack of menu items, one for each ``Part``, so that the arrow keys reach each session, see
 /// ``SessionCardItems``. This view shows the part at one place of the stack.
 struct SessionCard: View {
@@ -277,7 +277,7 @@ struct SessionCard: View {
 			.toggleStyle(RedCheckbox())
 			.labelsHidden()
 			.fixedSize()
-			.help(session.isImportant ? "Important: the red lights stay on and a sound plays every 5 s while it waits for you. Click to remove the mark."
+			.help(session.isImportant ? "Important: the red lights stay on and a sound plays every 5 s while it waits for you. A click on the row turns them off for 3 minutes, or until its state changes. Click to remove the mark."
 			: "Mark as important: the red lights stay on and a sound plays every 5 s while it waits for you")
 	}
 
